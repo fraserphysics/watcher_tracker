@@ -1,0 +1,202 @@
+\documentclass[12pt]{article}
+
+\usepackage{amsmath,amsfonts}
+\usepackage{graphicx}
+\newcommand{\normal}[2]{{\cal N}(#1,#2)}
+\newcommand{\NormalE}[3]{{\mathcal{N}}\left.\left(#1,#2\right)\right|_{#3}}
+\newcommand{\xdot}{{\dot x}}
+\renewcommand{\th}{^{\text{th}}}
+\newcommand{\field}[1]{\mathbb{#1}}
+\newcommand{\EV}[2]{\field{E}_{#1}\left[#2\right]}
+
+\title{Model Based Motion Detection}
+\author{Andy Fraser}
+
+\begin{document}
+\maketitle
+
+\section{Model}
+\label{sec:model}
+
+The number of moving objects in my model is a constant $N_s$ over
+time.  Objects may or may not be visible.  Visibility, position, and
+velocity
+\begin{equation*}
+  s_j \equiv (v_j,x_j,\xdot_j)  
+\end{equation*}
+characterizes the state of the $j\th$ object, and the vector
+\begin{equation*}
+  s \equiv \left(s_1, s_2, \ldots s_{N_o} \right)
+\end{equation*}
+constitutes the entire state.  Each visibility component has three
+possible values with the following interpretation
+\begin{equation*}
+  v_j =
+  \begin{cases}
+    1 & \text{Object is visible} \\
+    2 & \text{Object is not visible for this frame} \\
+    3 & \text{Object is not visible for at least three frames}
+  \end{cases}
+\end{equation*}
+The components $s_j$ of the state $s$ evolve independently of each
+other.  The following equations describe $P(s_j(t+1)|s_j(t))$, ie, the
+dynamics of each component:
+\begin{subequations}
+  \label{eq:dynamics}
+  \begin{align}
+    P_{v_j(t+1)|v_j(t)} &= T, & T &=
+    \begin{bmatrix}
+      P(1 \rightarrow 1) & P(1 \rightarrow 2) & 0 \\
+      P(2 \rightarrow 1) & P(2 \rightarrow 2) & P(2 \rightarrow 3) \\
+      0 & P(3 \rightarrow 2) & P(3 \rightarrow 3)
+    \end{bmatrix} \\
+    \begin{bmatrix} x_j(t+1) \\ \xdot_j(t+1) \end{bmatrix}
+    &= A   \begin{bmatrix} x_j(t) \\ \xdot_j(t) \end{bmatrix}
+    + \epsilon_{j,t}, & \epsilon_{j,t} &\sim
+    \normal{0}{\Sigma_{D}} \text{ iid} \\
+    A &= \begin{bmatrix}
+      1 & 0 & 1 & 0 \\
+      0 & 1 & 0 & 1 \\
+      0 & 0 & 1 & 0 \\
+      0 & 0 & 0 & 1
+    \end{bmatrix} &
+    \Sigma_{D} &= \begin{bmatrix}
+      \sigma^2_{xD} & 0 & 0 & 0 \\
+      0 & \sigma^2_{xD} & 0 & 0 \\
+      0 & 0 & \sigma^2_{\xdot D} & 0 \\
+      0 & 0 & 0 & \sigma^2_{\xdot D}
+    \end{bmatrix}
+  \end{align}
+\end{subequations}
+
+An observation vector $y$ consists of $N_y$ locations, and the
+probability that state $s$ would produce observation $y$ is
+\begin{equation*}
+  P(y|s) \equiv
+  \begin{cases}
+    0 & \text{if} N_y \neq N_{\text{visible}} \\
+    \sum_{M \in \text{permutations of }N_y\text{ items }}
+    \prod_{i=1}^{N_y} P(y_i|s_{M(i)}) & \text{otherwise}
+  \end{cases}
+\end{equation*}
+where
+\begin{equation*}
+  y_i|s_j \sim \NormalE{x_j}{\Sigma_o}{y_i} \text{ and }
+  \Sigma_o = \begin{bmatrix} \sigma_{xo}^2 & 0 \\ 0 &
+    \sigma_{xo}^2 \end{bmatrix}.
+\end{equation*}
+In summary, the model has the following 7 degrees of freedom:
+\begin{center}
+  \begin{tabular}{|cp{15em}c|}
+    \hline
+    Symbol & Description & Degrees of freedom \\
+    \hline
+    $T$ & Probabilities of transition between visibility levels & 4 \\
+    $\Sigma_D$ & Dynamical noise & 2 \\
+    $\Sigma_o$ & Observation noise & 1 \\
+    \hline
+  \end{tabular} 
+\end{center}
+
+\subsection{Fudge}
+\label{sec:fudge}
+
+The following adjustments come to mind:
+\begin{description}
+\item[Hard sphere:] Require $\left|\mu_{j,1:2} - \mu_{k,1:2} \right| >
+  \delta,~\forall j,k$
+\item[Bounded positions:] Require $0 < \mu_{j,1} <
+  \text{max}_1,~\forall j$ with a similar requirement for component 2
+\item[Bounded velocities:] Require $0 < \mu_{j,3} <
+  \text{max}_3,~\forall j$ with a similar requirement for component 4
+\item[Bounded variance] Complicated bounds on $\Sigma_{\alpha,j}$ and
+  $\Sigma_{a,j}$
+\end{description}
+
+\section{Forward algorithm}
+\label{sec:forward}
+
+Given a sequence $y_1^T$ of $T$ vectors of measurements $y(t):1 \leq t
+\leq T$ and the the collection of  seven parameters described in
+Section~\ref{sec:model}, the forward algorithm calculates a sequence
+of \emph{forecasts} $f_1^T$ and \emph{updates} $\alpha_1^T$.  Each
+forecast $f(t)$ characterizes the conditional distribution of states
+given all measurements up to the previous time
+\begin{equation*}
+  f(t) \rightarrow P(s(t+1)|y_1^t),
+\end{equation*}
+and each update $\alpha(t)$ characterizes the conditional distribution
+of states given all measurements up to the present time
+\begin{equation*}
+  \alpha(t) \rightarrow P(s(t)|y_1^t).
+\end{equation*}
+
+Each forecast and update characterizes a distribution of possible
+states and thus has the same structure with the following
+constituents\footnote{This is wrong.  The first update operation
+  produces a mixture of Gaussians with $N_s$ components, and each
+  subsequent update increases the number of components by another
+  factor of $N_s$.}:
+\begin{subequations}
+  \label{eq:psForm}
+  \begin{align}
+    P_j &\equiv \begin{bmatrix} P_{v_j}(1), P_{v_j}(2), P_{v_j}(3)
+    \end{bmatrix}, ~\forall j\\
+    \mu_j &\equiv \begin{bmatrix} \mu_{j,1} \\ \mu_{j,2} \\ \mu_{j,3} \\
+      \mu_{j,4} \end{bmatrix}, ~\forall j\\
+    \Sigma_j, &~~~~~\forall j
+  \end{align}
+\end{subequations}
+
+Each full iteration of the recursion uses $y(t+1)$ and $\alpha(t)$ to
+calculate $\alpha(t+1)$ in the following steps:
+\begin{align}
+  \label{eq:f1}
+  f(t+1) &\equiv P_{s(t+1)|y_1^t} = \EV{s(t)|y_1^t}{P(s(t+1)|s(t))} \\
+  \label{eq:f2}
+  a(t+1) &\equiv P_{y(t+1),s(t+1)|y_1^t} = P_{y|s} f(t+1) \\
+  \label{eq:f3}
+  \gamma(t+1) &\equiv P(y(t+1)|y_1^t) = \EV{f(t+1)}{P(y(t+1)|s(t+1))} \\
+  \label{eq:f4}
+  \alpha(t+1) &= \frac{a(t+1)}{\gamma(t+1)}
+\end{align}
+where the items on the left have the following interpretations:
+\begin{description}
+\item[$f(t+1)$] A distribution of states $s$
+\item[$a(t+1)$] An unnormalized distribution of states $s$
+\item[$\gamma(t+1)$] A scalar; the conditional probability of the
+  observation $y(t+1)$ given the model and the previous observations
+\item[$\alpha(t+1)$] A distribution of states $s$
+\end{description}
+
+Using Eqn.~\eqref{eq:dynamics}, I implement step~\eqref{eq:f1} by:
+\begin{subequations}
+  \label{eq:f1I}
+  \begin{align}
+    P_{vfj} &= P_{v\alpha j} T\\
+    \mu_{fj} &= A \mu_{\alpha j}\\
+    \Sigma_{fj} &= A \Sigma_{\alpha j} A^T + \Sigma_D
+  \end{align}
+\end{subequations}
+
+It would be nice if step~\eqref{eq:f2} lead to each component say
+$a_j$ being the distribution of a weighted sum of variables with
+distributions $f_k$ because that will lead to $\alpha(t+1)$ having the
+form \eqref{eq:psForm}, but $a_j$ is simply a weighted sum of the
+distributions $f_k$, ie, an ugly mixture of Gaussians.
+
+Roughly:
+\begin{align*}
+  a(s) &= \sum_M \prod_j P(y_{M(j)}|s_j) f(s_j) \\
+  a(s_j) &= \sum_i  P(y_i|s_j) f(s_j) \sum_{M:M(j)=i}  \prod_k
+  P(y_{M(k)}|s_k) f(s_k)\\
+  &= \sum_i  P(y_i|s_j) f(s_j) w_{i,j} \\
+  &= \sum_i  w_{i,j} \NormalE{x_j}{\Sigma_{xo}}{y_i}
+  \NormalE{\mu_{fj}}{\Sigma_{fj}}{\begin{bmatrix} x_j\\ \xdot_j
+    \end{bmatrix}}
+\end{align*}
+\end{document}
+
+%%% Local Variables:
+%%% eval: (TeX-PDF-mode)
+%%% End:
