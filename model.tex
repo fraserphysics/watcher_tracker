@@ -8,6 +8,7 @@
 \renewcommand{\th}{^{\text{th}}}
 \newcommand{\field}[1]{\mathbb{#1}}
 \newcommand{\EV}[2]{\field{E}_{#1}\left[#2\right]}
+\newcommand{\M}{{\cal M}}
 
 \title{Model Based Motion Detection}
 \author{Andy Fraser}
@@ -71,21 +72,23 @@ dynamics of each component:
 
 An observation vector $y$ consists of $N_y$ locations, and the
 probability that state $s$ would produce observation $y$ is
-\begin{equation*}
+\begin{equation}
+  \label{eq:ob}
   P(y|s) \equiv
   \begin{cases}
     0 & \text{if} N_y \neq N_{\text{visible}} \\
-    \sum_{M \in \text{permutations of }N_y\text{ items }}
-    \prod_{i=1}^{N_y} P(y_i|s_{M(i)}) & \text{otherwise}
+    \frac{1}{\left|\M \right|} \sum_{M \in \M}
+    \prod_{i=1}^{N_y} P(y_{M(i)}|s_i) & \text{otherwise}
   \end{cases}
-\end{equation*}
-where
+\end{equation}
+where $\M$ is the set of permutations of $N_y$ items, and
 \begin{equation*}
   y_i|s_j \sim \NormalE{x_j}{\Sigma_o}{y_i} \text{ and }
   \Sigma_o = \begin{bmatrix} \sigma_{xo}^2 & 0 \\ 0 &
     \sigma_{xo}^2 \end{bmatrix}.
 \end{equation*}
-In summary, the model has the following 7 degrees of freedom:
+In summary, aside from the initial state distribution, the model has
+the following 7 degrees of freedom:
 \begin{center}
   \begin{tabular}{|cp{15em}c|}
     \hline
@@ -98,30 +101,16 @@ In summary, the model has the following 7 degrees of freedom:
   \end{tabular} 
 \end{center}
 
-\subsection{Fudge}
-\label{sec:fudge}
-
-The following adjustments come to mind:
-\begin{description}
-\item[Hard sphere:] Require $\left|\mu_{j,1:2} - \mu_{k,1:2} \right| >
-  \delta,~\forall j,k$
-\item[Bounded positions:] Require $0 < \mu_{j,1} <
-  \text{max}_1,~\forall j$ with a similar requirement for component 2
-\item[Bounded velocities:] Require $0 < \mu_{j,3} <
-  \text{max}_3,~\forall j$ with a similar requirement for component 4
-\item[Bounded variance] Complicated bounds on $\Sigma_{\alpha,j}$ and
-  $\Sigma_{a,j}$
-\end{description}
-
 \section{Forward algorithm}
 \label{sec:forward}
 
-Given a sequence $y_1^T$ of $T$ vectors of measurements $y(t):1 \leq t
-\leq T$ and the the collection of  seven parameters described in
-Section~\ref{sec:model}, the forward algorithm calculates a sequence
-of \emph{forecasts} $f_1^T$ and \emph{updates} $\alpha_1^T$.  Each
-forecast $f(t)$ characterizes the conditional distribution of states
-given all measurements up to the previous time
+A complete model consists of seven parameters described in
+Section~\ref{sec:model} and an initial distribution over states, ie,
+$P_{s(0)}$.  Given a sequence $y_1^T$ of $T$ vectors of measurements
+$y(t):1 \leq t \leq T$ and a complete model, the forward algorithm
+calculates a sequence of \emph{forecasts} $f_1^T$ and \emph{updates}
+$\alpha_1^T$.  Each forecast $f(t)$ characterizes the conditional
+distribution of states given all measurements up to the previous time
 \begin{equation*}
   f(t) \rightarrow P(s(t+1)|y_1^t),
 \end{equation*}
@@ -130,6 +119,91 @@ of states given all measurements up to the present time
 \begin{equation*}
   \alpha(t) \rightarrow P(s(t)|y_1^t).
 \end{equation*}
+Note that I can denote the initial distribution over states as
+$\alpha(0)$.
+
+The forward algorithm is recursive.  Each full iteration of the
+recursion uses $y(t+1)$ and $\alpha(t)$ to calculate $\alpha(t+1)$ in
+the following steps:
+\begin{subequations}
+  \label{eq:Forward}
+\begin{align}
+  \label{eq:f1}
+  f(t+1) &\equiv P_{s(t+1)|y_1^t} = \EV{\alpha(t)}{P(s(t+1)|s(t))} \\
+  \label{eq:f2}
+  a(t+1) &\equiv P_{y(t+1),s(t+1)|y_1^t} = P_{y|s} f(t+1) \\
+  \label{eq:f3}
+  \gamma(t+1) &\equiv P(y(t+1)|y_1^t) = \EV{f(t+1)}{P(y(t+1)|s(t+1))} \\
+  \label{eq:f4}
+  \alpha(t+1) &= \frac{a(t+1)}{\gamma(t+1)}
+\end{align}
+\end{subequations}
+where the items on the left have the following interpretations:
+\begin{description}
+\item[$f(t+1)$] A distribution of states $s$
+\item[$a(t+1)$] An unnormalized distribution of states $s$
+\item[$\gamma(t+1)$] A scalar; the conditional probability of the
+  observation $y(t+1)$ given the model and the previous observations
+\item[$\alpha(t+1)$] A distribution of states $s$
+\end{description}
+
+With luck (I have not been so lucky with this application) one might
+find a parametric form for $\alpha(0)$ that yields an expresstion for
+$\alpha(1)$ that has the same parametric form.  Such a form is called
+a \emph{conjugate family}.  Two particularly simple cases are discrete
+hidden Markov models and Kalman filters.
+
+\section{Approximation Schemes}
+\label{sec:approximation}
+
+In this section, I will analyze the use of a Gaussian for $\alpha(0)$.
+From that choice it follows that each subsequent $\alpha(t)$ is much
+more complex.  Thus any actual implementation that starts with such an
+$\alpha(0)$ must use simplifying approximations.  I will conclude the
+section by considering a few such approximations.
+
+Let me suppose that each state must always be visible and that the
+initial state distribution is composed of independent Gaussians, ie,
+\begin{align*}
+  \alpha(0) &= P_{S_1,\ldots, S_N} \\
+  &= \prod_{j=1}^N P_{S_j} \\
+  &= \prod_{j=1}^N \normal{\mu_j}{\Sigma_j}.
+\end{align*}
+To find the forecast $f(1)$, I can apply the state dynamics
+\eqref{eq:dynamics} to describing each object independently with the
+result
+\begin{align*}
+  \tilde \mu_j &= A \mu_j \\
+  \tilde \Sigma_j &= A \Sigma_j A^T + \Sigma_D \\
+  f(1) &= \prod_{j=1}^N \normal{\tilde \mu_j}{ \tilde \Sigma_j}.
+\end{align*}
+The formula
+\begin{equation}
+  \label{eq:a1}
+  a(1) = f(1) P_{y|S} = \frac{1}{\left| \M \right|} \sum_{M \in \M}
+  \prod_{i=1}^N P(y_{M(i)}|s_i) \cdot \NormalE{\tilde \mu_i}{\tilde
+    \Sigma_i}{s_i}
+\end{equation}
+provides an unnormalized version of the updated distribution
+$\alpha(1)$.  There are at least two unfortunate properties of \eqref{eq:a1}:
+\begin{enumerate}
+\item The distribution of states is a sum of $\left| \M \right|$
+  Gaussians.  If you want to track $N=100$ objects, $\alpha(1)$ will
+  have $\left| \M \right| = N! \approx 10^{156}$ terms.  Approximating
+  $\alpha(1)$ with the largest term requires finding the best
+  permutation, which is the same as solving a traveling salesman
+  problem.
+\item For each term in the sum, the distributions of the separate
+  objects $s_j$ are independent, but that independence property does
+  not hold for the sum.  So it is not true that
+  \begin{equation*}
+    P(s(1)|y(1)) = \prod_{j=1}^N  P\left( \left( s(1) \right)_j|y(1)
+    \right).
+  \end{equation*}
+\end{enumerate}
+
+\section{Old Stuff}
+\label{sec:old-stuff}
 
 Each forecast and update characterizes a distribution of possible
 states and thus has the same structure with the following
@@ -147,27 +221,6 @@ constituents\footnote{This is wrong.  The first update operation
     \Sigma_j, &~~~~~\forall j
   \end{align}
 \end{subequations}
-
-Each full iteration of the recursion uses $y(t+1)$ and $\alpha(t)$ to
-calculate $\alpha(t+1)$ in the following steps:
-\begin{align}
-  \label{eq:f1}
-  f(t+1) &\equiv P_{s(t+1)|y_1^t} = \EV{s(t)|y_1^t}{P(s(t+1)|s(t))} \\
-  \label{eq:f2}
-  a(t+1) &\equiv P_{y(t+1),s(t+1)|y_1^t} = P_{y|s} f(t+1) \\
-  \label{eq:f3}
-  \gamma(t+1) &\equiv P(y(t+1)|y_1^t) = \EV{f(t+1)}{P(y(t+1)|s(t+1))} \\
-  \label{eq:f4}
-  \alpha(t+1) &= \frac{a(t+1)}{\gamma(t+1)}
-\end{align}
-where the items on the left have the following interpretations:
-\begin{description}
-\item[$f(t+1)$] A distribution of states $s$
-\item[$a(t+1)$] An unnormalized distribution of states $s$
-\item[$\gamma(t+1)$] A scalar; the conditional probability of the
-  observation $y(t+1)$ given the model and the previous observations
-\item[$\alpha(t+1)$] A distribution of states $s$
-\end{description}
 
 Using Eqn.~\eqref{eq:dynamics}, I implement step~\eqref{eq:f1} by:
 \begin{subequations}
@@ -195,6 +248,23 @@ Roughly:
   \NormalE{\mu_{fj}}{\Sigma_{fj}}{\begin{bmatrix} x_j\\ \xdot_j
     \end{bmatrix}}
 \end{align*}
+
+
+\subsection{Fudge}
+\label{sec:fudge}
+
+The following adjustments come to mind:
+\begin{description}
+\item[Hard sphere:] Require $\left|\mu_{j,1:2} - \mu_{k,1:2} \right| >
+  \delta,~\forall j,k$
+\item[Bounded positions:] Require $0 < \mu_{j,1} <
+  \text{max}_1,~\forall j$ with a similar requirement for component 2
+\item[Bounded velocities:] Require $0 < \mu_{j,3} <
+  \text{max}_3,~\forall j$ with a similar requirement for component 4
+\item[Bounded variance] Complicated bounds on $\Sigma_{\alpha,j}$ and
+  $\Sigma_{a,j}$
+\end{description}
+
 \end{document}
 
 %%% Local Variables:
