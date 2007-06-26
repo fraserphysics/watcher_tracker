@@ -9,6 +9,9 @@
 \newcommand{\field}[1]{\mathbb{#1}}
 \newcommand{\EV}[2]{\field{E}_{#1}\left[#2\right]}
 \newcommand{\M}{{\cal M}}
+\newcommand{\transpose}{^\top}
+\newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
+\newcommand{\ts}[4]{{\left[ #1(#2) \right]}_{#3}^{#4}} % Sequence
 
 \title{Model Based Motion Detection}
 \author{Andy Fraser}
@@ -20,39 +23,39 @@
 \label{sec:model}
 
 The number of moving objects in my model is a constant $N_s$ over
-time.  Objects may or may not be visible.  Visibility, position, and
-velocity
+time.  Objects may or may not be visible.  At time $t$, visibility,
+position, and velocity
 \begin{equation*}
-  s_j \equiv (v_j,x_j,\xdot_j)  
+  \ti{s}{j,t} \equiv \left(\ti{v}{j,t},\ti{x}{j,t},\ti{\dot x}{j,t} \right)
 \end{equation*}
-characterizes the state of the $j\th$ object, and the vector
+characterize the state of the $j\th$ object, and the vector
 \begin{equation*}
-  s \equiv \left(s_1, s_2, \ldots s_{N_o} \right)
+  \ti{s}{t} \equiv \ts{s}{j,t}{j=1}{N_s}
 \end{equation*}
 constitutes the entire state.  Each visibility component has three
 possible values with the following interpretation
 \begin{equation*}
-  v_j =
+  \ti{v}{j,t} =
   \begin{cases}
     1 & \text{Object is visible} \\
     2 & \text{Object is not visible for this frame} \\
     3 & \text{Object is not visible for at least three frames}
   \end{cases}
 \end{equation*}
-The components $s_j$ of the state $s$ evolve independently of each
-other.  The following equations describe $P(s_j(t+1)|s_j(t))$, ie, the
-dynamics of each component:
+The components $\ti{s}{j,t}$ of the state evolve independently of each
+other.  The following equations describe
+$P(\ti{s}{j,t+1}|\ti{s}{j,t})$, ie, the dynamics of each component:
 \begin{subequations}
   \label{eq:dynamics}
   \begin{align}
-    P_{v_j(t+1)|v_j(t)} &= T, & T &=
+    P_{\ti{v}{j,t+1}|\ti{v}{j,t}} &= V, & V &=
     \begin{bmatrix}
       P(1 \rightarrow 1) & P(1 \rightarrow 2) & 0 \\
       P(2 \rightarrow 1) & P(2 \rightarrow 2) & P(2 \rightarrow 3) \\
       0 & P(3 \rightarrow 2) & P(3 \rightarrow 3)
     \end{bmatrix} \\
-    \begin{bmatrix} x_j(t+1) \\ \xdot_j(t+1) \end{bmatrix}
-    &= A   \begin{bmatrix} x_j(t) \\ \xdot_j(t) \end{bmatrix}
+    \begin{bmatrix} \ti{x}{j,t+1} \\ \ti{\xdot}{j,t+1} \end{bmatrix}
+    &= A   \begin{bmatrix} \ti{x}{j,t} \\ \ti{\xdot}{j,t} \end{bmatrix}
     + \epsilon_{j,t}, & \epsilon_{j,t} &\sim
     \normal{0}{\Sigma_{D}} \text{ iid} \\
     A &= \begin{bmatrix}
@@ -70,20 +73,25 @@ dynamics of each component:
   \end{align}
 \end{subequations}
 
-An observation vector $y$ consists of $N_y$ locations, and the
-probability that state $s$ would produce observation $y$ is
+An observation vector consists of $N_y$ locations
+$\ti{y}{t}=\ts{y}{t,i}{i=1}{N_y}$, and the probability that state $\ti{s}{t}$
+would produce observation $\ti{y}{t}$ is
 \begin{equation}
   \label{eq:ob}
-  P(y|s) \equiv
+  P(\ti{y}{t}|\ti{s}{t}) \equiv
   \begin{cases}
     0 & \text{if} N_y \neq N_{\text{visible}} \\
     \frac{1}{\left|\M \right|} \sum_{M \in \M}
-    \prod_{i=1}^{N_y} P(y_{M(i)}|s_i) & \text{otherwise}
+    \prod_{i=1}^{N_y} P(\ti{y}{t,M(i)}|\ti{s}{t,i}) & \text{otherwise}
   \end{cases}
 \end{equation}
-where $\M$ is the set of permutations of $N_y$ items, and
+where $\M$ is the set of permutations of $N_y$ items\footnote{This
+  observation model describes indistinguishable observations.  An
+  easier alternative would be objects that had different colors, or
+  even easier, objects that had observable unique tags.},
 \begin{equation*}
-  y_i|s_j \sim \NormalE{x_j}{\Sigma_o}{y_i} \text{ and }
+  \ti{y}{t,i}|\ti{s}{t,j} \sim
+  \NormalE{\ti{x}{t,j}}{\Sigma_o}{\ti{y}{t,i}} \text{ and }
   \Sigma_o = \begin{bmatrix} \sigma_{xo}^2 & 0 \\ 0 &
     \sigma_{xo}^2 \end{bmatrix}.
 \end{equation*}
@@ -106,49 +114,53 @@ the following 7 degrees of freedom:
 
 A complete model consists of seven parameters described in
 Section~\ref{sec:model} and an initial distribution over states, ie,
-$P_{s(0)}$.  Given a sequence $y_1^T$ of $T$ vectors of measurements
-$y(t):1 \leq t \leq T$ and a complete model, the forward algorithm
-calculates a sequence of \emph{forecasts} $f_1^T$ and \emph{updates}
-$\alpha_1^T$.  Each forecast $f(t)$ characterizes the conditional
-distribution of states given all measurements up to the previous time
+$P_{s(0)}$.  Given a sequence $\ts{y}{t}{t=1}{T}$ of $T$ vectors of
+measurements and a complete model, the forward algorithm calculates a
+sequence of \emph{forecasts} $\ts{f}{t}{t=1}{T}$ and \emph{updates}
+$\ts{\alpha}{t}{t=1}{T}$.  Each forecast $\ti{f}{t}$ characterizes the
+conditional distribution of states given all measurements up to the
+previous time
 \begin{equation*}
-  f(t) \rightarrow P(s(t+1)|y_1^t),
+  \ti{f}{t} \rightarrow P(\ti{s}{t+1}|\ts{y}{\tau}{\tau=1}{t}).
 \end{equation*}
-and each update $\alpha(t)$ characterizes the conditional distribution
-of states given all measurements up to the present time
+and each update $\ti{\alpha}{t}$ characterizes the conditional
+distribution of states given all measurements up to the present time
 \begin{equation*}
-  \alpha(t) \rightarrow P(s(t)|y_1^t).
+  \ti{\alpha}{t} \rightarrow P(\ti{s}{t}|\ts{y}{\tau}{\tau=1}{t}).
 \end{equation*}
-Note that I can denote the initial distribution over states as
-$\alpha(0)$.
+I will denote the initial distribution over states as
+$\ti{\alpha}{0}$.
 
 The forward algorithm is recursive.  Each full iteration of the
-recursion uses $y(t+1)$ and $\alpha(t)$ to calculate $\alpha(t+1)$ in
-the following steps:
+recursion uses $\ti{y}{t+1}$ and $\ti{\alpha}{t}$ to calculate
+$\ti{\alpha}{t+1}$ in the following steps:
 \begin{subequations}
   \label{eq:Forward}
 \begin{align}
   \label{eq:f1}
-  f(t+1) &\equiv P_{s(t+1)|y_1^t} = \EV{\alpha(t)}{P(s(t+1)|s(t))} \\
+  \ti{f}{t+1} &\equiv P_{\ti{s}{t+1}|\ts{y}{\tau}{\tau=1}{t}} =
+  \EV{\ti{\alpha}{t}}{P(\ti{s}{t+1}|\ti{s}{t})} \\ 
   \label{eq:f2}
-  a(t+1) &\equiv P_{y(t+1),s(t+1)|y_1^t} = P_{y|s} f(t+1) \\
+  \ti{a}{t+1} &\equiv
+  P_{\ti{y}{t+1},\ti{s}{t+1}|\ts{y}{\tau}{\tau=1}{t}} = P_{y|s}
+  \ti{f}{t+1} \\
   \label{eq:f3}
-  \gamma(t+1) &\equiv P(y(t+1)|y_1^t) = \EV{f(t+1)}{P(y(t+1)|s(t+1))} \\
+  \ti{\gamma}{t+1} &\equiv P(\ti{y}{t+1}|\ts{y}{\tau}{\tau=1}{t}) = \EV{\ti{f}{t+1}}{P(\ti{y}{t+1}|\ti{s}{t+1})} \\
   \label{eq:f4}
-  \alpha(t+1) &= \frac{a(t+1)}{\gamma(t+1)}
+  \ti{\alpha}{t+1} &= \frac{\ti{a}{t+1}}{\ti{\gamma}{t+1}}
 \end{align}
 \end{subequations}
 where the items on the left have the following interpretations:
 \begin{description}
-\item[$f(t+1)$] A distribution of states $s$
-\item[$a(t+1)$] An unnormalized distribution of states $s$
-\item[$\gamma(t+1)$] A scalar; the conditional probability of the
-  observation $y(t+1)$ given the model and the previous observations
-\item[$\alpha(t+1)$] A distribution of states $s$
+\item[$\ti{f}{t+1}$] A distribution of states $s$
+\item[$\ti{a}{t+1}$] An unnormalized distribution of states $s$
+\item[$\ti{\gamma}{t+1}$] A scalar; the conditional probability of the
+  observation $\ti{y}{t+1}$ given the model and the previous observations
+\item[$\ti{\alpha}{t+1}$] A distribution of states $s$
 \end{description}
 
 With luck (I have not been so lucky with this application) one might
-find a parametric form for $\alpha(0)$ that yields an expresstion for
+find a parametric form for $\alpha(0)$ that yields an expression for
 $\alpha(1)$ that has the same parametric form.  Such a form is called
 a \emph{conjugate family}.  Two particularly simple cases are discrete
 hidden Markov models and Kalman filters.
@@ -157,7 +169,7 @@ hidden Markov models and Kalman filters.
 \label{sec:approximation}
 
 In this section, I will analyze the use of a Gaussian for $\alpha(0)$.
-From that choice it follows that each subsequent $\alpha(t)$ is much
+From that choice it follows that each subsequent $\ti{\alpha}{t}$ is much
 more complex.  Thus any actual implementation that starts with such an
 $\alpha(0)$ must use simplifying approximations.  I will conclude the
 section by considering a few such approximations.
@@ -165,27 +177,28 @@ section by considering a few such approximations.
 Let me suppose that each state must always be visible and that the
 initial state distribution is composed of independent Gaussians, ie,
 \begin{align*}
-  \alpha(0) &= P_{S_1,\ldots, S_N} \\
-  &= \prod_{j=1}^N P_{S_j} \\
-  &= \prod_{j=1}^N \normal{\mu_j}{\Sigma_j}.
+  \ti{\alpha}{0} &= P_{\ts{S}{0,j}{j=1}{N} }\\
+  &= \prod_{j=1}^{N} P_{\ti{S}{0,j}} \\
+  &= \prod_{j=1}^{N} \normal{\mu_j}{\Sigma_j}.
 \end{align*}
-To find the forecast $f(1)$, I can apply the state dynamics
-\eqref{eq:dynamics} to describing each object independently with the
-result
+To find the forecast $\ti{f}{1}$, I can apply the state dynamics
+\eqref{eq:dynamics} to each object independently with the result
 \begin{align*}
   \tilde \mu_j &= A \mu_j \\
-  \tilde \Sigma_j &= A \Sigma_j A^T + \Sigma_D \\
-  f(1) &= \prod_{j=1}^N \normal{\tilde \mu_j}{ \tilde \Sigma_j}.
+  \tilde \Sigma_j &= A \Sigma_j A\transpose + \Sigma_D \\
+  (\tilde \mu_j, \tilde \Sigma_j ) &\equiv F(\mu_j,\Sigma_j) \\
+  \ti{f}{1} &= \prod_{j=1}^{N} {\cal N}(F(\mu_j,\Sigma_j))
 \end{align*}
-The formula
+Using $M$ to denote a permutation of $N$ items and $\M$ to denote the
+set of possible permutations, I write
 \begin{equation}
   \label{eq:a1}
   a(1) = f(1) P_{y|S} = \frac{1}{\left| \M \right|} \sum_{M \in \M}
-  \prod_{i=1}^N P(y_{M(i)}|s_i) \cdot \NormalE{\tilde \mu_i}{\tilde
-    \Sigma_i}{s_i}
+  \prod_{i=1}^N P(y_{M(i)}|s_i) \cdot \left. {\cal N}(F(\mu_j,\Sigma_j))\right|_{s_i}
 \end{equation}
-provides an unnormalized version of the updated distribution
-$\alpha(1)$.  There are at least two unfortunate properties of \eqref{eq:a1}:
+which provides an unnormalized version of the updated distribution
+$\alpha(1)$.  There are at least two unfortunate properties of
+\eqref{eq:a1}:
 \begin{enumerate}
 \item The distribution of states is a sum of $\left| \M \right|$
   Gaussians.  If you want to track $N=100$ objects, $\alpha(1)$ will
@@ -201,6 +214,37 @@ $\alpha(1)$.  There are at least two unfortunate properties of \eqref{eq:a1}:
     \right).
   \end{equation*}
 \end{enumerate}
+
+Leveraging the notational clarity of \eqref{eq:a1}, I can also write
+\begin{equation*}
+  \ti{\alpha}{T} \propto \sum_{\ts{M}{t}{t=1}{T}:\ti{M}{t}\in \M}
+  \prod_{i=1}^N
+  P\left( \ts{y}{\ti{M}{t,i}}{t=1}{T} | \ts{s}{t,i}{t=1}{T}\right)
+  P\left( \ts{s}{t,i}{t=1}{T}| \ti{s}{0,i} \right)
+  P\left( \ti{s}{0,i} \right) .
+\end{equation*}
+Since
+\begin{equation*}
+  P\left( \ts{y}{\ti{M}{t,i}}{t=1}{T} | \ts{s}{t,i}{t=1}{T}\right) =
+  \prod_{t=1}^T P\left( \ti{y}{t,\ti{M}{t,i}} | \ti{s}{t,i}\right)
+\end{equation*}
+and
+\begin{equation*}
+  P\left( \ts{s}{t,i}{t=1}{T}| \ti{s}{0,i} \right) = \prod_{t=1}^T
+  P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right),
+\end{equation*}
+\begin{equation*}
+  \ti{\alpha}{T} \propto \sum_{\ts{M}{t}{t=1}{T}}
+  \prod_{i=1}^N  P\left( \ti{s}{0,i} \right) \prod_{t=1}^T
+  P\left( \ti{y}{t,\ti{M}{t,i}} | \ti{s}{t,i}\right)
+  P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right).
+\end{equation*}
+
+\subsection{Joint Probabilistic Data Association}
+\label{sec:JPDA}
+
+\subsection{Multiple Hypothesis Tracking}
+\label{sec:MHT}
 
 \section{Old Stuff}
 \label{sec:old-stuff}
@@ -228,13 +272,13 @@ Using Eqn.~\eqref{eq:dynamics}, I implement step~\eqref{eq:f1} by:
   \begin{align}
     P_{vfj} &= P_{v\alpha j} T\\
     \mu_{fj} &= A \mu_{\alpha j}\\
-    \Sigma_{fj} &= A \Sigma_{\alpha j} A^T + \Sigma_D
+    \Sigma_{fj} &= A \Sigma_{\alpha j} A\transpose + \Sigma_D
   \end{align}
 \end{subequations}
 
 It would be nice if step~\eqref{eq:f2} lead to each component say
 $a_j$ being the distribution of a weighted sum of variables with
-distributions $f_k$ because that will lead to $\alpha(t+1)$ having the
+distributions $f_k$ because that will lead to $\ti{\alpha}{t+1}$ having the
 form \eqref{eq:psForm}, but $a_j$ is simply a weighted sum of the
 distributions $f_k$, ie, an ugly mixture of Gaussians.
 
@@ -267,6 +311,8 @@ The following adjustments come to mind:
 
 \end{document}
 
+%%%---------------
 %%% Local Variables:
+%%% eval: (load-file "SeqKeys.el")
 %%% eval: (TeX-PDF-mode)
 %%% End:
