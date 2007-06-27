@@ -2,6 +2,8 @@
 
 \usepackage{amsmath,amsfonts}
 \usepackage{graphicx}
+\usepackage{showlabels}
+
 \newcommand{\normal}[2]{{\cal N}(#1,#2)}
 \newcommand{\NormalE}[3]{{\mathcal{N}}\left.\left(#1,#2\right)\right|_{#3}}
 \newcommand{\xdot}{{\dot x}}
@@ -233,12 +235,13 @@ and
   P\left( \ts{s}{t,i}{t=1}{T}| \ti{s}{0,i} \right) = \prod_{t=1}^T
   P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right),
 \end{equation*}
-\begin{equation*}
+\begin{equation}
+  \label{eq:alphaT}
   \ti{\alpha}{T} \propto \sum_{\ts{M}{t}{t=1}{T}}
   \prod_{i=1}^N  P\left( \ti{s}{0,i} \right) \prod_{t=1}^T
   P\left( \ti{y}{t,\ti{M}{t,i}} | \ti{s}{t,i}\right)
   P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right).
-\end{equation*}
+\end{equation}
 
 \subsection{Joint Probabilistic Data Association}
 \label{sec:JPDA}
@@ -308,6 +311,12 @@ The following adjustments come to mind:
 \item[Bounded variance] Complicated bounds on $\Sigma_{\alpha,j}$ and
   $\Sigma_{a,j}$
 \end{description}
+
+\vfill \hrule
+In \emph{svn://fraserphysics.com/ps}.
+\begin{verbatim}
+$Id:$
+\end{verbatim}
 
 \end{document}
 
