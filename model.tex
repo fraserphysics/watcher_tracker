@@ -14,12 +14,28 @@
 \newcommand{\transpose}{^\top}
 \newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
 \newcommand{\ts}[4]{{\left[ #1(#2) \right]}_{#3}^{#4}} % Sequence
+\newcommand{\argmin}{\operatorname*{argmin}}
+\newcommand{\argmax}{\operatorname*{argmax}}
 
 \title{Model Based Motion Detection}
 \author{Andy Fraser}
 
 \begin{document}
 \maketitle
+
+\section{Introduction}
+\label{sec:introduction}
+
+Frame by frame detection/tagging could use the result of a filtered
+forecast, ie,
+\begin{equation*}
+  P(S(t)|y_1^{t-1})
+\end{equation*}
+
+To characterize track properties, we will need decoded tracks, ie,
+\begin{equation*}
+  \hat s_1^T \equiv \argmax_{s_1^T} P(S(t)|y_1^{t-1})
+\end{equation*}
 
 \section{Model}
 \label{sec:model}
