@@ -9,13 +9,17 @@
 \newcommand{\xdot}{{\dot x}}
 \renewcommand{\th}{^{\text{th}}}
 \newcommand{\field}[1]{\mathbb{#1}}
+\newcommand{\REAL}{\field{R}}
+\newcommand{\RATIONAL}{\field{Q}}
+\newcommand{\INTEGER}{\field{Z}}
 \newcommand{\EV}[2]{\field{E}_{#1}\left[#2\right]}
 \newcommand{\M}{{\cal M}}
 \newcommand{\transpose}{^\top}
 \newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
-\newcommand{\ts}[4]{{\left[ #1(#2) \right]}_{#3}^{#4}} % Sequence
+\newcommand{\ts}[4]{{\left[ #1(#2) \right]}_{#2=#3}^{#4}} % Sequence
 \newcommand{\argmin}{\operatorname*{argmin}}
 \newcommand{\argmax}{\operatorname*{argmax}}
+\newcommand{\cS}{{\cal S}}
 
 \title{Model Based Motion Detection}
 \author{Andy Fraser}
@@ -33,9 +37,65 @@ forecast, ie,
 \end{equation*}
 
 To characterize track properties, we will need decoded tracks, ie,
-\begin{equation*}
-  \hat s_1^T \equiv \argmax_{s_1^T} P(S(t)|y_1^{t-1})
-\end{equation*}
+\begin{align*}
+  \hat s_1^T &\equiv \argmax_{s_1^T} P(s_1^T|y_1^{t-1}) \\
+            &=  \argmax_{s_1^T} P(s_1^T,y_1^{t-1})
+\end{align*}
+
+\subsection{Filtering}
+\label{sec:filtering}
+
+With the definitions
+\begin{align}
+  \label{def:alpha}
+  \alpha_t &\equiv P(\ti{s}{t}|\ts{y}{\tau}{1}{t}) \text{ The updated distribution} \\
+  f_t &\equiv P(\ti{s}{t}|\ts{y}{\tau}{1}{t-1}) \text{ The forecast
+    distribution} \\
+  \gamma_t &= P(\ts{y}{\tau}{1}{t}) \text{ The incremental likelihood}
+\end{align}
+and applying a model characterized by the distributions
+\begin{align}
+  &\alpha_0  &&\text{The state prior} \\
+  &P(\ti{s}{t+t}|\ti{s}{t}) &&\text{The state transition probability} \\
+  &P(\ti{y}{t}|\ti{s}{t}) &&\text{The conditional observation probability}
+\end{align}
+one can write recursive filtering as follows:
+\begin{align}
+  f_t &= \EV{\alpha_{t-1}} {P(\ti{s}{t}|\ti{s}{t-1})} \\
+  \gamma_t &= \EV{\ti{f}{t}} {P(\ti{y}{t}|\ti{s}{t})} \\
+  \alpha_t &= \frac{f_t P(\ti{y}{t}|\ti{s}{t})}{\gamma_t} \\
+\end{align}
+
+\subsection{Decoding}
+\label{sec:decoding}
+
+I will use the following definitions to describe decoding:
+\begin{align*}
+  u(\ts{s}{\tau}{1}{t}) &\equiv \log \left(
+    P(\ts{y}{\tau}{1}{t},\ts{s}{\tau}{1}{t} \right) \\ & \quad
+  \text{The utility of the state sequence } \ts{s}{\tau}{1}{t}\\
+  \nu_t(s) & \equiv \max_{\ts{s}{\tau}{1}{t}:\ti{s}{t}=s}
+  u(\ts{s}{\tau}{1}{t}) \\
+  & \quad \text{The utility of the best sequence ending in } s \\
+  M_t(s) &\equiv \argmax_{s'}
+  \argmax_{\ts{s}{\tau}{1}{t}:\ti{s}{t-1}=s' \&\ti{s}{t}=s}
+  u(\ts{s}{\tau}{1}{t}) \\
+  & \quad \text{The best predecessor state for } s
+\end{align*}
+I can evaluate the functions $M_t$ and $\nu_t$ recursively as follows
+\begin{align*}
+  M_t(s) &= \argmax_{s'} \left( \nu_{t-1}(s') + \log(P(s|s') ) \right) \\
+  \nu_t(s) &= \nu_{t-1}(M_t(s)) + \log(P(s|M_t(s)) )  + \log(P(\ti{y}{t}|s) ).
+\end{align*}
+Given the functions $M_t$ and $\nu_t$ $\forall t\in[1,\ldots,T]$, the
+following procedure decodes the best sequence of states $ \ts{\hat
+  s}{\tau}{1}{T}$ from a sequence of observations $
+\ts{y}{\tau}{1}{T}$:
+\begin{align*}
+  {\ti{{\hat s}}{T}} &= \argmax_s \nu_T(s) \\
+  & \text{for } t \text{ from } T-1 \text{ to } 1: \\
+  & \quad \ti{\hat s}{t} = M_t( \ti{\hat s}{t+1})
+\end{align*}
 
 \section{Model}
 \label{sec:model}
