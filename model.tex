@@ -97,6 +97,101 @@ following procedure decodes the best sequence of states $ \ts{\hat
   & \quad \ti{\hat s}{t} = M_t( \ti{\hat s}{t+1})
 \end{align*}
 
+\section{Model Version One}
+\label{sec:model1}
+
+In this section I describe the basic model \emph{MVI}.  I'll develop
+algorithms and write code for \emph{MVI} for the baseline prototype of
+the watcher project.  Later, I will compare proposed enhancements
+against the performance of \emph{MVI}.
+
+The number of moving objects in my model is a constant $N_s$ over
+time.  Objects may or may not be visible.  At time $t$, visibility,
+position, and velocity
+\begin{equation*}
+  \ti{s}{j,t} \equiv \left(\ti{v}{j,t},\ti{x}{j,t},\ti{\dot x}{j,t} \right)
+\end{equation*}
+characterize the state of the $j\th$ object, and the vector
+\begin{equation*}
+  \ti{s}{t} \equiv \ts{s}{j,t}{j=1}{N_s}
+\end{equation*}
+constitutes the entire state.  Each visibility component has three
+possible values with the following interpretation
+\begin{equation*}
+  \ti{v}{j,t} =
+  \begin{cases}
+    1 & \text{Object is visible} \\
+    2 & \text{Object is not visible for this frame} \\
+    3 & \text{Object is not visible for at least three frames}
+  \end{cases}
+\end{equation*}
+The components $\ti{s}{j,t}$ of the state evolve independently of each
+other.  The following equations describe
+$P(\ti{s}{j,t+1}|\ti{s}{j,t})$, ie, the dynamics of each component:
+\begin{subequations}
+  \label{eq:dynamics}
+  \begin{align}
+    P_{\ti{v}{j,t+1}|\ti{v}{j,t}} &= V, & V &=
+    \begin{bmatrix}
+      P(1 \rightarrow 1) & P(1 \rightarrow 2) & 0 \\
+      P(2 \rightarrow 1) & P(2 \rightarrow 2) & P(2 \rightarrow 3) \\
+      0 & P(3 \rightarrow 2) & P(3 \rightarrow 3)
+    \end{bmatrix} \\
+    \begin{bmatrix} \ti{x}{j,t+1} \\ \ti{\xdot}{j,t+1} \end{bmatrix}
+    &= A   \begin{bmatrix} \ti{x}{j,t} \\ \ti{\xdot}{j,t} \end{bmatrix}
+    + \epsilon_{j,t}, & \epsilon_{j,t} &\sim
+    \normal{0}{\Sigma_{D}} \text{ iid} \\
+    A &= \begin{bmatrix}
+      1 & 0 & 1 & 0 \\
+      0 & 1 & 0 & 1 \\
+      0 & 0 & 1 & 0 \\
+      0 & 0 & 0 & 1
+    \end{bmatrix} &
+    \Sigma_{D} &= \begin{bmatrix}
+      \sigma^2_{xD} & 0 & 0 & 0 \\
+      0 & \sigma^2_{xD} & 0 & 0 \\
+      0 & 0 & \sigma^2_{\xdot D} & 0 \\
+      0 & 0 & 0 & \sigma^2_{\xdot D}
+    \end{bmatrix}
+  \end{align}
+\end{subequations}
+
+An observation vector consists of $N_y$ locations
+$\ti{y}{t}=\ts{y}{t,i}{i=1}{N_y}$, and the probability that state $\ti{s}{t}$
+would produce observation $\ti{y}{t}$ is
+\begin{equation}
+  \label{eq:ob}
+  P(\ti{y}{t}|\ti{s}{t}) \equiv
+  \begin{cases}
+    0 & \text{if} N_y \neq N_{\text{visible}} \\
+    \frac{1}{\left|\M \right|} \sum_{M \in \M}
+    \prod_{i=1}^{N_y} P(\ti{y}{t,M(i)}|\ti{s}{t,i}) & \text{otherwise}
+  \end{cases}
+\end{equation}
+where $\M$ is the set of permutations of $N_y$ items\footnote{This
+  observation model describes indistinguishable observations.  An
+  easier alternative would be objects that had different colors, or
+  even easier, objects that had observable unique tags.},
+\begin{equation*}
+  \ti{y}{t,i}|\ti{s}{t,j} \sim
+  \NormalE{\ti{x}{t,j}}{\Sigma_o}{\ti{y}{t,i}} \text{ and }
+  \Sigma_o = \begin{bmatrix} \sigma_{xo}^2 & 0 \\ 0 &
+    \sigma_{xo}^2 \end{bmatrix}.
+\end{equation*}
+In summary, aside from the initial state distribution, the model has
+the following 7 degrees of freedom:
+\begin{center}
+  \begin{tabular}{|cp{15em}c|}
+    \hline
+    Symbol & Description & Degrees of freedom \\
+    \hline
+    $T$ & Probabilities of transition between visibility levels & 4 \\
+    $\Sigma_D$ & Dynamical noise & 2 \\
+    $\Sigma_o$ & Observation noise & 1 \\
+    \hline
+  \end{tabular} 
+\end{center}
+
 \section{Model}
 \label{sec:model}
 
