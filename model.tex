@@ -76,28 +76,34 @@ I will use the following definitions to describe decoding:
 \begin{align*}
   u(\ts{s}{\tau}{1}{t}) &\equiv \log \left(
     P(\ts{y}{\tau}{1}{t},\ts{s}{\tau}{1}{t} \right) \\ & \quad
-  \text{The utility of the state sequence } \ts{s}{\tau}{1}{t}\\
-  \nu_t(s) & \equiv \max_{\ts{s}{\tau}{1}{t}:\ti{s}{t}=s}
+  \text{Utility of state sequence } \ts{s}{\tau}{1}{t}\\
+  \nu(s,t) & \equiv \max_{\ts{s}{\tau}{1}{t}:\ti{s}{t}=s}
   u(\ts{s}{\tau}{1}{t}) \\
-  & \quad \text{The utility of the best sequence ending in } s \\
-  B_t(s) &\equiv \argmax_{s'}
-  \argmax_{\ts{s}{\tau}{1}{t}:\ti{s}{t-1}=s' \&\ti{s}{t}=s}
-  u(\ts{s}{\tau}{1}{t}) \\
-  & \quad \text{The best predecessor state for } s
+  & \quad \text{Utility of best sequence ending with } \ti{s}{t} = s \\
+  u'(s,s',t) &\equiv
+  \argmax_{\ts{s}{\tau}{1}{t+1}:\ti{s}{t}=s \&\ti{s}{t+1}=s'}
+  u(\ts{s}{\tau}{1}{t+1}) \\
+  & \quad \text{Utility of best sequence ending with }
+    \ti{s}{t},\ti{s}{t+1} = s,s' \\
+  B(s,t) &\equiv \argmax_{s'} u'(s',s,t)) \\
+  & \quad \text{Best predecessor state given } \ti{s}{t+1}=s
 \end{align*}
-I can evaluate the functions $B_t$ and $\nu_t$ recursively as follows
+I can evaluate the functions $B(*,t)$ and $\nu(*,t)$ recursively as
+follows:
 \begin{align*}
-  B_t(s) &= \argmax_{s'} \left( \nu_{t-1}(s') + \log(P(s|s') ) \right) \\
-  \nu_t(s) &= \nu_{t-1}(B_t(s)) + \log(P(s|B_t(s)) )  + \log(P(\ti{y}{t}|s) ).
+  u'(s,s',t) &= \nu(s,t) + \log\left( P_{\ti{s}{t+1}|}(s'|s) \right) +
+  \log\left( P_{\ti{y}{t+1}|\ti{s}{t+1}}(\ti{y}{t=1}|s') \right) \\
+  B(s,t) &= \argmax_{s'} u'(s',s,t)) \\
+  \nu(s,t+1) &= u'(B(s,t),s,t)
 \end{align*}
-Given the functions $B_t$ and $\nu_t$ $\forall t\in[1,\ldots,T]$, the
-following procedure decodes the best sequence of states $ \ts{\hat
-  s}{\tau}{1}{T}$ from a sequence of observations $
-\ts{y}{\tau}{1}{T}$:
+Given the functions $B(*,t)$ and $\nu(*,t)$ $\forall
+t\in[1,\ldots,T]$, the following procedure decodes the best sequence
+of states $ \ts{\hat s}{\tau}{1}{T}$ from a sequence of observations $
+\ts{y}{\tau}{1}{T}$
 \begin{align*}
-  {\ti{{\hat s}}{T}} &= \argmax_s \nu_T(s) \\
+  {\ti{{\hat s}}{T}} &= \argmax_s \nu(s,T) \\
   & \text{for } t \text{ from } T-1 \text{ to } 1: \\
-  & \quad \ti{\hat s}{t} = B_t( \ti{\hat s}{t+1})
+  & \quad \ti{\hat s}{t} = B( \ti{\hat s}{t+1},t)
 \end{align*}
 
 \section{Model Version One}
@@ -158,15 +164,20 @@ $\ti{s}{t}$ would produce observation $\ti{y}{t}$ is\footnote{This
     \frac{1}{\left|\M \right|} \sum_{M \in \M}
     \prod_{i=1}^{N} P(\ti{y}{t,M(i)}|\ti{s}{t,i}).
 \end{equation}
-where
+with normal conditional observation distributions
 \begin{equation*}
   \ti{y}{t,i}|\ti{s}{t,j} \sim
   \begin{cases}
-    \NormalE{\ti{s}{t,j}}{\Sigma_o}{\ti{y}{t,i}} & i = M(j) \\
+    \NormalE{O\ti{s}{t,j}}{\Sigma_o}{\ti{y}{t,i}} & i = M(j) \\
     \text{Uniform} & \text{Otherwise}
   \end{cases}
 \end{equation*}
-and
+where each mean comes from the projection
+\begin{equation*}
+  O = \begin{bmatrix} 1 & 0 & 0 & 0\\
+    0 & 1 & 0 & 0 \end{bmatrix}
+\end{equation*}
+and each covariance is
 \begin{equation*}
   \Sigma_o = \begin{bmatrix} \sigma_{xo}^2 & 0 \\ 0 &
     \sigma_{xo}^2 \end{bmatrix}.
@@ -295,20 +306,71 @@ contains only a single sequence of permutations $\ts{\hat
   M}{t}{1}{T}$.  Thus I need not approximate a mixture of Gaussians.
 
 I'll begin by considering decoding a trajectory of a single object
-from a single sequence of observations.  In addition to the notation
-in Section~\ref{sec:decoding}, I'll use $C(s,s',t)$ to denote the
-maximum of the log of the likelihood of the data
-$\ts{y}{\tau}{1}{t+1}$ over sequences $\ts{s}{\tau}{1}{t+1}$ that end
-with $\ti{s}{t} = s$ and $\ti{s}{t+1} = s'$.  Assuming that $\nu(s,t)$
-is quadratic, I can write the following recursion:
+from a single sequence of observations.  Using the notation in
+Section~\ref{sec:decoding}, and assuming that $\nu(s,t)$ is quadratic,
+I can write the following recursion:
 \begin{align}
-  \nu(s,t) &= -\frac{(s-\mu_{\nu,t})^T
-    \Sigma_{\nu,t}^{-1}(s-\mu_{\nu,t}) }{2} \\
-  C(s,s',t) &= \nu(s,t)  -\frac{(s'-As)^T
-    \Sigma_{C,t}^{-1}(s'-As) }{2} + \log(P(\ti{y}{t+1}|s') \\
-  B(s,t) &= \argmax_q C(q,s,t)\\
-  \nu(s,t+1) &= C(B(s,t+1),s,t)
+  \nu(s,t) &= -\frac{1}{2}(s-\mu_{t})^T
+    \Sigma_{t}^{-1}(s-\mu_{t}) + R_t \nonumber \\
+  \label{eq:decode_u'}
+  u'(s,s',t) &= \nu(s,t)  - 
+  \frac{1}{2}(s'-As)^T \Sigma_{D}^{-1} (s'-As)  \nonumber \\
+  &\quad - \frac{1}{2}(\ti{y}{t+1} - O s')^T \Sigma_{O}^{-1}(\ti{y}{t+1}
+    - O s') \\
+  B(s,t) &= \argmax_{q} u'(q,s,t) \nonumber \\
+  \label{eq:decode_B}
+  &= \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1} \left(
+    \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right) \\
+  \nu(s,t+1) &= u'(B(s,t),s,t) \nonumber \\
+  &=  -\frac{1}{2}(s-\mu_{t+1})^T
+  \Sigma_{t+1}^{-1}(s-\mu_{t+1}) + R_{t+1} \nonumber \\
+  \label{eq:new_Sigma}
+  \Sigma_{t+1}^{-1} & = O^T\Sigma_O O + \left( \Sigma_D + A \Sigma_t
+    A^T \right)^{-1} \\
+  \label{eq:new_mu}
 \end{align}
+I derive \eqref{eq:decode_B} by solving\footnote{The derivation of
+  \eqref{eq:decode_B}:
+  \begin{align*}
+    \frac{d u'(q,s,t)}{d q} &= -\Sigma_t^{-1}(q-\mu_t) + A^T \Sigma_D^{-1}
+    (s - Aq) \\
+    &= \Sigma_t^{-1}\mu_t + A^T \Sigma_D^{-1} s -(\Sigma_t^{-1} +
+    A^T\Sigma_D^{-1}A)q \\
+    q &= \left( \Sigma_t^{-1} + A^T\Sigma_D^{-1}A\right)^{-1} \left(
+      \Sigma_t^{-1}\mu_t + A^T \Sigma_D^{-1} s \right)
+  \end{align*}
+}
+\begin{equation*}
+  \frac{d u'(q,s,t)}{d q} = 0.
+\end{equation*}
+Note that the independent variable $s$ in \eqref{eq:decode_B} is the
+state at the future time $t+1$, while in \eqref{eq:decode_u'}, $s$ is
+the state at the earlier time $t$.  I obtain \eqref{eq:new_Sigma} by
+expanding $u'(B(s,t),s,t)$ and completing the square\footnote{Letting
+  $B$ denote $\left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
+  \left( \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right)$, I write
+  \begin{align*}
+    \nu(s,t+1) &=  -\frac{1}{2}(B-\mu_{t})^T \Sigma_{t}^{-1}
+    (B-\mu_{t}) + R_t  - \frac{1}{2} (s-AB)^T \Sigma_{D}^{-1} (s-AB)
+    \\
+    &\quad - \frac{1}{2}(\ti{y}{t+1}-O s)^T \Sigma_{O}^{-1}
+    (\ti{y}{t+1}-Os) \\
+    &= s^T q s - 2s^T l + c
+  \end{align*}
+  where the constant term $c$ is irrelevant and the quadratic, $q$,
+  linear, $l$ terms are
+  \begin{align*}
+    q &= \\
+    l &=
+  \end{align*}
+  The results \eqref{eq:new_Sigma} and \eqref{eq:new_mu} follow by
+  applying
+  \begin{align*}
+    \Sigma_{t+1}^{-1} &= q \\
+    \mu_{t+1} &= \Sigma_{t+1} l
+  \end{align*}
+
+}.
 
 \vfill \hrule
 \section{Old Stuff}
