@@ -328,6 +328,7 @@ I can write the following recursion:
   \Sigma_{t+1}^{-1} & = O^T\Sigma_O O + \left( \Sigma_D + A \Sigma_t
     A^T \right)^{-1} \\
   \label{eq:new_mu}
+  \mu_{t+1} &=
 \end{align}
 I derive \eqref{eq:decode_B} by solving\footnote{The derivation of
   \eqref{eq:decode_B}:
@@ -378,13 +379,10 @@ expanding $u'(B(s,t),s,t)$ and completing the square\footnote{Using
     ( \Sigma_t^{-1} + A^T\Sigma_D^{-1}A )^{-1}A^T\Sigma_D^{-1}\\
     &= O^T\Sigma_O^{-1}O + (\Sigma_D + A \Sigma_t A^T)^{-1}
     \text{ by matrix inversion lemma} \\
-    l &= F^T \Sigma_t^{-1}(G-\mu_t) - (1-AF)^T\Sigma_D^{-1}AG -
-    O^T\Sigma_O^{-1}y(t+1)  \\
-    &= F^T(\Sigma_t^{-1}+A^T\Sigma_D^{-1}A)G - F^T\Sigma_t^{-1}\mu_t -
-    \Sigma_D^{-1}AG - O^T\Sigma_O^{-1}y(t+1) \\
-    &= -\Sigma_D^{-1}AG - O^T\Sigma_O^{-1}y(t+1) \\
-    &= -\Sigma_D^{-1}A \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A
-    \right)^{-1} \Sigma_t^{-1} \mu_t - O^T\Sigma_O^{-1}y(t+1)
+    l &= O^T\Sigma_O^{-1}y(t+1) - F^T \Sigma_t^{-1}(G-\mu_t) +
+    (1-AF)^T\Sigma_D^{-1}AG \\
+    &= O^T\Sigma_O^{-1}y(t+1) + \Sigma_D^{-1}A \left( \Sigma_t^{-1} +
+      A^T \Sigma_D^{-1} A \right)^{-1} \Sigma_t^{-1} \mu_t
   \end{align*}
   The results \eqref{eq:new_Sigma} and \eqref{eq:new_mu} follow by
   applying
