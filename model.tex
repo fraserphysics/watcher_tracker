@@ -32,12 +32,13 @@
 \section{Introduction}
 \label{sec:introduction}
 
-Frame by frame detection/tagging could use the result of a \emph{filtered}
-forecast, ie,
+Frame by frame detection/tagging could use the result of a
+\emph{filtered} forecast\footnote{$P(S(t)|y_1^{t-1})$ is the entire a
+  posteriori distribution.}, ie,
 \begin{equation*}
   P(S(t)|y_1^{t-1}).
 \end{equation*}
-Note that the best or \emph{decoded} track ie,
+Note that the maximum a posteriori (MAP) or \emph{decoded} track ie,
 \begin{align*}
   \hat s_1^T &\equiv \argmax_{s_1^T} P(s_1^T|y_1^{t-1}) \\
             &=  \argmax_{s_1^T} P(s_1^T,y_1^{t-1})
@@ -74,19 +75,18 @@ I can write recursive filtering as follows:
 
 I will use the following definitions to describe decoding:
 \begin{align*}
-  u(\ts{s}{\tau}{1}{t}) &\equiv \log \left(
-    P(\ts{y}{\tau}{1}{t},\ts{s}{\tau}{1}{t} \right) \\ & \quad
-  \text{Utility of state sequence } \ts{s}{\tau}{1}{t}\\
-  \nu(s,t) & \equiv \max_{\ts{s}{\tau}{1}{t}:\ti{s}{t}=s}
-  u(\ts{s}{\tau}{1}{t}) \\
-  & \quad \text{Utility of best sequence ending with } \ti{s}{t} = s \\
-  u'(s,s',t) &\equiv
-  \argmax_{\ts{s}{\tau}{1}{t+1}:\ti{s}{t}=s \&\ti{s}{t+1}=s'}
+  u(\ts{s}{\tau}{1}{t}) & \quad \text{Utility of state sequence }
+  \ts{s}{\tau}{1}{t}\\
+  & \quad \equiv \log \left( P(\ts{y}{\tau}{1}{t},\ts{s}{\tau}{1}{t} \right)
+  \\
+  \nu(s,t) & \quad \text{Utility of best sequence ending with }
+  \ti{s}{t} = s \\ 
+  &  \quad \equiv \max_{\ts{s}{\tau}{1}{t}:\ti{s}{t}=s} u(\ts{s}{\tau}{1}{t}) \\
+  u'(s,s',t) & \quad \text{Utility of best sequence ending with }
+  \ti{s}{t},\ti{s}{t+1} = s,s' \\
+  &  \quad \equiv \max_{\ts{s}{\tau}{1}{t+1}:\ti{s}{t}=s \&\ti{s}{t+1}=s'}
   u(\ts{s}{\tau}{1}{t+1}) \\
-  & \quad \text{Utility of best sequence ending with }
-    \ti{s}{t},\ti{s}{t+1} = s,s' \\
-  B(s,t) &\equiv \argmax_{s'} u'(s',s,t)) \\
-  & \quad \text{Best predecessor state given } \ti{s}{t+1}=s
+  B(s,t) & \quad \text{Best predecessor state given } \ti{s}{t+1}=s   
 \end{align*}
 I can evaluate the functions $B(*,t)$ and $\nu(*,t)$ recursively as
 follows:
@@ -195,8 +195,8 @@ the following 3 degrees of freedom:
   \end{tabular} 
 \end{center}
 
-\subsection{Approximation Schemes for Filtering}
-\label{sec:approximation.filter}
+\subsection{Filtering}
+\label{sec:filter1}
 
 With luck (I have not been so lucky with this application) one might
 find a parametric form for the state prior $\alpha(0)$ (see
@@ -282,20 +282,14 @@ number of components in the mixture $\left| \ts{M}{t}{1}{T}\right| =
 (N!)^T$ is absurdly large.
 
 \subsubsection{Approximating with $\hat M$}
-\label{sec:Mhat.filter}
+\label{sec:Mhat.filter1}
 
 Approximate the sum with a single $\ts{\hat M}{t}{1}{T}$.  Try to select
 $\ts{\hat M}{t}{1}{T}$ to get the biggest term in the sum.
 Alternatively, use a few terms.
 
-\subsubsection{Joint Probabilistic Data Association}
-\label{sec:JPDA.filter}
-
-\subsubsection{Multiple Hypothesis Tracking}
-\label{sec:MHT.filter}
-
-\subsection{Approximation Schemes for Decoding}
-\label{sec:approximation.decode}
+\subsection{Decoding}
+\label{sec:decode1}
 
 A solution to the decoding problem
 \begin{align*}
@@ -304,6 +298,9 @@ A solution to the decoding problem
 \end{align*}
 contains only a single sequence of permutations $\ts{\hat
   M}{t}{1}{T}$.  Thus I need not approximate a mixture of Gaussians.
+
+\subsubsection{Single Sequence}
+\label{sec:single-sequence}
 
 I'll begin by considering decoding a trajectory of a single object
 from a single sequence of observations.  Using the notation in
@@ -328,7 +325,7 @@ I can write the following recursion:
   \Sigma_{t+1}^{-1} & = O^T\Sigma_O O + \left( \Sigma_D + A \Sigma_t
     A^T \right)^{-1} \\
   \label{eq:new_mu}
-  \mu_{t+1} &=
+  \mu_{t+1} &= A \mu_t + \Sigma_{t+1} O^T \Sigma_O^{-1} (\ti{y}{t+1} - OA \mu_t)
 \end{align}
 I derive \eqref{eq:decode_B} by solving\footnote{The derivation of
   \eqref{eq:decode_B}:
@@ -346,57 +343,93 @@ I derive \eqref{eq:decode_B} by solving\footnote{The derivation of
 \end{equation*}
 Note that the independent variable $s$ in \eqref{eq:decode_B} is the
 state at the future time $t+1$, while in \eqref{eq:decode_u'}, $s$ is
-the state at the earlier time $t$.  I obtain \eqref{eq:new_Sigma} by
-expanding $u'(B(s,t),s,t)$ and completing the square\footnote{Using
-  the notation
-  \begin{align*}
-    B &\equiv \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
+the state at the earlier time $t$.  See Appendix~\ref{app:decode} for
+the derivation of \eqref{eq:new_Sigma} and \eqref{eq:new_mu}.  I am
+surprised that the resulting recursion for $\nu(s,t)$ is exactly
+Kalman filtering.
+
+% \subsubsection{Joint Probabilistic Data Association}
+% \label{sec:JPDA1}
+
+% \subsubsection{Multiple Hypothesis Tracking}
+% \label{sec:MHT1}
+
+\appendix
+\section{Derivation of Formulas for Decoding the Trajectory of a Single Object}
+\label{app:decode}
+
+I obtain \eqref{eq:new_Sigma} and \eqref{eq:new_mu} by expanding
+$u'(B(s,t),s,t)$ and completing the square.  I'll abbreviate $B(s,t)$
+with $B$, using the notation
+\begin{align*}
+  B &\equiv \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
   \left( \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right) \\
   &= G + Fs \\
   G &\equiv \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
   \Sigma_t^{-1} \mu_t \\
   F &\equiv  \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
-  A^T \Sigma_D^{-1},
-  \end{align*}
-  I write
-  \begin{align*}
-    \nu(s,t+1) &=  -\frac{1}{2}(B-\mu_{t})^T \Sigma_{t}^{-1}
-    (B-\mu_{t}) + R_t\\
-    &\quad - \frac{1}{2} (s-AB)^T \Sigma_{D}^{-1} (s-AB)\\
-    &\quad - \frac{1}{2}(\ti{y}{t+1}-O s)^T \Sigma_{O}^{-1}
-    (\ti{y}{t+1}-Os) \\
-    -2 \nu(s,t+1) &= (G-\mu_{t}+Fs)^T \Sigma_{t}^{-1} (G-\mu_{t}+Fs) \\
-    &\quad + ((1-AF)s-AG)^T \Sigma_{D}^{-1} ((1-AF)s-AG)\\
-    &\quad + (\ti{y}{t+1}-O s)^T \Sigma_{O}^{-1} (\ti{y}{t+1}-Os) -2R_t \\
-    &= s^T q s - 2s^T l + c
-  \end{align*}
-  where the constant term $c$ is irrelevant and the quadratic and
-  linear terms are
-  \begin{align*}
-    q &= F^T\Sigma_t^{-1}F + (1-AF)^T\Sigma_D^{1-}(1-AF) +
-    O^T\Sigma_O^{-1}O \\
-    &= O^T\Sigma_O^{-1}O + \Sigma_D^{-1} - \Sigma_D^{-1}A
-    ( \Sigma_t^{-1} + A^T\Sigma_D^{-1}A )^{-1}A^T\Sigma_D^{-1}\\
-    &= O^T\Sigma_O^{-1}O + (\Sigma_D + A \Sigma_t A^T)^{-1}
-    \text{ by matrix inversion lemma} \\
-    l &= O^T\Sigma_O^{-1}y(t+1) - F^T \Sigma_t^{-1}(G-\mu_t) +
-    (1-AF)^T\Sigma_D^{-1}AG \\
-    &= O^T\Sigma_O^{-1}y(t+1) + \Sigma_D^{-1}A \left( \Sigma_t^{-1} +
-      A^T \Sigma_D^{-1} A \right)^{-1} \Sigma_t^{-1} \mu_t
-  \end{align*}
-  The results \eqref{eq:new_Sigma} and \eqref{eq:new_mu} follow by
-  applying
-  \begin{align*}
-    \Sigma_{t+1}^{-1} &= q \\
-    \mu_{t+1} &= \Sigma_{t+1} l
-  \end{align*}
+  A^T \Sigma_D^{-1}.
+\end{align*}
+I find
+\begin{align*}
+  \nu(s,t+1) &=  -\frac{1}{2}(B-\mu_{t})^T \Sigma_{t}^{-1}
+  (B-\mu_{t}) + R_t\\
+  &\quad - \frac{1}{2} (s-AB)^T \Sigma_{D}^{-1} (s-AB)\\
+  &\quad - \frac{1}{2}(\ti{y}{t+1}-O s)^T \Sigma_{O}^{-1}
+  (\ti{y}{t+1}-Os) \\
+  -2 \nu(s,t+1) &= (G-\mu_{t}+Fs)^T \Sigma_{t}^{-1} (G-\mu_{t}+Fs) \\
+  &\quad + ((1-AF)s-AG)^T \Sigma_{D}^{-1} ((1-AF)s-AG)\\
+  &\quad + (\ti{y}{t+1}-O s)^T \Sigma_{O}^{-1} (\ti{y}{t+1}-Os) -2R_t \\
+  &= s^T q s - 2s^T l + c
+\end{align*}
+where the constant term $c$ is irrelevant.  The quadratic term is
+\begin{align*}
+  q &= F^T\Sigma_t^{-1}F + (1-AF)^T\Sigma_D^{1-}(1-AF) +
+  O^T\Sigma_O^{-1}O \\
+  &= O^T\Sigma_O^{-1}O + \Sigma_D^{-1} - \Sigma_D^{-1}A
+  ( \Sigma_t^{-1} + A^T\Sigma_D^{-1}A )^{-1}A^T\Sigma_D^{-1}\\
+  &= O^T\Sigma_O^{-1}O + (\Sigma_D + A \Sigma_t A^T)^{-1}
+\end{align*}
+where the last line follows from the matrix inversion lemma, ie,
+\begin{equation*}
+  (L^{-1} + H^T J^{-1} H)^{-1} = L - LH^T (HLH^T + J)^{-1} HL.
+\end{equation*}
+Equation~\eqref{eq:new_Sigma} follows from $\Sigma_{t+1}^{-1} = q$.
+The linear term is
+\begin{align*}
+  l &= O^T\Sigma_O^{-1}y(t+1) - F^T \Sigma_t^{-1}(G-\mu_t) +
+  (1-AF)^T\Sigma_D^{-1}AG \\
+  &= O^T\Sigma_O^{-1}y(t+1) + \Sigma_D^{-1}A \left( \Sigma_t^{-1} +
+    A^T \Sigma_D^{-1} A \right)^{-1} \Sigma_t^{-1} \mu_t.
+\end{align*}
 
-}.
+While I could (and have with much pain) derive Eqn.~\eqref{eq:new_mu}
+from the formula $\mu_{t+1} = \Sigma_{t+1} l$, here I only verify that
+$q \mu_{t+1} = l$.  I will use the following lemma:
+\begin{align*}
+  (q-O^T\Sigma^{-1}O)A &= \left( \Sigma_D^{-1} - \Sigma_D^{-1} A (
+    \Sigma_t^{-1} + A^T \Sigma_D^{-1} A)^{-1} A^T \Sigma_D^{-1}
+  \right) A \\
+  &= (\Sigma_D + A \Sigma_t A^T)^{-1} A \quad \text{ by matrix inversion
+    lemma} \\
+  &= (A \Sigma_D + \Sigma_t A^T)^{-1} \\
+  &= (\Sigma_t^{-1} A \Sigma_D + A^T)^{-1} \Sigma_t^{-1}\\
+  &= \Sigma_D^{-1} (\Sigma_t^{-1} A  + A^T\Sigma_D^{-1})^{-1} \Sigma_t^{-1}\\
+  &= \Sigma_D^{-1} A (\Sigma_t^{-1}  + A^T\Sigma_D^{-1} A)^{-1} \Sigma_t^{-1}.
+\end{align*}
+Now the verification is simply:
+\begin{align*}
+  q \mu_{t+1} &= qA\mu_t + O^T \Sigma_O^{-1} \ti{y}{t+1} - O^T
+  \Sigma_O O A \mu_t \\
+  &= O^T \Sigma_O^{-1} \ti{y}{t+1} + (q - O^T \Sigma_O O) A \mu_t \\
+  &= O^T\Sigma_O^{-1}y(t+1) + \Sigma_D^{-1}A \left( \Sigma_t^{-1} +
+    A^T \Sigma_D^{-1} A \right)^{-1} \Sigma_t^{-1} \mu_t \quad \text{
+    by the lemma}\\
+  &= l.
+\end{align*}
 
-\vfill \hrule
-\section{Old Stuff}
-\label{sec:old-stuff}
-
+\newpage
+\hrule
 From here on I've just kept old text that I might use again as I
 develop the document.\\
 \hrule
