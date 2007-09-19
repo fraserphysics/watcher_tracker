@@ -138,6 +138,31 @@ class MV1:
             obs.append(obs_t)
             states.append(state_t)
         return obs,states
+
+    def decode(self,
+               Ys # Sequence of observations
+               ):
+        """Return MAP state sequence """
+        T = len(Ys)
+
+        # Set up storage for nu's and B's
+        perm_list = range(self.N_perm)
+        for p in perm_list:
+            perm = {}
+            perm_list[p] = perm
+            perm['nu_s'] = range(T) # Parameters of utility map
+            for t in perm['nu_s']:
+                nu_s = range(self.N_obj)
+                perm['nu_s'][t] = nu_s
+                for k in nu_s:
+                    nu_s_k = {}
+                    nu_s[k] = nu_s_k
+                    nu_s_k['mu'] = None
+                    nu_s_k['Sigma'] = None
+            perm['B_p'] = range(T)  # List of best predecessor permutations
+
+        # Initialize using Prob_{perm|t}(0|0) = 1, ie, the first
+        # permutation is the identity
     
 #---------------
 # Local Variables:
