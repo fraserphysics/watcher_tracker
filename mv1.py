@@ -4,6 +4,9 @@ mv1.py unrealistic code for small simple models
 """
 import numpy, scipy, scipy.linalg, random, math
 
+from itertools import izip
+argmax = lambda array: max(izip(array, xrange(len(array))))[1] # Daniel Lemire
+
 def index_to_permute(i,  # Index in range [0,n!-1]
                      n   # Number of items
                      ):  # Returns array of n items describing the permutation
@@ -80,7 +83,9 @@ class MV1:
       decode()
       simulate()
 
-    Service methods: check()
+    Service methods:
+      check()
+      __init__()
 
     Debugging method: dump()
 
@@ -103,9 +108,9 @@ class MV1:
         self.Sigma_init = scipy.matrix(Sigma_init)
         if mu_init == None:
             dim = self.Sigma_init.shape[0]
-            self.mu_init = scipy.matrix(scipy.zeros(dim))
+            self.mu_init = scipy.matrix(scipy.zeros(dim)).T
         else:
-            self.mu_init = scipy.matrix(mu_init)
+            self.mu_init = scipy.matrix(mu_init).T
 
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
@@ -122,7 +127,11 @@ class MV1:
         obs = []
         states = []
         for t in xrange(T):
-            permute = index_to_permute(random.randint(0,self.N_perm-1),self.N_obj)
+            if t>0:
+                i = random.randint(0,self.N_perm-1)
+            else:
+                i = 0 # No shuffle for t=0
+            permute = index_to_permute(i,self.N_obj)
             obs_t = range(self.N_obj) # Make list with length N_obj
             state_t = []
             for j in xrange(self.N_obj):
@@ -138,32 +147,140 @@ class MV1:
             obs.append(obs_t)
             states.append(state_t)
         return obs,states
+    
+    def new_nu_k(self,
+                 old_nu_k, # The nu_s dict for the object last time
+                 y         # The observation of the object at the current time
+                 ):
+        """ Return the dict of nu_s for the object at the current time"""
 
+        # Unpack necessary matrices from self and old_nu_k
+        mu_t = old_nu_k['mu']
+        Sig_t = old_nu_k['Sigma']
+        R_t = old_nu_k['R']
+        
+        O = self.O
+        Sig_O_I = scipy.linalg.inv(self.Sigma_O)
+        Sig_D = self.Sigma_D
+        A = self.A
+
+        # Calculate new values
+        X =  scipy.linalg.inv(Sig_D + A*Sig_t*A.T) # An intermediate result
+        Sig_tnew_I = O.T*Sig_O_I*O + X
+        Sig_tnew = scipy.linalg.inv(Sig_tnew_I)
+        mu_tnew = A*mu_t + Sig_tnew*O.T*Sig_O_I*(y-O*A*mu_t)
+        R_tnew = R_t - float(mu_t.T*A.T*X*A*mu_t - mu_tnew.T*Sig_tnew_I*mu_tnew)/2
+        new_nu_k = {}
+        new_nu_k['mu'] = mu_tnew
+        new_nu_k['Sigma'] = Sig_tnew
+        new_nu_k['R'] = R_tnew
+        return new_nu_k
+    
+    def new_nu(self,
+               nu_oldt, # List of nu_s dicts for each object
+               perm_new, # Perm dict for current permutation
+               y_t       # List of current observations of each object
+              ):
+        """ Return a list consisting of a nu_s dict for each object"""
+        p_vec = perm_new['p_vector']
+        return_nu = []
+        for k in xrange(len(nu_oldt)):
+            return_nu.append(self.new_nu_k(nu_oldt[k],y_t[p_vec[k]]))
+        return return_nu
+    
     def decode(self,
-               Ys # Sequence of observations
+               Ys # List of lists of observations
                ):
         """Return MAP state sequence """
         T = len(Ys)
 
         # Set up storage for nu's and B's
-        perm_list = range(self.N_perm)
-        for p in perm_list:
+        perm_list = []
+        for p in xrange(self.N_perm):
             perm = {}
-            perm_list[p] = perm
-            perm['nu_s'] = range(T) # Parameters of utility map
-            for t in perm['nu_s']:
-                nu_s = range(self.N_obj)
-                perm['nu_s'][t] = nu_s
-                for k in nu_s:
-                    nu_s_k = {}
-                    nu_s[k] = nu_s_k
-                    nu_s_k['mu'] = None
-                    nu_s_k['Sigma'] = None
-            perm['B_p'] = range(T)  # List of best predecessor permutations
+            perm['p_vector'] = index_to_permute(p,self.N_obj)
+            perm['B_p'] = []  # List of best predecessor permutations
+            perm['nu_s'] = [] # List of utlity of best path to s
+            for t in xrange(T):
+                perm['B_p'].append(None)
+                nu_s_t = []
+                for k in xrange(self.N_obj):
+                    nu_s_t_k = {}
+                    nu_s_t_k['mu'] = None
+                    nu_s_t_k['Sigma'] = None
+                    nu_s_t_k['R'] = None
+                    nu_s_t.append(nu_s_t_k)
+                perm['nu_s'].append(nu_s_t)
+            perm_list.append(perm)
 
-        # Initialize using Prob_{perm|t}(0|0) = 1, ie, the first
-        # permutation is the identity
-    
+        # For first time step (t=0), only consider permutation zero
+        # and fudge the remainders so that permutation zero will be
+        # decoded
+        old_nu = []
+        for k in xrange(self.N_obj):
+            nu_s_t_k = {}
+            nu_s_t_k['mu'] = self.mu_init
+            nu_s_t_k['Sigma'] = self.Sigma_init
+            nu_s_t_k['R'] = 0.0
+            old_nu.append(nu_s_t_k)
+        for perm_new in perm_list:
+            perm_new['nu_s'][0] = self.new_nu(old_nu,perm_new,Ys[0])
+        for perm_new in perm_list[1:]: # For every perm except first
+            for nu_s_t_k in perm_new['nu_s'][0]:
+                nu_s_t_k['R'] -= 1     # Make first permutation at
+                                       # first time the best
+        
+        # Forward pass through time
+        for t in xrange(1,T):
+            for perm_new in perm_list:
+                trial_nu_R = scipy.zeros(self.N_perm)
+                trial_nu = []
+                for p in xrange(self.N_perm):
+                    old_nu = perm_list[p]['nu_s'][t-1]
+                    trial_nu.append(self.new_nu(old_nu,perm_new,Ys[t]))
+                    R = 0.0
+                    for nu_s_t_k in trial_nu[p]:
+                        R = R + nu_s_t_k['R']
+                    trial_nu_R[p] = R
+                b = trial_nu_R.argmax()
+                perm_new['nu_s'][t] = trial_nu[b]
+                perm_new['B_p'][t] = b
+
+        # Find the best last permutation and state
+        R = scipy.zeros(self.N_perm)
+        for p in xrange(self.N_perm):
+            nu_last = perm_list[p]['nu_s'][T-1]
+            R_p = 0.0
+            for nu_last_k in nu_last:
+                R_p = R_p + nu_last_k['R']
+        b = R.argmax()
+        
+        s_all = range(T)
+        s_old = []
+        for k in xrange(self.N_obj):
+            best_last_k = perm_list[b]['nu_s'][t][k]['mu']
+            s_old.append(best_last_k)
+        s_all[T-1] = s_old
+        
+        # Backtrack to get trajectories
+        A = self.A
+        X = A.T * scipy.linalg.inv(self.Sigma_D) # An intermediate
+        for t in xrange(T-2,-1,-1):
+            b = perm_list[b]['B_p'][t+1]
+            perm_t = perm_list[b]
+            s_t = []
+            for k in xrange(self.N_obj):
+                nu_t_k = perm_t['nu_s'][t][k]
+                Sig_t_I = scipy.linalg.inv(nu_t_k['Sigma'])
+                mu_t = nu_t_k['mu']
+                
+                s_t.append(scipy.linalg.inv(Sig_t_I + X*A)*
+                (Sig_t_I*mu_t + X*s_old[k]))
+            
+            s_all[t] = s_t
+            s_old = s_t
+        return s_all
+            
 #---------------
 # Local Variables:
 # eval: (python-mode)
