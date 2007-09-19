@@ -330,12 +330,18 @@ I can write the following recursion:
     A^T \right)^{-1} \\
   \label{eq:new_mu}
   \mu_{t+1} &= A \mu_t + \Sigma_{t+1} O^T \Sigma_O^{-1} (\ti{y}{t+1} -
-  OA \mu_t) \\
-  R_{t+1} &= R_t -\frac{1}{2} ( \mu_t^T A^T (A\Sigma_t A^T +
-  \Sigma_D)^{-1} A \mu_t  + y^T \Sigma_Oy \nonumber \\
-  \label{eq:new_R}
-  & \quad \quad \quad \quad - \mu^T_{t+1} \Sigma_{t+1}^{-1} \mu_{t+1} + \logdet )
+  OA \mu_t)
 \end{align}
+\begin{subequations}
+  \label{eq:new_R}
+  \begin{align}
+    R_{t+1} = R_t -\frac{1}{2} \Big( &
+    \mu_t^T  A^T(A\Sigma_t A^T + \Sigma_D)^{-1}A \mu_t 
+    - \mu_{t+1}^T \Sigma_{t+1}^{-1} \mu_{t+1} \\
+    \label{eq:new_R.const}
+    & + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} + \logdet \Big)
+  \end{align}
+\end{subequations}
 I derive \eqref{eq:decode_B} by
 solving\footnote{The derivation of \eqref{eq:decode_B}:
   \begin{align*}
@@ -356,6 +362,18 @@ the state at the earlier time $t$.  See Appendix~\ref{app:decode} for
 the derivation of \eqref{eq:new_Sigma} and \eqref{eq:new_mu}.  I am
 surprised that the resulting recursion for $\nu(s,t)$ is exactly
 Kalman filtering.
+
+\subsubsection{Multiple Objects}
+\label{sec:multiple}
+
+I consider the possible permutations at each time to be a discrete
+component of the \emph{state} $\ti{s}{t}$.  Each $B(s,t)$ maps from
+$(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time $t$, and each
+$\nu(s,t)$ maps from a pair $(M,s)$ at time $t$ to the utility of the
+best path ending at $(M,s,t)$.  While I use the values of $R_{t}$ to
+determine the best predecessor permutations, I drop the terms in
+\eqref{eq:new_R.const} from Eqn.~\eqref{eq:new_R} because they are
+independent of both $M$ and $s$.
 
 % \subsubsection{Joint Probabilistic Data Association}
 % \label{sec:JPDA1}
@@ -460,12 +478,12 @@ I write the constant term as
   + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} - 2R_t  + \logdet,
 \end{align*}
 and find
-\begin{equation*}
-  R_{t+1} = R_t -\frac{1}{2} \mu_t^T  A^T(A\Sigma_t A^T +
-  \Sigma_D)^{-1}A \mu_t -\frac{1}{2}\ti{y^T}{t+1} \Sigma_O^{-1}
-  \ti{y}{t+1} + \frac{1}{2}  \mu_{t+1}^T \Sigma_{t+1}^{-1}
-  \mu_{t+1} -\frac{1}{2} \logdet
-\end{equation*}
+\begin{align*}
+  R_{t+1} = R_t -\frac{1}{2} \Big( &
+  \mu_t^T  A^T(A\Sigma_t A^T + \Sigma_D)^{-1}A \mu_t 
+   - \mu_{t+1}^T \Sigma_{t+1}^{-1} \mu_{t+1} \\
+  & + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} + \logdet \Big)
+\end{align*}
 
 
 
