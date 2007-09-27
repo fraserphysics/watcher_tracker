@@ -8,17 +8,19 @@ import demo
 from matplotlib.numerix import arange, sin, cos, pi
 
 
+theta = arange(0, 45*2*pi, 0.02)
+rad = (0.8*theta/(2*pi)+1)
+r = rad*(8 + sin(theta*7+rad/1.8))
+x = r*cos(theta)
+y = r*sin(theta)
+        
 class DemoPlotPanel(demo.PlotPanel):
     """An example plotting panel. The only method that needs 
     overriding is the draw method"""
     def draw(self):
+        global x,y
         if not hasattr(self, 'subplot'):
             self.subplot = self.figure.add_subplot(111)
-        theta = arange(0, 45*2*pi, 0.02)
-        rad = (0.8*theta/(2*pi)+1)
-        r = rad*(8 + sin(theta*7+rad/1.8))
-        x = r*cos(theta)
-        y = r*sin(theta)
         #Now draw it
         self.subplot.plot(x,y, '-r')
         #Set some plot attributes
@@ -51,10 +53,11 @@ class view_mv1_frame(wx.Frame):
         self.Destroy()
 
     def OnPlotClicked(self, event):
-        #global plot_panel, frame
-        print "Plot"
-        #plot_panel.draw()
-        #frame.Show()
+        global x,y,theta
+        print "self.plot_panel.canvas._drawn =",self.plot_panel.canvas._drawn
+        x = theta
+        y = theta
+        self.plot_panel.draw()
 
 class ControlPanel(wx.Panel):
 
