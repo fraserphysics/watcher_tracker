@@ -1,7 +1,8 @@
-import mv1, time
+import mv1, time,random
+random.seed(3)
 ts = time.time()
 M = mv1.MV1(N_obj=4)
-y,s = M.simulate(20)
+y,s = M.simulate(5)
 d = M.decode(y)
 print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
 for t in xrange(len(y)):

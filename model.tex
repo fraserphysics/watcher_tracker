@@ -368,6 +368,41 @@ the derivation of \eqref{eq:new_Sigma} and \eqref{eq:new_mu}.  I am
 surprised that the resulting recursion for $\nu(s,t)$ is exactly
 Kalman filtering.
 
+For efficiency, use the following procedure to implement the forward
+recursion:
+\begin{description}
+\item[Calculate the state forecast mean and covariance:]
+  \begin{align*}
+    \mu_a &= A\mu_t \\
+    \Sigma_a &= A \Sigma_t A^T + \Sigma_D
+  \end{align*}
+\item[Calculate the inverse covariance of the forecast observation:]
+  \begin{equation*}
+   \Sigma_y^{-1} = \Sigma_O^{-1} +  \Sigma_O^{-1} O \Sigma_{t+1} O^T
+   \Sigma_O^{-1}
+  \end{equation*}
+\item[Calculate the Kalman gain matrix $K$:]
+  \begin{equation*}
+    K = \Sigma_a O^T \Sigma_y^{-1}
+  \end{equation*}
+\item[Calculate the forecast error:]
+  \begin{equation*}
+    \Delta_y = \ti{y}{t+1} - O\mu_a
+  \end{equation*}
+\item[Calculate the updated mean and covariance:]
+  \begin{align*}
+    \mu_{t+1} &= \mu_a +  K\Delta_y \\
+    \Sigma_{t+1} &= (1-KO)\Sigma_a
+  \end{align*}
+\item[Calculate the new $R$:]
+  \begin{equation*}
+    R_{t+1} = R_t - \frac{1}{2} \left(\Delta_y^T \Sigma_y^{-1}
+      \Delta_y \right)
+  \end{equation*}
+\end{description}
+
+
+
 \subsubsection{Multiple Objects}
 \label{sec:multiple}
 
@@ -452,9 +487,9 @@ $q \mu_{t+1} = l$.  I will use the following lemma:
   \right) A \\
   &= (\Sigma_D + A \Sigma_t A^T)^{-1} A \quad \text{ by matrix inversion
     lemma} \\
-  &= (A \Sigma_D + \Sigma_t A^T)^{-1} \\
-  &= (\Sigma_t^{-1} A \Sigma_D + A^T)^{-1} \Sigma_t^{-1}\\
-  &= \Sigma_D^{-1} (\Sigma_t^{-1} A  + A^T\Sigma_D^{-1})^{-1} \Sigma_t^{-1}\\
+  &= (A^{-1} \Sigma_D + \Sigma_t A^T)^{-1} \\
+  &= (\Sigma_t^{-1} A^{-1} \Sigma_D + A^T)^{-1} \Sigma_t^{-1}\\
+  &= \Sigma_D^{-1} (\Sigma_t^{-1} A^{-1}  + A^T\Sigma_D^{-1})^{-1} \Sigma_t^{-1}\\
   &= \Sigma_D^{-1} A (\Sigma_t^{-1}  + A^T\Sigma_D^{-1} A)^{-1} \Sigma_t^{-1}.
 \end{align*}
 Now the verification is simply:
@@ -742,8 +777,8 @@ The following adjustments come to mind:
   $\Sigma_{a,j}$
 \end{description}
 
-\vfill \hrule
-In \emph{svn://fraserphysics.com/ps}.
+\vfill \hrule To checkout: \emph{ svn --username you --password yours
+  co svn://fraserphysics.com/ps}
 \begin{verbatim}
 $Id$
 \end{verbatim}

@@ -152,7 +152,8 @@ class MV1:
                  old_nu_k, # The nu_s dict for the object last time
                  y         # The observation of the object at the current time
                  ):
-        """ Return the dict of nu_s for the object at the current time"""
+        """ Return the dict of nu_s for the object at the current
+        time.  This is essentially Kalman filtering."""
 
         # Unpack necessary matrices from self and old_nu_k
         mu_t = old_nu_k['mu']
@@ -163,13 +164,21 @@ class MV1:
         Sig_O_I = scipy.linalg.inv(self.Sigma_O)
         Sig_D = self.Sigma_D
         A = self.A
+        Id = scipy.matrix(scipy.identity(Sig_D.shape[0]))
 
+        # Calculate intermediates
+        Sig_a = A*Sig_t*A.T + Sig_D      # Covariance of state forecast
+        mu_a = A*mu_t                    # Mean of state forecast
+        Delta_y = y - O*mu_a             # Error of forecast observation
+        Sig_y = O*Sig_a*O.T+self.Sigma_O # Covariance of forecast observation
+        Sig_y_I = scipy.linalg.inv(O*Sig_a*O.T+self.Sigma_O)
+        K = Sig_a*O.T*Sig_y_I            # Kalman gain
+        
         # Calculate new values
-        X =  scipy.linalg.inv(Sig_D + A*Sig_t*A.T) # An intermediate result
-        Sig_tnew_I = O.T*Sig_O_I*O + X
-        Sig_tnew = scipy.linalg.inv(Sig_tnew_I)
-        mu_tnew = A*mu_t + Sig_tnew*O.T*Sig_O_I*(y-O*A*mu_t)
-        R_tnew = R_t - float(mu_t.T*A.T*X*A*mu_t - mu_tnew.T*Sig_tnew_I*mu_tnew)/2
+        Sig_tnew = (Id-K*O)*Sig_a
+        mu_tnew = mu_a + K*Delta_y
+        R_tnew = R_t - float(Delta_y.T*Sig_y_I*Delta_y)/2
+        
         new_nu_k = {}
         new_nu_k['mu'] = mu_tnew
         new_nu_k['Sigma'] = Sig_tnew
@@ -229,7 +238,6 @@ class MV1:
             for nu_s_t_k in perm_new['nu_s'][0]:
                 nu_s_t_k['R'] -= 1     # Make first permutation at
                                        # first time the best
-        
         # Forward pass through time
         for t in xrange(1,T):
             for perm_new in perm_list:
