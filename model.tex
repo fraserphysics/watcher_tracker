@@ -329,19 +329,24 @@ I can write the following recursion:
   \Sigma_{t+1}^{-1} & = O^T\Sigma_O^{-1} O + \left( \Sigma_D + A \Sigma_t
     A^T \right)^{-1} \\
   \label{eq:new_mu}
-  \mu_{t+1} &= A \mu_t + \Sigma_{t+1} O^T \Sigma_O^{-1} (\ti{y}{t+1} -
-  OA \mu_t)
-\end{align}
-\begin{subequations}
+  \mu_{t+1} &= A \mu_t + \Sigma_{t+1} O^T \Sigma_O^{-1} \Delta_y \\
   \label{eq:new_R}
-  \begin{align}
-    R_{t+1} = R_t -\frac{1}{2} \Big( &
-    \mu_t^T  A^T(A\Sigma_t A^T + \Sigma_D)^{-1}A \mu_t 
-    - \mu_{t+1}^T \Sigma_{t+1}^{-1} \mu_{t+1} \\
-    \label{eq:new_R.const}
-    & + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} + \logdet \Big)
-  \end{align}
-\end{subequations}
+  R_{t+1} &= R_t -\frac{1}{2} \left( \Delta_y^T \Sigma_y^{-1} \Delta_y
+    + \logdet \right),
+\end{align}
+where
+\begin{align}
+  \label{def:Delta_y}
+  \Delta_y &\equiv \ti{y}{t+1} - OA \mu_t \\
+  \label{def:Sigma_y}
+  \Sigma_y &\equiv O(A\Sigma_t A^T + \Sigma_D)O^T + \Sigma_O \\
+  \label{eq:Sigma_yI}
+  \Sigma_y^{-1} &= \Sigma_O^{-1} - \Sigma_O^{-1} O \Sigma_{t+1} O^T
+  \Sigma_O^{-1}.
+\end{align}
+While Defs.~\eqref{def:Delta_y} and  \eqref{def:Sigma_y} are simply
+abbreviations, Eqn.~\eqref{eq:Sigma_yI} requires effort to derive.
+
 I derive \eqref{eq:decode_B} by
 solving\footnote{The derivation of \eqref{eq:decode_B}:
   \begin{align*}
@@ -371,9 +376,9 @@ component of the \emph{state} $\ti{s}{t}$.  Each $B(s,t)$ maps from
 $(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time $t$, and each
 $\nu(s,t)$ maps from a pair $(M,s)$ at time $t$ to the utility of the
 best path ending at $(M,s,t)$.  While I use the values of $R_{t}$ to
-determine the best predecessor permutations, I drop the terms in
-\eqref{eq:new_R.const} from Eqn.~\eqref{eq:new_R} because they are
-independent of both $M$ and $s$.
+determine the best predecessor permutations, I drop the term $\logdet$
+from Eqn.~\eqref{eq:new_R} because they are independent of both $M$
+and $s$.
 
 % \subsubsection{Joint Probabilistic Data Association}
 % \label{sec:JPDA1}
@@ -482,8 +487,53 @@ and find
   R_{t+1} = R_t -\frac{1}{2} \Big( &
   \mu_t^T  A^T(A\Sigma_t A^T + \Sigma_D)^{-1}A \mu_t 
    - \mu_{t+1}^T \Sigma_{t+1}^{-1} \mu_{t+1} \\
-  & + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} + \logdet \Big)
+  & + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} + \logdet \Big).
 \end{align*}
+To verify Eqn.~\eqref{eq:new_R} I'll use the following notation and
+equalities:
+\begin{align}
+  X &\equiv \Sigma_D + A \Sigma_t A^T \\
+  l &= O^T\Sigma_O^{-1} \ti{y}{t+1} + X^{-1} A \mu_t \\
+  \mu_{t+1} &= \Sigma_{t+1} l \\
+  \mu_{t+1}^T \Sigma_{t+1} \mu_{t+1} &= l^T \Sigma_{t+1} l \\
+  \Sigma_{t+1} &= (O^T\Sigma_O^{-1}O + X^{-1})^{-1} \\
+  &= X - XO^T(OXO^T + \Sigma_O)^{-1} OX \\
+  \Sigma_y &= O(A\Sigma_t A^T + \Sigma_D) O^T + \Sigma_O \\
+  &= OXO^T + \Sigma_O \\
+  \Sigma_y^{-1} &= \Sigma_O^{-1} - \Sigma_O^{-1} O (O^T\Sigma_O^{-1}O
+  + X^{-1})^{-1}O^T \Sigma_O^{-1} \\
+  &= \Sigma_O^{-1} - \Sigma_O^{-1} O \Sigma_{t+1}O^T \Sigma_O^{-1} \\
+  \Delta_R &\equiv \mu_t^TA^T X^{-1} A \mu_t - \mu_{t+1}^T
+  \Sigma_{t+1} \mu_{t+1} + \ti{y}{t+1}^T \Sigma_O^{-1} \ti{y}{t+1}.
+\end{align}
+Using the derivation
+\begin{align*}
+  \Sigma_O^{-1} O \Sigma_{t+1} X^{-1} &=
+  \Sigma_O^{-1}O(1-XO^T\Sigma_yO) \\
+  &= \Sigma_O^{-1}(1-OXO^T\Sigma_y^{-1})O \\
+  &= \Sigma_O^{-1}(\Sigma_y-OXO^T)\Sigma_y^{-1}O \\
+  &= \Sigma_O^{-1}(\Sigma_O)\Sigma_y^{-1}O \\
+  &= \Sigma_y^{-1}O \\
+\end{align*}
+and considering the three terms of
+\begin{align*}
+  l^T \Sigma_{t+1} l = & (O^T\Sigma_O^{-1} \ti{y}{t+1})T \Sigma_{t+1}
+  (O^T\Sigma_O^{-1} \ti{y}{t+1}) \\
+  + & 2(O^T\Sigma_O^{-1} \Sigma_{t+1} X^{-1}A\mu_t \\
+  + & (X^{-1}A\mu_t)\Sigma_{t+1} X^{-1}A\mu_t \\
+  \equiv & T_1+T_2+T_3
+\end{align*}
+separately, I find
+\begin{align*}
+  T_1 &= \ti{y}{t+1}^T \Sigma_O^{-1} \ti{y}{t+1} - \ti{y}{t+1}^T
+  \Sigma_Y^{-1} \ti{y}{t+1} \\
+  T_2 &= 2 \ti{y}{t+1}^T \Sigma_Y^{-1} OA\mu_t \\
+  T_3 &= (A\mu_t)^T X^{-1} (A\mu_t) - (OA\mu_t)^T
+  \Sigma_y^{-1}(OA\mu_t)
+\end{align*}
+Equation~\eqref{eq:new_R} follows pretty easily.
+
+
 
 
 
