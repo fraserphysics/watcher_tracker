@@ -1,33 +1,61 @@
-import wx
+import wx, mv1, random, scipy
 import matplotlib
-matplotlib.interactive(False)
-#matplotlib.interactive(True)
+#matplotlib.interactive(False)
+matplotlib.interactive(True)
 #Use the WxAgg back end. The Wx one takes too long to render
 matplotlib.use('WXAgg')
 import demo
 from matplotlib.numerix import arange, sin, cos, pi
 
+random.seed(3)
 
-theta = arange(0, 45*2*pi, 0.02)
-rad = (0.8*theta/(2*pi)+1)
-r = rad*(8 + sin(theta*7+rad/1.8))
-x = r*cos(theta)
-y = r*sin(theta)
-        
+T = 20
+N_obj = 4
+M = mv1.MV1(N_obj=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],Sigma_D = [[0.0001,0],[0,0.1]])
+yo,s = M.simulate(T)
+#d = M.decode(yo)
+
+x_plot = scipy.zeros((2*N_obj,T))
+y_plot = scipy.zeros((2*N_obj,T))
+
+for t in xrange(T):
+    for k in xrange(N_obj):
+        x_plot[k,t] = s[t][k][0,0]
+        y_plot[k,t] = s[t][k][1,0]
+    """
+    for k in xrange(len(y[t])):
+        print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
+        for f in (s[t][k],d[t][k]):
+            print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0])
+    """
+
+#redraw = True
+colors = ['red','blue','green','magenta']
 class DemoPlotPanel(demo.PlotPanel):
     """An example plotting panel. The only method that needs 
     overriding is the draw method"""
     def draw(self):
-        global x,y
+        global x_plot,y_plot,redraw
         if not hasattr(self, 'subplot'):
             self.subplot = self.figure.add_subplot(111)
         #Now draw it
-        self.subplot.plot(x,y, '-r')
+        self.subplot.hold(True)
+        #self.subplot.clear()
+        for k in xrange(N_obj):
+            self.subplot.plot(x_plot[k],y_plot[k], lw=6, color=colors[k])
+        if x_plot[N_obj,0] != 0.0:
+            for k in xrange(N_obj):
+                self.subplot.plot(x_plot[N_obj+k],y_plot[N_obj+k], lw=3, color=colors[k])
+#        if redraw:
+#            self.draw()
+#            redraw = False
         #Set some plot attributes
-        self.subplot.set_title("A polar flower (%s points)"%len(x), fontsize = 12)
-        self.subplot.set_xlabel("Flower is from  http://www.physics.emory.edu/~weeks/ideas/rose.html", fontsize = 8)
-        self.subplot.set_xlim([-400, 400])
-        self.subplot.set_ylim([-400, 400])
+        self.subplot.set_title("A title)", fontsize = 12)
+        self.subplot.set_xlabel("An xlabel", fontsize = 8)
+        self.subplot.set_xlim([-10, 10])
+        self.subplot.set_ylim([-5, 5])
+        #self.Refresh()
+        #self.subplot.hold(False)
 
 class view_mv1_frame(wx.Frame):
     def __init__(self, parent):
@@ -53,11 +81,18 @@ class view_mv1_frame(wx.Frame):
         self.Destroy()
 
     def OnPlotClicked(self, event):
-        global x,y,theta
-        print "self.plot_panel.canvas._drawn =",self.plot_panel.canvas._drawn
-        x = theta
-        y = theta
-        self.plot_panel.draw()
+        global x_plot,y_plot,T,N_obj,M,yo,s
+
+        d = M.decode(yo)
+
+        for t in xrange(T):
+            for k in xrange(N_obj):
+                x_plot[k,t] = s[t][k][0,0]
+                y_plot[k,t] = s[t][k][1,0]
+                x_plot[N_obj+k,t] = d[t][k][0,0]
+                y_plot[N_obj+k,t] = d[t][k][1,0]
+        redraw = False
+        self.plot_panel._forceDraw()
 
 class ControlPanel(wx.Panel):
 
