@@ -10,8 +10,8 @@ Edward Abraham, Datamine, April, 2006
 """
 
 import matplotlib
-#matplotlib.interactive(False)
-matplotlib.interactive(True)
+matplotlib.interactive(False)
+#matplotlib.interactive(True)
 #Use the WxAgg back end. The Wx one takes too long to render
 matplotlib.use('WXAgg')
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg
@@ -56,6 +56,12 @@ class PlotPanel(wx.Panel):
         self.Bind(wx.EVT_SIZE, self._onSize)
         self._resizeflag = True
         self._SetSize()
+        self.x = None
+        self.y = None
+        self.linestyle = '-'
+        self.colors = ('red', 'green', 'blue', 'magenta',  'purple',
+              'brown', 'aquamarine', 'orange',
+              'goldenrod', 'cyan', 'yellow', 'navy')
 
     def SetColor(self, rgbtuple):
         """Set figure and canvas colours to be the same"""
@@ -74,10 +80,6 @@ class PlotPanel(wx.Panel):
             self._resizeflag = False
             self._SetSize()
             self.draw()
-
-    def _forceDraw(self):
-        self.draw()
-        self._SetSize()
 
     def _SetSize(self, pixels = None):
         """
@@ -130,3 +132,8 @@ if __name__ == '__main__':
     #And we are done ...    
     frame.Show()
     app.MainLoop()
+
+#---------------
+# Local Variables:
+# eval: (python-mode)
+# End:

@@ -13,3 +13,8 @@ for t in xrange(len(y)):
             print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
         print ' '
 print 'elapsed time=',time.time()-ts
+
+#---------------
+# Local Variables:
+# eval: (python-mode)
+# End:
