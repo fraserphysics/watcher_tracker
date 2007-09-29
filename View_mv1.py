@@ -1,17 +1,17 @@
-import wx, mv1, random, scipy, time
+import wx, mv1, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
 matplotlib.interactive(True)
 #Use the WxAgg back end. The Wx one takes too long to render
 matplotlib.use('WXAgg')
-import demo
-from matplotlib.numerix import arange, sin, cos, pi
 
 random.seed(3)
 
 T = 20
 N_obj = 4
-M = mv1.MV1(N_obj=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],Sigma_D = [[0.0001,0],[0,0.1]])
+M = mv1.MV1(N_obj=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],
+            Sigma_D = [[0.0001,0],[0,0.1]])
+foo_t = 0
 
 class DemoPlotPanel(demo.PlotPanel):
     """An example plotting panel. The only method that needs 
@@ -26,22 +26,39 @@ class DemoPlotPanel(demo.PlotPanel):
         self.subplot.clear()
         N = len(self.x)
         for k in xrange(4):
-            #self.subplot.plot(self.x[k],self.y[k], color=self.colors[k], marker='o',linewidth=0)
-            self.subplot.plot(self.x[k],self.y[k],markerfacecolor=self.colors[k], marker='o',linewidth=0)
+            self.subplot.plot(self.x[k],self.y[k],
+                 markerfacecolor=self.colors[k], marker='o',linewidth=0)
+            foo_x = [self.x[k][foo_t]]
+            foo_y = [self.y[k][foo_t]]
+            self.subplot.plot(foo_x,foo_y,markerfacecolor=self.colors[k],
+                              markeredgecolor=self.colors[k], marker='x',
+                              markeredgewidth=1,markersize=25)
         if N > 4:
             for k in xrange(4,N):
-                self.subplot.plot(self.x[k],self.y[k], lw=2, color=self.colors[k], linestyle=self.linestyle)
+                self.subplot.plot(self.x[k],self.y[k], lw=2,
+                           color=self.colors[k], linestyle=self.linestyle)
+                foo_x = [self.x[k][foo_t]]
+                foo_y = [self.y[k][foo_t]]
+                self.subplot.plot(foo_x,foo_y,markerfacecolor=self.colors[k],
+                     markeredgecolor=self.colors[k], marker='+',
+                     markeredgewidth=2, markersize=25)
         #Set some plot attributes
-        self.subplot.set_title("A title", fontsize = 12)
-        self.subplot.set_xlabel("An xlabel", fontsize = 8)
+        if self.title != None:
+            self.subplot.set_title(self.title, fontsize = 12)
+        if self.ylabel != None:
+            self.subplot.set_ylabel(self.ylabel, fontsize = 10)
+        if self.xlabel != None:
+            self.subplot.set_xlabel(self.xlabel, fontsize = 10)
         #self.subplot.set_xlim([-10, 10])
         #self.subplot.set_ylim([-5, 5])
         #self.Refresh()
         #self.subplot.hold(False)
 
-    def _forceDraw(self,x,y):
-        self.x=x
-        self.y=y
+    def _forceDraw(self,x=None,y=None):
+        if x != None:
+            self.x=x
+        if y != None:
+            self.y=y
         self.draw()
         self._SetSize()
 
@@ -51,10 +68,12 @@ class view_mv1_frame(wx.Frame):
         wx.Frame.__init__(self, parent, -1, self.title)
         self.initStatusBar()
         self.controlPanel = ControlPanel(self, -1)
-        self.plot_panelA = DemoPlotPanel(self)
+        self.plot_panelA = DemoPlotPanel(self,ylabel="Position",
+               xlabel='Time',title='Observations')
         #self.plot_panelA.linestyle = ':'
         self.plot_panelA.colors = 4*['black']
-        self.plot_panelB = DemoPlotPanel(self)
+        self.plot_panelB = DemoPlotPanel(self,ylabel="Position",
+               xlabel='Velocity',title='State Space')
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         #plot_panel.SetSizer(sizer)
         sizer.Add(self.controlPanel)
@@ -76,36 +95,54 @@ class view_mv1_frame(wx.Frame):
         global T,N_obj,M,yo,s
 
         yo,s = M.simulate(T)
-        ts_x = scipy.zeros((N_obj,T))
-        ts_y = scipy.zeros((N_obj,T))
         x = scipy.zeros((N_obj,T))
         y = scipy.zeros((N_obj,T))
+        ts_x = []
+        ts_y = []
+        x = []
+        y = []
 
-        for t in xrange(T):
-            for k in xrange(N_obj):
-                x[k,t] = s[t][k][0,0]
-                y[k,t] = s[t][k][1,0]
-                ts_x[k,t] = t
-                ts_y[k,t] = yo[t][k][0,0]
-        self.plot_panelA._forceDraw(ts_x,ts_y)
-        self.plot_panelB._forceDraw(x,y)
+        for k in xrange(N_obj):
+            for List in (ts_x,ts_y,x,y):
+                List.append(scipy.zeros(T))
+            for t in xrange(T):
+                x[k][t] = s[t][k][0,0]
+                y[k][t] = s[t][k][1,0]
+                ts_x[k][t] = t
+                ts_y[k][t] = yo[t][k][0,0]
+        self.plot_panelA._forceDraw(x=ts_x,y=ts_y)
+        self.plot_panelB._forceDraw(x=y,y=x)
 
     def OnTrackClicked(self, event):
         global T,N_obj,M,yo,s
 
-        x = scipy.zeros((2*N_obj,T))
-        y = scipy.zeros((2*N_obj,T))
         t_start = time.time()
         d = M.decode(yo)
         print 'decode time = %f'%(time.time()-t_start)
 
-        for t in xrange(T):
-            for k in xrange(N_obj):
-                x[k,t] = s[t][k][0,0]
-                y[k,t] = s[t][k][1,0]
-                x[N_obj+k,t] = d[t][k][0,0]
-                y[N_obj+k,t] = d[t][k][1,0]
-        self.plot_panelB._forceDraw(x,y)
+        x = scipy.zeros((N_obj,T))
+        y = scipy.zeros((N_obj,T))
+        ts_x = []
+        ts_y = []
+        x = []
+        y = []
+
+        for k in xrange(2*N_obj):
+            for List in (x,y):
+                List.append(scipy.zeros(T))
+        for k in xrange(N_obj):
+            for t in xrange(T):
+                x[k][t] = s[t][k][0,0]
+                y[k][t] = s[t][k][1,0]
+                x[N_obj+k][t] = d[t][k][0,0]
+                y[N_obj+k][t] = d[t][k][1,0]
+        self.plot_panelB._forceDraw(x=y,y=x)
+
+    def sliderUpdate(self, event):
+        global foo_t
+        foo_t = self.controlPanel.fooSlider.GetValue()/2
+        self.plot_panelA._forceDraw()
+        self.plot_panelB._forceDraw()
 
 class ControlPanel(wx.Panel):
 
@@ -125,17 +162,15 @@ class ControlPanel(wx.Panel):
         trackButton = wx.Button(parent=self, id=-1, label='Track')
         self.Bind(wx.EVT_BUTTON, parent.OnTrackClicked, trackButton)
 
-        fooLabel = wx.StaticText(self,-1,"foo")
-        fooSlider = wx.Slider(parent=self, id=-1, style=wx.SL_VERTICAL, value=0, minValue=0, maxValue=100, size=(-1, 100))
-        fooSlider.SetTickFreq(20, 1)
+        fooLabel = wx.StaticText(self,-1,"t")
+        fooSlider = wx.Slider(parent=self, id=-1, style=wx.SL_VERTICAL,
+                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
+        fooSlider.SetTickFreq(T, 1)
         self.fooSlider = fooSlider
 
-        self.Bind(wx.EVT_SLIDER, self.sliderUpdate)
+        self.Bind(wx.EVT_SLIDER, parent.sliderUpdate)
 
         self.layout(None, None, [simButton, trackButton, fooLabel, fooSlider])
-
-    def sliderUpdate(self, event):
-        pass
 
     def layout(self, colorGrid, thicknessGrid, compList):
         box = wx.BoxSizer(wx.VERTICAL)

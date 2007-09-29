@@ -46,8 +46,9 @@ class PlotPanel(wx.Panel):
     flag, and the actually redrawing of the
     figure is triggered by an Idle event.
     """
-    def __init__(self, parent, id = -1, color = None,\
-        dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE, **kwargs):
+    def __init__(self, parent, id = -1, color = None, ylabel=None, xlabel='x',
+          title=None, dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE,
+          **kwargs):
         wx.Panel.__init__(self, parent, id = id, style = style, **kwargs)
         self.figure = Figure(None, dpi)
         self.canvas = NoRepaintCanvas(self, -1, self.figure)
@@ -60,8 +61,11 @@ class PlotPanel(wx.Panel):
         self.y = None
         self.linestyle = '-'
         self.colors = ('red', 'green', 'blue', 'magenta',  'purple',
-              'brown', 'aquamarine', 'orange',
-              'goldenrod', 'cyan', 'yellow', 'navy')
+              'brown', 'orange', 'black', 'cyan',
+              'goldenrod', 'yellow', 'aquamarine', 'navy')
+        self.ylabel = ylabel
+        self.xlabel = xlabel
+        self.title = title
 
     def SetColor(self, rgbtuple):
         """Set figure and canvas colours to be the same"""
