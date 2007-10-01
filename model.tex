@@ -34,45 +34,26 @@
 \section{Introduction}
 \label{sec:introduction}
 
-Frame by frame detection/tagging could use the result of a
-\emph{filtered} forecast\footnote{$P(S(t)|\ts{y}{\tau}{1}{t-1})$ is
-  the entire a posteriori distribution.}, ie,
-\begin{equation*}
-  P(S(t)|\ts{y}{\tau}{1}{t-1}).
-\end{equation*}
-Note that the maximum a posteriori (MAP) or \emph{decoded} track ie,
+For tracking, I want the maximum a posteriori (MAP) or \emph{decoded}
+track ie,
 \begin{align*}
   \hat s_1^T &\equiv \argmax_{\ts{s}{\tau}{1}{T}}
   P(\ts{s}{\tau}{1}{T}|\ts{y}{\tau}{1}{T}) \\
-  &= \argmax_{\ts{s}{\tau}{1}{T}} P(\ts{s}{\tau}{1}{T},\ts{y}{\tau}{1}{T})
+  &= \argmax_{\ts{s}{\tau}{1}{T}} P(\ts{s}{\tau}{1}{T},\ts{y}{\tau}{1}{T}).
 \end{align*}
-is different than the sequence of filtered forecasts.
 
-\subsection{Filtering}
-\label{sec:filtering}
-
-With the definitions
-\begin{align}
-  \label{def:alpha}
-  \alpha_t &\equiv P(\ti{s}{t}|\ts{y}{\tau}{1}{t}) \text{ The updated distribution} \\
-  f_t &\equiv P(\ti{s}{t}|\ts{y}{\tau}{1}{t-1}) \text{ The forecast
-    distribution} \\
-  \gamma_t &\equiv P(\ti{y}{t}|\ts{y}{\tau}{1}{t-1}) \text{ The
-    incremental likelihood}
-\end{align}
-and applying a model characterized by the distributions
-\begin{align}
-  \label{def:alpha0}
-  &\alpha_0  &&\text{The state prior} \\
-  &P(\ti{s}{t+t}|\ti{s}{t}) &&\text{The state transition probability} \\
-  &P(\ti{y}{t}|\ti{s}{t}) &&\text{The conditional observation probability}
-\end{align}
-I can write recursive filtering as follows:
-\begin{align}
-  f_t &= \EV{\alpha_{t-1}} {P(\ti{s}{t}|\ti{s}{t-1})} \\
-  \gamma_t &= \EV{\ti{f}{t}} {P(\ti{y}{t}|\ti{s}{t})} \\
-  \alpha_t &= \frac{f_t P(\ti{y}{t}|\ti{s}{t})}{\gamma_t} \\
-\end{align}
+Note that the MAP track is different than the sequence of
+\emph{filtered} forecasts.  A filtered forecast, ie,
+\begin{equation*}
+  P(S(t)|\ts{y}{\tau}{1}{t-1}).
+\end{equation*}
+is the entire a posteriori distribution at each time given the
+observations up to that time.  When I began thinking about tracking
+and writing this document, I thought that the best approach would be
+to do filtering.  I've left some of the work I did while thinking
+about filtering in the document, but the essential material concerns
+decoding.  The material on decoding does not depend on the material on
+filtering.  So, you may ignore the filtering sections.
 
 \subsection{Decoding}
 \label{sec:decoding}
@@ -109,6 +90,32 @@ of states $ \ts{\hat s}{\tau}{1}{T}$ from a sequence of observations $
   & \text{for } t \text{ from } T-1 \text{ to } 1: \\
   & \quad \ti{\hat s}{t} = B( \ti{\hat s}{t+1},t)
 \end{align*}
+
+\subsection{Filtering}
+\label{sec:filtering}
+
+With the definitions
+\begin{align}
+  \label{def:alpha}
+  \alpha_t &\equiv P(\ti{s}{t}|\ts{y}{\tau}{1}{t}) \text{ The updated distribution} \\
+  f_t &\equiv P(\ti{s}{t}|\ts{y}{\tau}{1}{t-1}) \text{ The forecast
+    distribution} \\
+  \gamma_t &\equiv P(\ti{y}{t}|\ts{y}{\tau}{1}{t-1}) \text{ The
+    incremental likelihood}
+\end{align}
+and applying a model characterized by the distributions
+\begin{align}
+  \label{def:alpha0}
+  &\alpha_0  &&\text{The state prior} \\
+  &P(\ti{s}{t+t}|\ti{s}{t}) &&\text{The state transition probability} \\
+  &P(\ti{y}{t}|\ti{s}{t}) &&\text{The conditional observation probability}
+\end{align}
+I can write recursive filtering as follows:
+\begin{align}
+  f_t &= \EV{\alpha_{t-1}} {P(\ti{s}{t}|\ti{s}{t-1})} \\
+  \gamma_t &= \EV{\ti{f}{t}} {P(\ti{y}{t}|\ti{s}{t})} \\
+  \alpha_t &= \frac{f_t P(\ti{y}{t}|\ti{s}{t})}{\gamma_t} \\
+\end{align}
 
 \section{Model Version One}
 \label{sec:model1}
@@ -198,99 +205,6 @@ the following 3 degrees of freedom:
     \hline
   \end{tabular} 
 \end{center}
-
-\subsection{Filtering}
-\label{sec:filter1}
-
-With luck (I have not been so lucky with this application) one might
-find a parametric form for the state prior $\alpha(0)$ (see
-Eqn.~\eqref{def:alpha0}) that, combined with $\ti{y}{1}$, yields an
-expression for $\alpha(1)$ that has the same parametric form.  Such a
-form is called a \emph{conjugate family}.  Two particularly simple
-cases are discrete hidden Markov models and Kalman filters.
-
-Here, I will analyze the use of a Gaussian for $\alpha(0)$.  From that
-choice it follows that each subsequent $\ti{\alpha}{t}$ is much more
-complex.  Thus any actual implementation that starts with such an
-$\alpha(0)$ must use simplifying approximations.  I will conclude the
-section by considering a few such approximations.
-
-Let me suppose that the initial state distribution is composed of
-independent Gaussians, ie,
-\begin{align*}
-  \ti{\alpha}{0} &= P_{\os{S}{0,j}{j=1}{N} }\\
-  &= \prod_{j=1}^{N} P_{\ti{S}{0,j}} \\
-  &= \prod_{j=1}^{N} \normal{\mu_j}{\Sigma_j}.
-\end{align*}
-To find the forecast $\ti{f}{1}$, I can apply the state dynamics
-\eqref{eq:dynamics} to each object independently with the result
-\begin{align}
-  \tilde \mu_j &= A \mu_j \\
-  \tilde \Sigma_j &= A \Sigma_j A\transpose + \Sigma_D \\
-  \label{eq:defF}
-  (\tilde \mu_j, \tilde \Sigma_j ) &\equiv F(\mu_j,\Sigma_j) \\
-  \label{eq:f1}
-  \ti{f}{1} &= \prod_{j=1}^{N} {\cal N}(F(\mu_j,\Sigma_j)),
-\end{align}
-where Eqn.~\eqref{eq:defF} defines the map $F$ from a distribution at
-time $t$ to a distribution at time $t+1$.  Note that like
-$\ti{\alpha}{0}$, $\ti{f}{1}$ is simply Gaussian.  On the other hand
-\begin{equation}
-  \label{eq:a1}
-  a(1) \equiv f(1) P_{y|S} = \frac{1}{\left| \M \right|} \sum_{M \in \M}
-  \prod_{i=1}^N P(y(t,M(i)|s(t,i)) \cdot \left. {\cal
-      N}(F(\mu_j,\Sigma_j))\right|_{s_i}
-\end{equation}
-which provides an unnormalized version of the updated distribution
-$\alpha(1)$ has at least two unfortunate properties:
-\begin{enumerate}
-\item The distribution of states is a sum of $\left| \M \right|$
-  Gaussians.  If you want to track $N=100$ objects, $\alpha(1)$ will
-  have $\left| \M \right| = N! \approx 10^{156}$ terms.
-\item For each term in the sum, the distributions of the separate
-  objects $s_j$ are independent, but that independence property does
-  not hold for the sum.  So it is not true that
-  \begin{equation*}
-    P(s(1)|y(1)) = \prod_{j=1}^N  P\left( \left( s(1,j) \right)|y(1)
-    \right).
-  \end{equation*}
-\end{enumerate}
-
-Leveraging the notational clarity of \eqref{eq:a1}, I can also write
-\begin{align*}
-  \ti{\alpha}{T} \propto \sum_{\os{M}{t}{t=1}{T}:\ti{M}{t}\in \M}
-  \prod_{i=1}^N& \left[
-  P\left( \os{y}{\ti{M}{t,i}}{t=1}{T} | \os{s}{t,i}{t=1}{T}\right) \right. \\
-  & \left. P\left( \os{s}{t,i}{t=1}{T}| \ti{s}{0,i} \right)
-  P\left( \ti{s}{0,i} \right) \right] .
-\end{align*}
-Since
-\begin{equation*}
-  P\left( \os{y}{\ti{M}{t,i}}{t=1}{T} | \os{s}{t,i}{t=1}{T}\right) =
-  \prod_{t=1}^T P\left( \ti{y}{t,\ti{M}{t,i}} | \ti{s}{t,i}\right)
-\end{equation*}
-and
-\begin{equation*}
-  P\left( \os{s}{t,i}{t=1}{T}| \ti{s}{0,i} \right) = \prod_{t=1}^T
-  P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right),
-\end{equation*}
-\begin{equation}
-  \label{eq:alphaT}
-  \ti{\alpha}{T} \propto \sum_{\os{M}{t}{t=1}{T}}
-  \prod_{i=1}^N  P\left( \ti{s}{0,i} \right) \prod_{t=1}^T
-  P\left( \ti{y}{t,\ti{M}{t,i}} | \ti{s}{t,i}\right)
-  P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right).
-\end{equation}
-Like \eqref{eq:a1} \eqref{eq:alphaT} is a mixture of Gaussians.  The
-number of components in the mixture $\left| \ts{M}{t}{1}{T}\right| =
-(N!)^T$ is absurdly large.
-
-\subsubsection{Approximating with $\hat M$}
-\label{sec:Mhat.filter1}
-
-Approximate the sum with a single $\ts{\hat M}{t}{1}{T}$.  Try to select
-$\ts{\hat M}{t}{1}{T}$ to get the biggest term in the sum.
-Alternatively, use a few terms.
 
 \subsection{Decoding}
 \label{sec:decode1}
@@ -401,8 +315,6 @@ recursion:
   \end{equation*}
 \end{description}
 
-
-
 \subsubsection{Multiple Objects}
 \label{sec:multiple}
 
@@ -415,11 +327,91 @@ determine the best predecessor permutations, I drop the term $\logdet$
 from Eqn.~\eqref{eq:new_R} because they are independent of both $M$
 and $s$.
 
-% \subsubsection{Joint Probabilistic Data Association}
-% \label{sec:JPDA1}
+\subsection{Filtering}
+\label{sec:filter1}
 
-% \subsubsection{Multiple Hypothesis Tracking}
-% \label{sec:MHT1}
+With luck (I have not been so lucky with this application) one might
+find a parametric form for the state prior $\alpha(0)$ (see
+Eqn.~\eqref{def:alpha0}) that, combined with $\ti{y}{1}$, yields an
+expression for $\alpha(1)$ that has the same parametric form.  Such a
+form is called a \emph{conjugate family}.  Two particularly simple
+cases are discrete hidden Markov models and Kalman filters.
+
+Here, I will analyze the use of a Gaussian for $\alpha(0)$.  From that
+choice it follows that each subsequent $\ti{\alpha}{t}$ is much more
+complex.  Thus any actual implementation that starts with such an
+$\alpha(0)$ must use simplifying approximations.  I will conclude the
+section by considering a few such approximations.
+
+Let me suppose that the initial state distribution is composed of
+independent Gaussians, ie,
+\begin{align*}
+  \ti{\alpha}{0} &= P_{\os{S}{0,j}{j=1}{N} }\\
+  &= \prod_{j=1}^{N} P_{\ti{S}{0,j}} \\
+  &= \prod_{j=1}^{N} \normal{\mu_j}{\Sigma_j}.
+\end{align*}
+To find the forecast $\ti{f}{1}$, I can apply the state dynamics
+\eqref{eq:dynamics} to each object independently with the result
+\begin{align}
+  \tilde \mu_j &= A \mu_j \\
+  \tilde \Sigma_j &= A \Sigma_j A\transpose + \Sigma_D \\
+  \label{eq:defF}
+  (\tilde \mu_j, \tilde \Sigma_j ) &\equiv F(\mu_j,\Sigma_j) \\
+  \label{eq:f1}
+  \ti{f}{1} &= \prod_{j=1}^{N} {\cal N}(F(\mu_j,\Sigma_j)),
+\end{align}
+where Eqn.~\eqref{eq:defF} defines the map $F$ from a distribution at
+time $t$ to a distribution at time $t+1$.  Note that like
+$\ti{\alpha}{0}$, $\ti{f}{1}$ is simply Gaussian.  On the other hand
+\begin{equation}
+  \label{eq:a1}
+  a(1) \equiv f(1) P_{y|S} = \frac{1}{\left| \M \right|} \sum_{M \in \M}
+  \prod_{i=1}^N P(y(t,M(i)|s(t,i)) \cdot \left. {\cal
+      N}(F(\mu_j,\Sigma_j))\right|_{s_i}
+\end{equation}
+which provides an unnormalized version of the updated distribution
+$\alpha(1)$ has at least two unfortunate properties:
+\begin{enumerate}
+\item The distribution of states is a sum of $\left| \M \right|$
+  Gaussians.  If you want to track $N=100$ objects, $\alpha(1)$ will
+  have $\left| \M \right| = N! \approx 10^{156}$ terms.
+\item For each term in the sum, the distributions of the separate
+  objects $s_j$ are independent, but that independence property does
+  not hold for the sum.  So it is not true that
+  \begin{equation*}
+    P(s(1)|y(1)) = \prod_{j=1}^N  P\left( \left( s(1,j) \right)|y(1)
+    \right).
+  \end{equation*}
+\end{enumerate}
+
+Leveraging the notational clarity of \eqref{eq:a1}, I can also write
+\begin{align*}
+  \ti{\alpha}{T} \propto \sum_{\os{M}{t}{t=1}{T}:\ti{M}{t}\in \M}
+  \prod_{i=1}^N& \left[
+  P\left( \os{y}{\ti{M}{t,i}}{t=1}{T} | \os{s}{t,i}{t=1}{T}\right) \right. \\
+  & \left. P\left( \os{s}{t,i}{t=1}{T}| \ti{s}{0,i} \right)
+  P\left( \ti{s}{0,i} \right) \right] .
+\end{align*}
+Since
+\begin{equation*}
+  P\left( \os{y}{\ti{M}{t,i}}{t=1}{T} | \os{s}{t,i}{t=1}{T}\right) =
+  \prod_{t=1}^T P\left( \ti{y}{t,\ti{M}{t,i}} | \ti{s}{t,i}\right)
+\end{equation*}
+and
+\begin{equation*}
+  P\left( \os{s}{t,i}{t=1}{T}| \ti{s}{0,i} \right) = \prod_{t=1}^T
+  P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right),
+\end{equation*}
+\begin{equation}
+  \label{eq:alphaT}
+  \ti{\alpha}{T} \propto \sum_{\os{M}{t}{t=1}{T}}
+  \prod_{i=1}^N  P\left( \ti{s}{0,i} \right) \prod_{t=1}^T
+  P\left( \ti{y}{t,\ti{M}{t,i}} | \ti{s}{t,i}\right)
+  P\left( \ti{s}{t,i} | \ti{s}{t-1,i}\right).
+\end{equation}
+Like \eqref{eq:a1} \eqref{eq:alphaT} is a mixture of Gaussians.  The
+number of components in the mixture $\left| \ts{M}{t}{1}{T}\right| =
+(N!)^T$ is absurdly large.
 
 \appendix
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}
@@ -568,9 +560,13 @@ separately, I find
 \end{align*}
 Equation~\eqref{eq:new_R} follows pretty easily.
 
+\vfill \hrule To checkout: \emph{ svn --username you --password yours
+  co svn://fraserphysics.com/ps}
+\begin{verbatim}
+$Id$
+\end{verbatim}
 
-
-
+\end{document}
 
 \newpage
 \hrule
@@ -776,14 +772,6 @@ The following adjustments come to mind:
 \item[Bounded variance] Complicated bounds on $\Sigma_{\alpha,j}$ and
   $\Sigma_{a,j}$
 \end{description}
-
-\vfill \hrule To checkout: \emph{ svn --username you --password yours
-  co svn://fraserphysics.com/ps}
-\begin{verbatim}
-$Id$
-\end{verbatim}
-
-\end{document}
 
 %%%---------------
 %%% Local Variables:
