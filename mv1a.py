@@ -31,6 +31,7 @@ class object:
         self.A = A
         self.Sigma_D = Sigma_D
         self.O = O
+        self.Sigma_O = Sigma_O
         m_t = [m_1]
         mu_t = [mu_0]
         Sigma_t = [Sigma_0]
@@ -61,7 +62,7 @@ class object:
         R_t = self.R_t[-1]
         
         O = self.O
-        Sig_O_I = scipy.linalg.inv(self.Sigma_O)
+        Sig_O = self.Sigma_O
         Sig_D = self.Sigma_D
         A = self.A
         Id = scipy.matrix(scipy.identity(Sig_D.shape[0]))
@@ -71,7 +72,7 @@ class object:
         mu_a = A*mu_t                    # Mean of state forecast
         Delta_y = y - O*mu_a             # Error of forecast observation
         Sig_y = O*Sig_a*O.T+self.Sigma_O # Covariance of forecast observation
-        Sig_y_I = scipy.linalg.inv(O*Sig_a*O.T+self.Sigma_O)
+        Sig_y_I = scipy.linalg.inv(Sig_y)
         K = Sig_a*O.T*Sig_y_I            # Kalman gain
         
         # Calculate new values

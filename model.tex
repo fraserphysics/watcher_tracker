@@ -37,7 +37,7 @@
 For tracking, I want the maximum a posteriori (MAP) or \emph{decoded}
 track ie,
 \begin{align*}
-  \hat s_1^T &\equiv \argmax_{\ts{s}{\tau}{1}{T}}
+  \ts{\hat s}{\tau}{1}{T} &\equiv \argmax_{\ts{s}{\tau}{1}{T}}
   P(\ts{s}{\tau}{1}{T}|\ts{y}{\tau}{1}{T}) \\
   &= \argmax_{\ts{s}{\tau}{1}{T}} P(\ts{s}{\tau}{1}{T},\ts{y}{\tau}{1}{T}).
 \end{align*}
@@ -211,8 +211,9 @@ the following 3 degrees of freedom:
 
 A solution to the decoding problem
 \begin{align*}
-  \hat s_1^T &\equiv \argmax_{s_1^T} P(s_1^T|y_1^{t-1}) \\
-            &=  \argmax_{s_1^T} P(s_1^T,y_1^{t-1})
+  \ts{\hat s}{\tau}{1}{T} &\equiv \argmax_{\ts{s}{\tau}{1}{T}}
+  P(\ts{s}{\tau}{1}{T}|\ts{y}{\tau}{1}{T}) \\
+            &=  \argmax_{\ts{s}{\tau}{1}{T}} P(\ts{s}{\tau}{1}{T},\ts{y}{\tau}{1}{T})
 \end{align*}
 contains only a single sequence of permutations $\ts{\hat
   M}{t}{1}{T}$.  Thus I need not approximate a mixture of Gaussians.
@@ -278,9 +279,9 @@ solving\footnote{The derivation of \eqref{eq:decode_B}:
 Note that the independent variable $s$ in \eqref{eq:decode_B} is the
 state at the future time $t+1$, while in \eqref{eq:decode_u'}, $s$ is
 the state at the earlier time $t$.  See Appendix~\ref{app:decode} for
-the derivation of \eqref{eq:new_Sigma} and \eqref{eq:new_mu}.  I am
-surprised that the resulting recursion for $\nu(s,t)$ is exactly
-Kalman filtering.
+the derivation of \eqref{eq:new_Sigma}, \eqref{eq:new_mu}, and
+\eqref{eq:new_R}.  I am surprised that the resulting recursion for
+$\nu(s,t)$ is exactly Kalman filtering.
 
 For efficiency, use the following procedure to implement the forward
 recursion:
@@ -292,10 +293,9 @@ recursion:
   \end{align*}
 \item[Calculate the inverse covariance of the forecast observation:]
   \begin{equation*}
-   \Sigma_y^{-1} = \Sigma_O^{-1} +  \Sigma_O^{-1} O \Sigma_{t+1} O^T
-   \Sigma_O^{-1}
+   \Sigma_y^{-1} = \left( O\Sigma_a O^T + \Sigma_O \right)^{-1}
   \end{equation*}
-\item[Calculate the Kalman gain matrix $K$:]
+\item[Calculate the Kalman gain matrix:]
   \begin{equation*}
     K = \Sigma_a O^T \Sigma_y^{-1}
   \end{equation*}
@@ -318,14 +318,47 @@ recursion:
 \subsubsection{Multiple Objects}
 \label{sec:multiple}
 
-I consider the possible permutations at each time to be a discrete
-component of the \emph{state} $\ti{s}{t}$.  Each $B(s,t)$ maps from
-$(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time $t$, and each
-$\nu(s,t)$ maps from a pair $(M,s)$ at time $t$ to the utility of the
-best path ending at $(M,s,t)$.  While I use the values of $R_{t}$ to
-determine the best predecessor permutations, I drop the term $\logdet$
-from Eqn.~\eqref{eq:new_R} because they are independent of both $M$
-and $s$.
+Consider the possible permutations at each time to be a discrete
+component of the state.  Thus
+\begin{equation*}
+  \ti{s}{t} \in {\cal S} \equiv {\cal M} \times {\cal X}^{N},
+\end{equation*}
+where $N$ is the number of objects or targets, $\cal M$ is the set of
+permutations of $N$ objects, and ${\cal X}$ is the state space of a
+single object.  Denoting the components of a particular state as
+follows: \newcommand{\bx}{{\mathbf{x}}}
+\begin{align*}
+  s &\equiv (M,\bx) \\
+  M & \text{ is a permutation} \\
+  \bx &\equiv (x_1,x_2,\ldots,x_N),
+\end{align*}
+I write
+\begin{align*}
+  u'(M,\bx,M',\bx',t) &= \nu(M,\bx) + \log \left(
+    P(M',\bx'|M,\bx)\right) + \log \left(
+    P(\ti{y}{t+1}|M',\bx')\right) \\
+  P(M',\bx'|M,\bx) &= P(\bx'|M',M,\bx) P(M'|M,\bx) \\
+  &= \frac{1}{N!} P(\bx'|\bx) \\
+  u'(M,\bx,M',\bx',t) &= \nu(M,\bx) - \log(N!) + \log \left(
+    P(\bx'|\bx)\right) + \log \left( P(\ti{y}{t+1}|M',\bx')\right) \\
+  \nu(M,\bx,t) &= \sum_k \nu(M,x_k,t) \\
+  &= \sum_k \nu(M,\bar x_k) + \sum_k \left (\nu(M,x_k,t) - \nu(M,\bar
+    x_k) \right) \\
+  &= \sum_k R(k,t|M) + \sum_k \left (\nu(x_k,t|M) -  R(k,t|M) \right),
+\end{align*}
+where $\bar x_k$ is the $x$ value that maximizes $\nu(M,x_k,t)$ for a
+the best permutaion sequence ending in the given $M$.  Each $B(s,t)$
+maps from $(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time
+$t$, and each $\nu(s,t)$ maps from a pair $(M,s)$ at time $t$ to the
+utility of the best path ending at $(M,s,t)$.  While I use the values
+of $\sum_k R(k,t|M)$ to determine the best predecessor permutation.
+In the calculation of $R(k,t|M)$ I drop the term $\logdet$ from
+Eqn.~\eqref{eq:new_R} and $\log(N!)$ because they are independent of
+both $M$ and $s$.
+
+I have implemented the following algorithm:
+
+
 
 \subsection{Filtering}
 \label{sec:filter1}
