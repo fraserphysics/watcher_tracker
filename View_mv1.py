@@ -32,7 +32,7 @@ class DemoPlotPanel(demo.PlotPanel):
             foo_y = [self.y[k][foo_t]]
             self.subplot.plot(foo_x,foo_y,markerfacecolor=self.colors[k],
                               markeredgecolor=self.colors[k], marker='x',
-                              markeredgewidth=1,markersize=25)
+                              markeredgewidth=2,markersize=25)
         if N > 4:
             for k in xrange(4,N):
                 self.subplot.plot(self.x[k],self.y[k], lw=2,
@@ -108,7 +108,7 @@ class view_mv1_frame(wx.Frame):
             for t in xrange(T):
                 x[k][t] = s[t][k][0,0]
                 y[k][t] = s[t][k][1,0]
-                ts_x[k][t] = t
+                ts_x[k][t] = t+0.5
                 ts_y[k][t] = yo[t][k][0,0]
         self.plot_panelA._forceDraw(x=ts_x,y=ts_y)
         self.plot_panelB._forceDraw(x=y,y=x)
