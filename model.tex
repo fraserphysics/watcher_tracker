@@ -43,9 +43,9 @@ track ie,
 \end{align*}
 
 Note that the MAP track is different than the sequence of
-\emph{filtered} forecasts.  A filtered forecast, ie,
+\emph{filtered} forecasts.  A filtered estimate, ie,
 \begin{equation*}
-  P(S(t)|\ts{y}{\tau}{1}{t-1}).
+  P(S(t)|\ts{y}{\tau}{1}{t}).
 \end{equation*}
 is the entire a posteriori distribution at each time given the
 observations up to that time.  When I began thinking about tracking
@@ -304,15 +304,18 @@ recursion:
     \Delta_y = \ti{y}{t+1} - O\mu_a
   \end{equation*}
 \item[Calculate the updated mean and covariance:]
-  \begin{align*}
+  \begin{align}
+    \label{eq:Sigma_alg}
     \mu_{t+1} &= \mu_a +  K\Delta_y \\
+    \label{eq:mu_alg}
     \Sigma_{t+1} &= (1-KO)\Sigma_a
-  \end{align*}
+  \end{align}
 \item[Calculate the new $R$:]
-  \begin{equation*}
+  \begin{equation}
+    \label{eq:R_alg}
     R_{t+1} = R_t - \frac{1}{2} \left(\Delta_y^T \Sigma_y^{-1}
       \Delta_y \right)
-  \end{equation*}
+  \end{equation}
 \end{description}
 
 \subsubsection{Multiple Objects}
@@ -347,16 +350,33 @@ I write
   &= \sum_k R(k,t|M) + \sum_k \left (\nu(x_k,t|M) -  R(k,t|M) \right),
 \end{align*}
 where $\bar x_k$ is the $x$ value that maximizes $\nu(M,x_k,t)$ for a
-the best permutaion sequence ending in the given $M$.  Each $B(s,t)$
-maps from $(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time
-$t$, and each $\nu(s,t)$ maps from a pair $(M,s)$ at time $t$ to the
-utility of the best path ending at $(M,s,t)$.  While I use the values
-of $\sum_k R(k,t|M)$ to determine the best predecessor permutation.
-In the calculation of $R(k,t|M)$ I drop the term $\logdet$ from
+the best permutaion sequence ending in the given $M$ and $R(k,t|M)$ is
+the remainder from Eqn.~\eqref{eq:R_alg} for the $k^{\text{th}}$
+object given the that sequence of permutations.  Each $B(s,t)$ maps
+from $(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time $t$, and
+each $\nu(s,t)$ maps from a pair $(M,s)$ at time $t$ to the utility of
+the best path ending at $(M,s,t)$.  While I use the values of $\sum_k
+R(k,t|M)$ to determine the best predecessor permutation.  In the
+calculation of $R(k,t|M)$ I drop the term $\logdet$ from
 Eqn.~\eqref{eq:new_R} and $\log(N!)$ because they are independent of
 both $M$ and $s$.
 
-I have implemented the following algorithm:
+I have implemented an algorithm around the following recursion step:
+\begin{verse}
+  At time $t$ given $(\mu(M,k,t), \Sigma(M,k,t), R(M,k,t))~\forall
+  (M,k)$:\\
+  For each possible permutation $M$ at time $t+1$:\\
+  \hspace{2em} For each possible predecessor $M'$ at time $t$:\\
+  \hspace{4em}  Calculate $u'(M',M,t) = \sum_k R(k,t+1|M',M)$ \\
+  \hspace{2em} Set $B_M(M,t+1) = \tilde M = \argmax_{M'}u'(M',M,t)$\\
+  \hspace{2em} For each object $k$:\\
+  \hspace{4em} Calculate $(\mu(M,k,t+1), \Sigma(M,k,t+1), R(M,k,t+1))$\\
+  \hspace{4em} from Eqns.~\eqref{eq:Sigma_alg}--\eqref{eq:R_alg} using
+  the initial values\\
+  \hspace{4em} $(\mu(\tilde M,k,t), \Sigma(\tilde M,k,t),R(\tilde
+  M,k,t))$
+\end{verse}
+
 
 
 
