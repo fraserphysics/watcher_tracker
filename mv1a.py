@@ -36,6 +36,8 @@ class object:
         mu_t = [mu_0]
         Sigma_t = [Sigma_0]
         R_t = [0.0]
+        children = None
+        history = None
 
     def make_key(self,t):
         """ Make a hash key based on m_t[t-4,t-3,t-2,t-1, t-0]
@@ -49,6 +51,15 @@ class object:
         self.key = key
         return key
 
+    def make_children(self,
+                      y_t,   #list of hits at the next time
+                      ):
+        """ For each of the hits that could plausibly be an
+        observation of self, make a child object.  I don't know how to
+        collect this group of children.  Perhaps a list or dict.
+        Return it or attach it as self.children?
+        """
+        
     def KF(self,     FixMe: Do not modify self.  Return updated clone of self
            y         # The observation of the object at the current time
            m         # Index of the observation
@@ -80,8 +91,56 @@ class object:
         self.mu_t.append(mu_a + K*Delta_y)
         self.R_t.append(R_t - float(Delta_y.T*Sig_y_I*Delta_y)/2)
         self.m_t.append(m)
+
+class PERMUTATION:
+    """A representation of a particular association of hits to objects
+    at a particular time.  Attributes:
+
+       objects:       A list of objects
+       predecessors:  A dict with keys 'perm' and 'u_prime'
+         predecessor['perm']:    A list of predecessor permutations
+         predecessor['u_prime']: A list of u' values for the predecessors
+                                 predecessor['u_prime'][i] is the value for
+                                 u'(self,predecessor['perm'][i])
+
+    Methods:
+
+    forward_values:  Create plausible sucessor permutations
+
+       
+    """
+
+    def __init__(self,
+                 objects=None    # A list of objects
+                 ):
+        self.ojects = objects
+        self.predecessor = {'perm':[],'u_prime':[]}
         
-                
+    def forward_values(self,
+                new_perms   # A dict of permutations for the next time step
+                ):
+        """
+        """
+        # Create a list of successor permutations to consider
+        old_list = []
+        for child in self.objects[0].children:
+            old_list.append({'perm':[child.m_t[-1]],'R':child.R_t})
+        for k in xrange(1,len(self.objects)):
+            new_list = []
+            for child in self.objects[k].children:
+                for partial in old_list:
+                    new_perm = partial['perm']+[child.m_t[-1]]
+                    new_R = partial['R']+child.R_t
+                    new_list.append({'perm':new_perm,'R':new_R})
+            old_list = new_list
+        # Initialize successors if necessary and set their predecessors
+        for entry in old_list:
+            key = util.permute_to_index(entry['perm'])
+            if not new_perms.has_key(key):
+                new_perms[key] = PERMUTATION()
+            successor = new_perms[key]
+            sucessor.predecessor['perm'].append(self)
+            sucessor.predecessor['u_prime'].append(entry['R'])
 class MV1a:
     """A simple model of observed motion with the following groups of
     methods:
