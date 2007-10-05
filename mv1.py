@@ -220,7 +220,26 @@ class MV1:
             s_all[t] = s_t
             s_old = s_t
         return s_all
-            
+         
+# Test code
+if __name__ == '__main__':
+    import time
+    random.seed(3)
+    ts = time.time()
+    M = MV1(N_obj=4)
+    y,s = M.simulate(5)
+    d = M.decode(y)
+    print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
+    for t in xrange(len(y)):
+        print 't=%d    y         s           d'%t
+        for k in xrange(len(y[t])):
+            print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
+            for f in (s[t][k],d[t][k]):
+                print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
+            print ' '
+    print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)+\
+          'Takes 5.5 seconds on my AMD Sempron 3000'
+   
 #---------------
 # Local Variables:
 # eval: (python-mode)

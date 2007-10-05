@@ -1,7 +1,6 @@
 """
-mv1a.py Variant a on mv1.  The model is the same, but the classes and
-algorithms are different.  First change is to use class called TARGET.
-
+mv1a.py: First variation on mv1.  The model is the same, but the
+classes and algorithms are different.
 """
 import numpy, scipy, scipy.linalg, random, math
 
@@ -10,34 +9,23 @@ import util
 class TARGET:
     """A TARGET is a possible moving target, eg, a car.  Its values
     are determined by initialzation values and a sequence of
-    observations that are "Kalman filtered".  It contains the following:
-    
-    mu_t       Sequence of updated means
-    Sigma_t    Sequence of updated covariances
-    R_t        Sequence of residuals
-    m_t        Sequence of observation indices
-    children
+    observations that are "Kalman filtered".
     """
     def __init__(self,
-                 A,        # Linear state dynamics
-                 Sigma_D,  # Dynamical noise
-                 O,        # Observation porjection
-                 Sigma_O,  # Observational noise
+                 mod,      # Parent model
                  m_t,      # History of hit indices used
                  mu_t,     # History of means
                  Sigma_t,  # History of variances
                  R_t       # History of residuals
                  ):
-        self.A = A
-        self.Sigma_D = Sigma_D
-        self.O = O
-        self.Sigma_O = Sigma_O
+        self.mod = mod
         self.m_t = m_t
         self.mu_t = mu_t
         self.Sigma_t = Sigma_t
         self.R_t = R_t
-        self.children = None
-        self.child_threshold = None
+        self.child_threshold = None # Cutoff for plausible hits
+        self.children = None # List of targets at t+1 updated with
+                             # plausible hits and this target
 
     def make_children(self,
                       y_t,   #list of hits at the next time
@@ -66,17 +54,17 @@ class TARGET:
         Sig_t = self.Sigma_t[-1]
         R_t = self.R_t[-1]
         
-        O = self.O
-        Sig_O = self.Sigma_O
-        Sig_D = self.Sigma_D
-        A = self.A
+        O = self.mod.O
+        Sig_O = self.mod.Sigma_O
+        Sig_D = self.mod.Sigma_D
+        A = self.mod.A
         Id = scipy.matrix(scipy.identity(Sig_D.shape[0]))
 
         # Calculate intermediates
         Sig_a = A*Sig_t*A.T + Sig_D      # Covariance of state forecast
         mu_a = A*mu_t                    # Mean of state forecast
         Delta_y = y - O*mu_a             # Error of forecast observation
-        Sig_y = O*Sig_a*O.T+self.Sigma_O # Covariance of forecast observation
+        Sig_y = O*Sig_a*O.T+Sig_O        # Covariance of forecast observation
         Sig_y_I = scipy.linalg.inv(Sig_y)
         K = Sig_a*O.T*Sig_y_I            # Kalman gain
         
@@ -85,11 +73,11 @@ class TARGET:
         Sigma_L = self.Sigma_t + [(Id-K*O)*Sig_a]
         mu_L = self.mu_t + [mu_a + K*Delta_y]
         R_L = self.R_t + [R_t - float(Delta_y.T*Sig_y_I*Delta_y)/2]
-        return TARGET(A,Sig_D,O,Sig_O,m_L,mu_L,Sigma_L,R_L)
+        return TARGET(self.mod,m_L,mu_L,Sigma_L,R_L)
     def backtrack(self):
         T = len(self.mu_t)
-        A = self.A
-        X = A.T * scipy.linalg.inv(self.Sigma_D) # An intermediate
+        A = self.mod.A
+        X = A.T * scipy.linalg.inv(self.mod.Sigma_D) # An intermediate
         s_t = range(T)
         s_t[T-1] = self.mu_t[T-1]
         for t in xrange(T-2,-1,-1):
@@ -100,13 +88,7 @@ class TARGET:
         
 class PERMUTATION:
     """A representation of a particular association of hits to targets
-    at a particular time.  Attributes:
-
-       targets:             A list of targets
-       predecessor_perm:    A list of predecessor permutations
-       predecessor_u_prime: A list of u' values for the predecessors
-       nu:                  Utility of best path ending here
-       key:                 A permutation tuple that maps hits t targets
+    at a particular time.
 
     Methods:
 
@@ -116,7 +98,7 @@ class PERMUTATION:
               of appropriate child targets from that predecessor,
               attach the list to self, and return the list
 
-     make_children:
+     make_children:  Call target.make_children() for each target
 
        
     """
@@ -124,39 +106,47 @@ class PERMUTATION:
     def __init__(self,
                  N_tar,
                  key,
-                 targets=None    # A list of targets
+                 targets=None
                  ):
         self.N_tar = N_tar
-        self.key = key
-        self.targets = targets
-        self.predecessor_perm = []
-        self.predecessor_u_prime = []
+        self.key = key              # Permutation tuple: hits -> targets
+        self.targets = targets      # List of targets
+        self.predecessor_perm = []  # List of predecessor permutations
+        self.predecessor_u_prime=[] # List of u' values for the predecessors
+        self.nu = None              # Utility of best path ending here
         
     def forward(self,
                 new_perms   # A dict of permutations for the next time step
                 ):
-        """
+        """ For each plausible successor S of the PERMUTATION self
+        append the following pair of values to S.predecessor: 1. A
+        pointer back to self and 2. The value of u'(self,S,t+1).
         """
         # Create a list of successor permutations to consider
         old_list = []
         for child in self.targets[0].children.values():
-            old_list.append({'perm':[child.m_t[-1]],'R':child.R_t[-1]})
+            m_tail = child.m_t[-1]
+            old_list.append({
+                'dup_check':{m_tail:None}, # Hash table to ensure unique
+                                           # hit associations
+                'perm':[m_tail],           # Map from targets to hits
+                'R':child.R_t[-1]          # u'(self,suc,t+1)
+                })
         for k in xrange(1,len(self.targets)):
             new_list = []
             for child in self.targets[k].children.values():
-                last_m_t = child.m_t[-1]
+                m_tail = child.m_t[-1]
                 for partial in old_list:
-                    try: # Kludge to make sure each entry in a perm is unique
-                        i = partial['perm'].index(last_m_t)
+                    if partial['dup_check'].has_key(m_tail):
                         continue
-                    except ValueError:
-                        pass
-                    new_perm = partial['perm']+[last_m_t]
+                    new_dict = partial['dup_check'].copy()
+                    new_dict[m_tail] = None
+                    new_perm = partial['perm']+[m_tail]
                     new_R = partial['R']+child.R_t[-1]
-                    new_list.append({'perm':new_perm,'R':new_R})
+                    new_list.append({'dup_check':new_dict,'perm':new_perm,
+                                     'R':new_R})
             old_list = new_list
-        # old_list[i]['perm'] is a permutation where
-        # y[t][old_list[i]['perm'][j]] is associated with target[j]
+        # y[t+1][old_list[i]['perm'][j]] is associated with target[j]
 
         # Initialize successors if necessary and set their predecessors
         for entry in old_list:
@@ -168,7 +158,7 @@ class PERMUTATION:
             successor.predecessor_u_prime.append(entry['R'])
     def argmax(self):
         """Select best predecessor, evaluate self.nu, collect list of
-        appropriate child targets from that predecessor and attach
+        appropriate child targets from that predecessor, and attach
         that list to self
         """
         k_max = util.argmax(self.predecessor_u_prime)
@@ -257,8 +247,7 @@ class MV1a:
 
         # Initialize by making a target for each of the hits at t=0
         # and collecting those targets in a single permutation.
-        target_0 = TARGET(self.A,self.Sigma_D,self.O,self.Sigma_O,[],
-                          [self.mu_init],[self.Sigma_init],[0.0])
+        target_0 = TARGET(self,[],[self.mu_init],[self.Sigma_init],[0.0])
         targets = []
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
@@ -312,7 +301,6 @@ class MV1a:
 
 # Test code
 if __name__ == '__main__':
-
     import time
     random.seed(3)
     ts = time.time()
@@ -327,7 +315,8 @@ if __name__ == '__main__':
             for f in (s[t][k],d[t][k]):
                 print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
             print ' '
-    print 'elapsed time=',time.time()-ts
+    print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)+\
+          'Takes 0.58 seconds on my AMD Sempron 3000'
 
 #---------------
 # Local Variables:
