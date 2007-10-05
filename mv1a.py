@@ -10,7 +10,7 @@ import util
 class TARGET:
     """A TARGET is a possible moving target, eg, a car.  Its values
     are determined by initialzation values and a sequence of
-    observations that are"Kalman filtered".  It contains the following:
+    observations that are "Kalman filtered".  It contains the following:
     
     mu_t       Sequence of updated means
     Sigma_t    Sequence of updated covariances
@@ -116,6 +116,8 @@ class PERMUTATION:
               of appropriate child targets from that predecessor,
               attach the list to self, and return the list
 
+     make_children:
+
        
     """
 
@@ -142,14 +144,20 @@ class PERMUTATION:
         for k in xrange(1,len(self.targets)):
             new_list = []
             for child in self.targets[k].children.values():
+                last_m_t = child.m_t[-1]
                 for partial in old_list:
-                    new_perm = partial['perm']+[child.m_t[-1]]
+                    try: # Kludge to make sure each entry in a perm is unique
+                        i = partial['perm'].index(last_m_t)
+                        continue
+                    except ValueError:
+                        pass
+                    new_perm = partial['perm']+[last_m_t]
                     new_R = partial['R']+child.R_t[-1]
                     new_list.append({'perm':new_perm,'R':new_R})
             old_list = new_list
         # old_list[i]['perm'] is a permutation where
         # y[t][old_list[i]['perm'][j]] is associated with target[j]
-        
+
         # Initialize successors if necessary and set their predecessors
         for entry in old_list:
             key = tuple(entry['perm'])  # Dict keys can be tuples but not lists
@@ -164,7 +172,6 @@ class PERMUTATION:
         that list to self
         """
         k_max = util.argmax(self.predecessor_u_prime)
-        #print 'k_max=',k_max #FixMe
         self.nu = self.predecessor_u_prime[k_max]
         best = self.predecessor_perm[k_max]
         self.targets = []
@@ -275,7 +282,7 @@ class MV1a:
             for perm in old_perms.values():
                 perm.forward(new_perms)
 
-            # For each permutation at time t, find best predecessor
+            # For each permutation at time t, find th best predecessor
             # and the associated targets
             for perm in new_perms.values():
                 perm.argmax()
@@ -302,7 +309,26 @@ class MV1a:
                 s_t.append(tracks[k][t])
             s_all.append(s_t)
         return s_all
-            
+
+# Test code
+if __name__ == '__main__':
+
+    import time
+    random.seed(3)
+    ts = time.time()
+    M = MV1a(N_tar=4)
+    y,s = M.simulate(5)
+    d = M.decode(y)
+    print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
+    for t in xrange(len(y)):
+        print 't=%d    y         s           d'%t
+        for k in xrange(len(y[t])):
+            print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
+            for f in (s[t][k],d[t][k]):
+                print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
+            print ' '
+    print 'elapsed time=',time.time()-ts
+
 #---------------
 # Local Variables:
 # eval: (python-mode)

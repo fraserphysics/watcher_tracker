@@ -1,4 +1,5 @@
 import wx, mv1, demo, random, scipy, time
+#import wx, mv1a as mv1, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
 matplotlib.interactive(True)
@@ -10,6 +11,7 @@ random.seed(3)
 T = 20
 N_obj = 4
 M = mv1.MV1(N_obj=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],
+#M = mv1.MV1a(N_tar=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],
             Sigma_D = [[0.0001,0],[0,0.1]])
 foo_t = 0
 
@@ -25,7 +27,7 @@ class DemoPlotPanel(demo.PlotPanel):
         self.subplot.hold(True)
         self.subplot.clear()
         N = len(self.x)
-        for k in xrange(4):
+        for k in xrange(N_obj):
             self.subplot.plot(self.x[k],self.y[k],
                  markerfacecolor=self.colors[k], marker='o',linewidth=0)
             foo_x = [self.x[k][foo_t]]
@@ -33,8 +35,8 @@ class DemoPlotPanel(demo.PlotPanel):
             self.subplot.plot(foo_x,foo_y,markerfacecolor=self.colors[k],
                               markeredgecolor=self.colors[k], marker='x',
                               markeredgewidth=2,markersize=25)
-        if N > 4:
-            for k in xrange(4,N):
+        if N > N_obj:
+            for k in xrange(N_obj,N):
                 self.subplot.plot(self.x[k],self.y[k], lw=2,
                            color=self.colors[k], linestyle=self.linestyle)
                 foo_x = [self.x[k][foo_t]]
@@ -71,7 +73,7 @@ class view_mv1_frame(wx.Frame):
         self.plot_panelA = DemoPlotPanel(self,ylabel="Position",
                xlabel='Time',title='Observations')
         #self.plot_panelA.linestyle = ':'
-        self.plot_panelA.colors = 4*['black']
+        self.plot_panelA.colors = N_obj*['black']
         self.plot_panelB = DemoPlotPanel(self,ylabel="Position",
                xlabel='Velocity',title='State Space')
         sizer = wx.BoxSizer(wx.HORIZONTAL)
