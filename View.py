@@ -49,10 +49,6 @@ class DemoPlotPanel(demo.PlotPanel):
             self.subplot.set_ylabel(self.ylabel, fontsize = 10)
         if self.xlabel != None:
             self.subplot.set_xlabel(self.xlabel, fontsize = 10)
-        #self.subplot.set_xlim([-10, 10])
-        #self.subplot.set_ylim([-5, 5])
-        #self.Refresh()
-        #self.subplot.hold(False)
 
     def _forceDraw(self,x=None,y=None):
         if x != None:
@@ -62,6 +58,14 @@ class DemoPlotPanel(demo.PlotPanel):
         self.draw()
         self._SetSize()
 
+def layout(panel, compList, orient=wx.VERTICAL):
+    box = wx.BoxSizer(orient)
+    for c in compList:
+        #box.Add(c, 0, wx.ALL, panel.SPACING)
+        box.Add(c, 0, wx.EXPAND, 4)
+    panel.SetSizer(box)
+    box.Fit(panel)
+
 class view_mv1_frame(wx.Frame):
     def __init__(self, parent):
         self.title = "MV1 Viewer"
@@ -69,17 +73,17 @@ class view_mv1_frame(wx.Frame):
         self.initStatusBar()
         self.controlPanel = ControlPanel(self, -1)
         self.plot_panelA = DemoPlotPanel(self,ylabel="Position",
-               xlabel='Time',title='Observations')
+               xlabel='Time',title='Observations', size=(500,1000))
         #self.plot_panelA.linestyle = ':'
         self.plot_panelA.colors = N_obj*['black']
         self.plot_panelB = DemoPlotPanel(self,ylabel="Position",
-               xlabel='Velocity',title='State Space')
+               xlabel='Velocity',title='State Space', size=(500,1000))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        #plot_panel.SetSizer(sizer)
-        sizer.Add(self.controlPanel)
-        sizer.Add(self.plot_panelA,1,wx.EXPAND)
-        sizer.Add(self.plot_panelB,1,wx.EXPAND)
+        sizer.Add(self.controlPanel,0,wx.EXPAND,4)
+        sizer.Add(self.plot_panelA,1,wx.EXPAND,4)
+        sizer.Add(self.plot_panelB,1,wx.EXPAND,4)
         self.SetSizer(sizer)
+        sizer.Fit(self)
         
     def initStatusBar(self):
         self.statusbar = self.CreateStatusBar()
@@ -144,6 +148,12 @@ class view_mv1_frame(wx.Frame):
         self.plot_panelA._forceDraw()
         self.plot_panelB._forceDraw()
 
+    def t_sliderUpdate(self, event):
+        global foo_t
+        foo_t = self.controlPanel.t_Slider.GetValue()/2
+        self.plot_panelA._forceDraw()
+        self.plot_panelB._forceDraw()
+
 class ControlPanel(wx.Panel):
 
     BMP_SIZE = 16
@@ -157,44 +167,74 @@ class ControlPanel(wx.Panel):
         wx.Panel.__init__(self, parent, ID, style=wx.RAISED_BORDER)
         buttonSize = (self.BMP_SIZE + 2 * self.BMP_BORDER,
                       self.BMP_SIZE + 2 * self.BMP_BORDER)
-        simButton = wx.Button(parent=self, id=-1, label='Simulate')
-        self.Bind(wx.EVT_BUTTON, parent.OnSimClicked, simButton)
-        trackButton = wx.Button(parent=self, id=-1, label='Track')
-        self.Bind(wx.EVT_BUTTON, parent.OnTrackClicked, trackButton)
 
-        fooLabel = wx.StaticText(self,-1,"t")
-        fooSlider = wx.Slider(parent=self, id=-1, style=wx.SL_VERTICAL,
+        sim_frame = wx.Panel(self,-1)
+        
+        simButtonA = wx.Button(parent=sim_frame, id=-1, label='Simulate')
+
+        self.Bind(wx.EVT_BUTTON, parent.OnSimClicked, simButtonA)
+
+        row_A = wx.Panel(sim_frame,-1)
+        
+        a_x_frame = wx.Panel(row_A,-1)
+        a_x_Label = wx.StaticText(a_x_frame,-1,"a_x")
+        a_x_Slider = wx.Slider(a_x_frame, id=-1, style=wx.SL_VERTICAL,
                      value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
-        fooSlider.SetTickFreq(T, 1)
-        self.fooSlider = fooSlider
+        a_x_Slider.SetTickFreq(T, 1)
+        layout(a_x_frame,[a_x_Label,a_x_Slider])
 
-        self.Bind(wx.EVT_SLIDER, parent.sliderUpdate)
+        a_v_frame = wx.Panel(row_A,-1)
+        a_v_Label = wx.StaticText(a_v_frame,-1,"a_v")
+        a_v_Slider = wx.Slider(a_v_frame, id=-1, style=wx.SL_VERTICAL,
+                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
+        a_v_Slider.SetTickFreq(T, 1)
+        layout(a_v_frame,[a_v_Label,a_v_Slider])
+        
+        layout(row_A,[a_x_frame,a_v_frame],orient=wx.HORIZONTAL)
 
-        self.layout(None, None, [simButton, trackButton, fooLabel, fooSlider])
+        row_B = wx.Panel(sim_frame,-1)
+        
+        sig_x_frame = wx.Panel(row_B,-1)
+        sig_x_Label = wx.StaticText(sig_x_frame,-1,"sig_x")
+        sig_x_Slider = wx.Slider(sig_x_frame, id=-1, style=wx.SL_VERTICAL,
+                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
+        sig_x_Slider.SetTickFreq(T, 1)
+        layout(sig_x_frame,[sig_x_Label,sig_x_Slider])
 
-    def layout(self, colorGrid, thicknessGrid, compList):
-        box = wx.BoxSizer(wx.VERTICAL)
-#        box.Add(colorGrid, 0, wx.ALL, self.SPACING)
-#        box.Add(thicknessGrid, 0, wx.ALL, self.SPACING)
-        for c in compList:
-            box.Add(c, 0, wx.ALL, self.SPACING)
-        self.SetSizer(box)
-        box.Fit(self)
+        sig_v_frame = wx.Panel(row_B
+                               ,-1)
+        sig_v_Label = wx.StaticText(sig_v_frame,-1,"sig_v")
+        sig_v_Slider = wx.Slider(sig_v_frame, id=-1, style=wx.SL_VERTICAL,
+                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
+        sig_v_Slider.SetTickFreq(T, 1)
+        layout(sig_v_frame,[sig_v_Label,sig_v_Slider])
+        
+        layout(row_B,[sig_x_frame,sig_v_frame],orient=wx.HORIZONTAL)
 
-    def OnSetColour(self, event):
-        color = self.colorMap[event.GetId()]
+        layout(sim_frame,[simButtonA,row_A,row_B])
+        #---------------------------
+        track_frame = wx.Panel(self,-1)
+        
+        trackButtonA = wx.Button(parent=track_frame, id=-1, label='Track')
+        self.Bind(wx.EVT_BUTTON, parent.OnTrackClicked, trackButtonA)
 
-    def OnSetThickness(self, event):
-        thickness = self.thicknessIdMap[event.GetId()]
-
+        row_C = wx.Panel(track_frame,-1)
+        
+        t_frame = wx.Panel(row_C,-1)
+        t_Label = wx.StaticText(t_frame,-1,"t")
+        t_Slider = wx.Slider(t_frame, id=-1, style=wx.SL_VERTICAL,
+                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
+        t_Slider.SetTickFreq(T, 1)
+        self.t_Slider = t_Slider
+        self.Bind(wx.EVT_SLIDER, parent.t_sliderUpdate)
+        layout(t_frame,[t_Label,t_Slider])
+        layout(track_frame,[trackButtonA,row_C])
+        #--------------------
+        layout(self,[sim_frame,track_frame])
 
 class view_mv1_app(wx.App):
     def OnInit(self):
-        global frame
-        #Initialise a frame ...
-        #frame = wx.Frame(None, -1, 'WxPython and Matplotlib')
-        frame = view_mv1_frame(None)
-        #And we are done ...    
+        frame = view_mv1_frame(None)  
         frame.Show()
         return True
 
