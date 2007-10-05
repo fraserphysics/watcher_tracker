@@ -1,5 +1,4 @@
-import wx, mv1, demo, random, scipy, time
-#import wx, mv1a as mv1, demo, random, scipy, time
+import wx, mv1a, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
 matplotlib.interactive(True)
@@ -10,8 +9,7 @@ random.seed(3)
 
 T = 20
 N_obj = 4
-M = mv1.MV1(N_obj=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],
-#M = mv1.MV1a(N_tar=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],
+M = mv1a.MV1a(N_tar=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],
             Sigma_D = [[0.0001,0],[0,0.1]])
 foo_t = 0
 
