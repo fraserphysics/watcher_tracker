@@ -186,20 +186,23 @@ class MV1:
                 perm_new['nu_s'][t] = trial_nu[b]
                 perm_new['B_p'][t] = b
 
-        # Find the best last permutation and state
+        # Find the best last permutation
         R = scipy.zeros(self.N_perm)
         for p in xrange(self.N_perm):
             nu_last = perm_list[p]['nu_s'][T-1]
             R_p = 0.0
             for nu_last_k in nu_last:
                 R_p = R_p + nu_last_k['R']
+            R[p] = R_p
         b = R.argmax()
         
-        s_all = range(T)
+        # Find the best last state
         s_old = []
         for k in xrange(self.N_obj):
-            best_last_k = perm_list[b]['nu_s'][t][k]['mu']
+            best_last_k = perm_list[b]['nu_s'][T-1][k]['mu']
             s_old.append(best_last_k)
+        
+        s_all = range(T)
         s_all[T-1] = s_old
         
         # Backtrack to get trajectories
