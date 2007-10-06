@@ -9,8 +9,13 @@ random.seed(3)
 
 T = 20
 N_obj = 4
-M = mv1a.MV1a(N_tar=N_obj,A = [[0.81,1],[0,.95]],Sigma_O=[[0.01]],
-            Sigma_D = [[0.0001,0],[0,0.1]])
+a_x = 0.81
+a_v = 0.95
+sig_x = 0.01
+sig_v = 0.31
+sig_O = 0.1
+#M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
+#            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
 foo_t = 0
 
 class DemoPlotPanel(demo.PlotPanel):
@@ -66,6 +71,22 @@ def layout(panel, compList, orient=wx.VERTICAL):
     panel.SetSizer(box)
     box.Fit(panel)
 
+def Vlab_slider(parent, label, **kwargs): # Vertical slider and
+                                             # label in frame
+    frame = wx.Panel(parent,-1)
+    Label = wx.StaticText(frame,-1,' '+label+' ')
+    Slider = wx.Slider(frame, id=-1, style=wx.SL_VERTICAL, **kwargs)
+    layout(frame,[Label,Slider])
+    return frame
+
+def Vlab_sliderA(binder, parent, label, call_back, **kwargs):
+    frame = wx.Panel(parent,-1)
+    Label = wx.StaticText(frame,-1,' '+label+' ')
+    Slider = wx.Slider(frame, id=-1, style=wx.SL_VERTICAL, **kwargs)
+    layout(frame,[Label,Slider])
+    binder.Bind(wx.EVT_SLIDER, call_back)
+    return frame,Slider
+
 class view_mv1_frame(wx.Frame):
     def __init__(self, parent):
         self.title = "MV1 Viewer"
@@ -73,11 +94,11 @@ class view_mv1_frame(wx.Frame):
         self.initStatusBar()
         self.controlPanel = ControlPanel(self, -1)
         self.plot_panelA = DemoPlotPanel(self,ylabel="Position",
-               xlabel='Time',title='Observations', size=(500,1000))
+               xlabel='Time',title='Observations', size=(400,800))
         #self.plot_panelA.linestyle = ':'
         self.plot_panelA.colors = N_obj*['black']
         self.plot_panelB = DemoPlotPanel(self,ylabel="Position",
-               xlabel='Velocity',title='State Space', size=(500,1000))
+               xlabel='Velocity',title='State Space', size=(400,800))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         sizer.Add(self.controlPanel,0,wx.EXPAND,4)
         sizer.Add(self.plot_panelA,1,wx.EXPAND,4)
@@ -87,8 +108,8 @@ class view_mv1_frame(wx.Frame):
         
     def initStatusBar(self):
         self.statusbar = self.CreateStatusBar()
-        self.statusbar.SetFieldsCount(3)
-        self.statusbar.SetStatusWidths([-1, -2, -3])
+        #self.statusbar.SetFieldsCount(3)
+        #self.statusbar.SetStatusWidths([-1, -2, -3])
 
     def OnNew(self, event): pass
 
@@ -96,8 +117,10 @@ class view_mv1_frame(wx.Frame):
         self.Destroy()
 
     def OnSimClicked(self, event):
-        global T,N_obj,M,yo,s
+        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s
 
+        M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
         yo,s = M.simulate(T)
         x = scipy.zeros((N_obj,T))
         y = scipy.zeros((N_obj,T))
@@ -141,18 +164,19 @@ class view_mv1_frame(wx.Frame):
                 x[N_obj+k][t] = d[t][k][0,0]
                 y[N_obj+k][t] = d[t][k][1,0]
         self.plot_panelB._forceDraw(x=y,y=x)
-
-    def sliderUpdate(self, event):
-        global foo_t
-        foo_t = self.controlPanel.fooSlider.GetValue()/2
-        self.plot_panelA._forceDraw()
-        self.plot_panelB._forceDraw()
+    
+    def a_x_sliderUpdate(self, event):
+        global a_x
+        a_x = self.controlPanel.a_x_Slider.GetValue()
+        print 'a_x=%f'%a_x
+        self.statusbar.SetStatusText('a_x=%f'%a_x)
 
     def t_sliderUpdate(self, event):
         global foo_t
         foo_t = self.controlPanel.t_Slider.GetValue()/2
         self.plot_panelA._forceDraw()
         self.plot_panelB._forceDraw()
+        self.statusbar.SetStatusText('t=%d'%foo_t)
 
 class ControlPanel(wx.Panel):
 
@@ -175,41 +199,30 @@ class ControlPanel(wx.Panel):
         self.Bind(wx.EVT_BUTTON, parent.OnSimClicked, simButtonA)
 
         row_A = wx.Panel(sim_frame,-1)
-        
-        a_x_frame = wx.Panel(row_A,-1)
-        a_x_Label = wx.StaticText(a_x_frame,-1,"a_x")
-        a_x_Slider = wx.Slider(a_x_frame, id=-1, style=wx.SL_VERTICAL,
-                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
-        a_x_Slider.SetTickFreq(T, 1)
-        layout(a_x_frame,[a_x_Label,a_x_Slider])
 
-        a_v_frame = wx.Panel(row_A,-1)
-        a_v_Label = wx.StaticText(a_v_frame,-1,"a_v")
-        a_v_Slider = wx.Slider(a_v_frame, id=-1, style=wx.SL_VERTICAL,
-                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
-        a_v_Slider.SetTickFreq(T, 1)
-        layout(a_v_frame,[a_v_Label,a_v_Slider])
-        
-        layout(row_A,[a_x_frame,a_v_frame],orient=wx.HORIZONTAL)
+        a_x_frame,self.a_x_Slider = Vlab_sliderA(self,row_A,"a_x",
+            parent.a_x_sliderUpdate, value=0.8, minValue=0.6,maxValue=1.0,
+            size=(-1, 200))
+        a_v_frame = Vlab_slider(row_A,"a_v",value=0, minValue=0,
+                                maxValue=2*(T-1), size=(-1, 200))
+        N_frame = Vlab_slider(row_A,"N",value=0, minValue=0,
+                                maxValue=2*(T-1), size=(-1, 200))
+        T_frame = Vlab_slider(row_A,"T",value=0, minValue=0,
+                                maxValue=2*(T-1), size=(-1, 200))
+        layout(row_A,[a_x_frame,a_v_frame,N_frame,T_frame],
+               orient=wx.HORIZONTAL)
 
         row_B = wx.Panel(sim_frame,-1)
-        
-        sig_x_frame = wx.Panel(row_B,-1)
-        sig_x_Label = wx.StaticText(sig_x_frame,-1,"sig_x")
-        sig_x_Slider = wx.Slider(sig_x_frame, id=-1, style=wx.SL_VERTICAL,
-                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
-        sig_x_Slider.SetTickFreq(T, 1)
-        layout(sig_x_frame,[sig_x_Label,sig_x_Slider])
 
-        sig_v_frame = wx.Panel(row_B
-                               ,-1)
-        sig_v_Label = wx.StaticText(sig_v_frame,-1,"sig_v")
-        sig_v_Slider = wx.Slider(sig_v_frame, id=-1, style=wx.SL_VERTICAL,
+        sig_x_frame = Vlab_slider(row_B,"sig_x",
                      value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
-        sig_v_Slider.SetTickFreq(T, 1)
-        layout(sig_v_frame,[sig_v_Label,sig_v_Slider])
+        sig_v_frame = Vlab_slider(row_B,"sig_v", value=0, minValue=0,
+                                  maxValue=2*(T-1), size=(-1, 200))
+        sig_O_frame = Vlab_slider(row_B,"sig_O",
+                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
         
-        layout(row_B,[sig_x_frame,sig_v_frame],orient=wx.HORIZONTAL)
+        layout(row_B,[sig_x_frame,sig_v_frame,sig_O_frame],
+               orient=wx.HORIZONTAL)
 
         layout(sim_frame,[simButtonA,row_A,row_B])
         #---------------------------
@@ -219,15 +232,15 @@ class ControlPanel(wx.Panel):
         self.Bind(wx.EVT_BUTTON, parent.OnTrackClicked, trackButtonA)
 
         row_C = wx.Panel(track_frame,-1)
+        t_frame,self.t_Slider = Vlab_sliderA(self, row_C, "t",
+                                parent.t_sliderUpdate, value=0, minValue=0,
+                                maxValue=2*(T-1), size=(-1, 200))
+        MaxD_frame = Vlab_slider(row_C,"MaxD",value=0, minValue=0,
+                                maxValue=2*(T-1), size=(-1, 200))
+        MaxP_frame = Vlab_slider(row_C,"MaxP",value=0, minValue=0,
+                                maxValue=2*(T-1), size=(-1, 200))
+        layout(row_C,[t_frame,MaxD_frame,MaxP_frame],orient=wx.HORIZONTAL)
         
-        t_frame = wx.Panel(row_C,-1)
-        t_Label = wx.StaticText(t_frame,-1,"t")
-        t_Slider = wx.Slider(t_frame, id=-1, style=wx.SL_VERTICAL,
-                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
-        t_Slider.SetTickFreq(T, 1)
-        self.t_Slider = t_Slider
-        self.Bind(wx.EVT_SLIDER, parent.t_sliderUpdate)
-        layout(t_frame,[t_Label,t_Slider])
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
         layout(self,[sim_frame,track_frame])
