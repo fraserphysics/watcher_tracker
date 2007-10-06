@@ -14,10 +14,29 @@ a_v = 0.95
 sig_x = 0.01
 sig_v = 0.31
 sig_O = 0.1
+MaxD_I = 0   # Inverse of maximum Malhabonobis distance from forecast to y
+MaxP = 1     # Fraction of N! allowed
 #M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
 #            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
 foo_t = 0
 
+class FloatSlider(wx.Slider):
+    def __init__(self, parent, ID, Min, Max, Step, Value, call_back, **kwargs):
+        self.FMin = Min
+        self.FMax = Max
+        self.FStep = Step
+        self.Fvalue = Value
+        self.Call_Back = call_back
+        MV = int((Max-Min)/Step)
+        V = int((Value-Min)/Step)
+        wx.Slider.__init__(self, parent, id=ID, value=V, minValue=0,
+                           maxValue=MV, **kwargs)
+        parent.Bind(wx.EVT_SLIDER, self.scale, self)
+    def scale(self,event):
+        Ivalue = self.GetValue()
+        self.Fvalue = self.FMin + Ivalue*self.FStep
+        self.Call_Back(event)
+    
 class DemoPlotPanel(demo.PlotPanel):
     """An example plotting panel. The only method that needs 
     overriding is the draw method"""
@@ -32,16 +51,19 @@ class DemoPlotPanel(demo.PlotPanel):
         N = len(self.x)
         for k in xrange(N_obj):
             self.subplot.plot(self.x[k],self.y[k],
-                 markerfacecolor=self.colors[k], marker='o',linewidth=0)
+                 markerfacecolor=self.colors[k%len(self.colors)],
+                              marker='o',linewidth=0)
             foo_x = [self.x[k][foo_t]]
             foo_y = [self.y[k][foo_t]]
-            self.subplot.plot(foo_x,foo_y,markerfacecolor=self.colors[k],
-                              markeredgecolor=self.colors[k], marker='x',
+            self.subplot.plot(foo_x,foo_y,
+                  markerfacecolor=self.colors[k%len(self.colors)],
+                  markeredgecolor=self.colors[k%len(self.colors)], marker='x',
                               markeredgewidth=2,markersize=25)
         if N > N_obj:
             for k in xrange(N_obj,N):
                 self.subplot.plot(self.x[k],self.y[k], lw=2,
-                           color=self.colors[k], linestyle=self.linestyle)
+                           color=self.colors[k%len(self.colors)],
+                           linestyle=self.linestyle)
                 foo_x = [self.x[k][foo_t]]
                 foo_y = [self.y[k][foo_t]]
                 self.subplot.plot(foo_x,foo_y,markerfacecolor=self.colors[k],
@@ -71,20 +93,22 @@ def layout(panel, compList, orient=wx.VERTICAL):
     panel.SetSizer(box)
     box.Fit(panel)
 
-def Vlab_slider(parent, label, **kwargs): # Vertical slider and
-                                             # label in frame
+def Vlab_slider(binder, parent, label, call_back, **kwargs):
     frame = wx.Panel(parent,-1)
     Label = wx.StaticText(frame,-1,' '+label+' ')
     Slider = wx.Slider(frame, id=-1, style=wx.SL_VERTICAL, **kwargs)
     layout(frame,[Label,Slider])
-    return frame
+    binder.Bind(wx.EVT_SLIDER, call_back, Slider)
+    return frame,Slider
 
-def Vlab_sliderA(binder, parent, label, call_back, **kwargs):
+def VFlab_slider(binder, parent, label, Min, Max, Step, Value, call_back,
+                 **kwargs):
+    # Vertical Float Slider
     frame = wx.Panel(parent,-1)
     Label = wx.StaticText(frame,-1,' '+label+' ')
-    Slider = wx.Slider(frame, id=-1, style=wx.SL_VERTICAL, **kwargs)
+    Slider = FloatSlider(frame, -1, Min, Max, Step, Value, call_back,
+                         style=wx.SL_VERTICAL, **kwargs)
     layout(frame,[Label,Slider])
-    binder.Bind(wx.EVT_SLIDER, call_back)
     return frame,Slider
 
 class view_mv1_frame(wx.Frame):
@@ -167,16 +191,56 @@ class view_mv1_frame(wx.Frame):
     
     def a_x_sliderUpdate(self, event):
         global a_x
-        a_x = self.controlPanel.a_x_Slider.GetValue()
-        print 'a_x=%f'%a_x
-        self.statusbar.SetStatusText('a_x=%f'%a_x)
+        a_x = self.controlPanel.a_x_Slider.Fvalue
+        self.statusbar.SetStatusText('a_x=%4.2f'%a_x)
+
+    def a_v_sliderUpdate(self, event):
+        global a_v
+        a_v = self.controlPanel.a_v_Slider.Fvalue
+        self.statusbar.SetStatusText('a_v=%4.2f'%a_v)
+
+    def sig_x_sliderUpdate(self, event):
+        global sig_x
+        sig_x = self.controlPanel.sig_x_Slider.Fvalue
+        self.statusbar.SetStatusText('sig_x=%5.3f'%sig_x)
+
+    def sig_v_sliderUpdate(self, event):
+        global sig_v
+        sig_v = self.controlPanel.sig_v_Slider.Fvalue
+        self.statusbar.SetStatusText('sig_v=%5.3f'%sig_v)
+
+    def sig_O_sliderUpdate(self, event):
+        global sig_O
+        sig_O = self.controlPanel.sig_O_Slider.Fvalue
+        self.statusbar.SetStatusText('sig_O=%5.3f'%sig_O)
+
+    def MaxD_sliderUpdate(self, event):
+        global MaxD
+        MaxD = self.controlPanel.MaxD_Slider.Fvalue
+        self.statusbar.SetStatusText('MaxD=%5.3f'%MaxD)
+
+    def MaxP_sliderUpdate(self, event):
+        global MaxP
+        MaxP = self.controlPanel.MaxP_Slider.Fvalue
+        self.statusbar.SetStatusText('MaxP=%5.3f'%MaxP)
 
     def t_sliderUpdate(self, event):
         global foo_t
-        foo_t = self.controlPanel.t_Slider.GetValue()/2
+        Ft = self.controlPanel.t_Slider.Fvalue
+        foo_t = max(0,min(T-1,int(T*Ft)))
         self.plot_panelA._forceDraw()
         self.plot_panelB._forceDraw()
         self.statusbar.SetStatusText('t=%d'%foo_t)
+        
+    def T_sliderUpdate(self, event):
+        global T
+        T = self.controlPanel.T_Slider.GetValue()
+        self.statusbar.SetStatusText('T=%d'%T)
+        
+    def N_sliderUpdate(self, event):
+        global N_obj
+        N_obj = self.controlPanel.N_Slider.GetValue()
+        self.statusbar.SetStatusText('N=%d'%N_obj)
 
 class ControlPanel(wx.Panel):
 
@@ -200,26 +264,27 @@ class ControlPanel(wx.Panel):
 
         row_A = wx.Panel(sim_frame,-1)
 
-        a_x_frame,self.a_x_Slider = Vlab_sliderA(self,row_A,"a_x",
-            parent.a_x_sliderUpdate, value=0.8, minValue=0.6,maxValue=1.0,
-            size=(-1, 200))
-        a_v_frame = Vlab_slider(row_A,"a_v",value=0, minValue=0,
-                                maxValue=2*(T-1), size=(-1, 200))
-        N_frame = Vlab_slider(row_A,"N",value=0, minValue=0,
-                                maxValue=2*(T-1), size=(-1, 200))
-        T_frame = Vlab_slider(row_A,"T",value=0, minValue=0,
-                                maxValue=2*(T-1), size=(-1, 200))
+        a_x_frame,self.a_x_Slider = VFlab_slider(self,row_A,"a_x",
+            0.6, 1.0, 0.01, 0.81, parent.a_x_sliderUpdate, size=(-1, 200))
+        a_v_frame,self.a_v_Slider = VFlab_slider(self,row_A,"a_v",
+            0.8, 1.0, 0.01, 0.95, parent.a_v_sliderUpdate, size=(-1, 200))
+        N_frame,self.N_Slider = Vlab_slider(self, row_A, "N",
+                                parent.N_sliderUpdate, value=5, minValue=1,
+                                maxValue=20, size=(-1, 200))
+        T_frame,self.T_Slider = Vlab_slider(self, row_A, "T",
+                                parent.T_sliderUpdate, value=20, minValue=1,
+                                maxValue=100, size=(-1, 200))
         layout(row_A,[a_x_frame,a_v_frame,N_frame,T_frame],
                orient=wx.HORIZONTAL)
 
         row_B = wx.Panel(sim_frame,-1)
 
-        sig_x_frame = Vlab_slider(row_B,"sig_x",
-                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
-        sig_v_frame = Vlab_slider(row_B,"sig_v", value=0, minValue=0,
-                                  maxValue=2*(T-1), size=(-1, 200))
-        sig_O_frame = Vlab_slider(row_B,"sig_O",
-                     value=0, minValue=0, maxValue=2*(T-1), size=(-1, 200))
+        sig_x_frame,self.sig_x_Slider = VFlab_slider(self,row_B,"sig_x",
+            0.01, 1.0, 0.005, 0.01, parent.sig_x_sliderUpdate, size=(-1, 200))
+        sig_v_frame,self.sig_v_Slider = VFlab_slider(self,row_B,"sig_v",
+            0.01, 1.0, 0.005, 0.31, parent.sig_v_sliderUpdate, size=(-1, 200))
+        sig_O_frame,self.sig_O_Slider = VFlab_slider(self,row_B,"sig_O",
+            0.01, 1.0, 0.005, 0.1, parent.sig_O_sliderUpdate, size=(-1, 200))
         
         layout(row_B,[sig_x_frame,sig_v_frame,sig_O_frame],
                orient=wx.HORIZONTAL)
@@ -232,13 +297,12 @@ class ControlPanel(wx.Panel):
         self.Bind(wx.EVT_BUTTON, parent.OnTrackClicked, trackButtonA)
 
         row_C = wx.Panel(track_frame,-1)
-        t_frame,self.t_Slider = Vlab_sliderA(self, row_C, "t",
-                                parent.t_sliderUpdate, value=0, minValue=0,
-                                maxValue=2*(T-1), size=(-1, 200))
-        MaxD_frame = Vlab_slider(row_C,"MaxD",value=0, minValue=0,
-                                maxValue=2*(T-1), size=(-1, 200))
-        MaxP_frame = Vlab_slider(row_C,"MaxP",value=0, minValue=0,
-                                maxValue=2*(T-1), size=(-1, 200))
+        t_frame,self.t_Slider = VFlab_slider(self, row_C, "t", 0.0, 1.0,
+                    0.005, 1.0, parent.t_sliderUpdate, size=(-1, 200))
+        MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
+            0.0, 1.0, 0.005, 0.0, parent.MaxD_sliderUpdate, size=(-1, 200))
+        MaxP_frame,self.MaxP_Slider = VFlab_slider(self, row_C,"MaxP",
+            0.0, 1.0, 0.005, 0.0, parent.MaxP_sliderUpdate, size=(-1, 200))
         layout(row_C,[t_frame,MaxD_frame,MaxP_frame],orient=wx.HORIZONTAL)
         
         layout(track_frame,[trackButtonA,row_C])
