@@ -23,7 +23,6 @@ class TARGET:
         self.mu_t = mu_t
         self.Sigma_t = Sigma_t
         self.R_t = R_t
-        self.child_threshold = None # Cutoff for plausible hits
         self.children = None # List of targets at t+1 updated with
                              # plausible hits and this target
 
@@ -34,14 +33,66 @@ class TARGET:
         observation of self, make a child target.  Collect the
         children in a dict, attach it to self and return it.
         """
-        if self.child_threshold is None: # make a child for each hit
-            self.children = {}
+        self.forecast()
+        self.children = {}
+        if self.mod.MaxD > 0.1: # Make a child for hits closer than MaxD
+            MD = self.mod.MaxD
             for k in xrange(len(y_t)):
-                self.children[k] = self.KF(y_t[k],k)
-        else:
-            raise RuntimeError,'Call Planned Parenthood'
+                distance = self.distance(y_t[k])
+                if distance < MD:
+                    self.children[k] = self.update(y_t[k],k)
+                    """
+                    print 'test passed, %f < %f'%(distance,MD)
+                    self.children[k] = self.update(y_t[k],k)
+                else:
+                    print 'test failed, %f > %f'%(distance,MD)
+                    """
+        else:                 # Make a child for each hit
+            for k in xrange(len(y_t)):
+                self.children[k] = self.update(y_t[k],k)
+    def forecast(self):
+        """ Calculate forecast mean and covariance for both state and
+        observation.  Save all four for use by KF or Distance.
+        """
+        A = self.mod.A
+        O = self.mod.O
+        self.mu_a = A*self.mu_t[-1]
+        self.Sigma_a = A*self.Sigma_t[-1]*A.T + self.mod.Sigma_D
+        self.y_forecast = O*self.mu_a
+        Sig_y = O*self.Sigma_a*O.T + self.mod.Sigma_O
+        self.Sigma_y_forecast_I = scipy.linalg.inv(Sig_y)
+    def distance(self,y):
+        Delta_y = y - self.y_forecast    # Error of forecast observation
+        d_sq = Delta_y.T*self.Sigma_y_forecast_I*Delta_y
+        return float(d_sq)**.5
+    def update(self,
+           y,        # The observation of the target at the current time
+           m         # Index of the observation
+           ):
+        """ Create a new target with updated m_t, mu_t, Sigma_t and
+        R_t for the observation, index pair (y,m).  This is the second
+        half of Kalman filtering step."""
+        K = self.Sigma_a*self.mod.O.T*self.Sigma_y_forecast_I
+        Id = scipy.matrix(scipy.identity(y.shape[0]))
+        Delta_y = y - self.y_forecast    # Error of forecast observation
+        m_L = self.m_t+[m]
+        Sigma_L = self.Sigma_t + [(Id-K*self.mod.O)*self.Sigma_a]
+        mu_L = self.mu_t + [self.mu_a + K*Delta_y]
+        R_L = self.R_t + [self.R_t[-1]
+              - float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y)/2]
+        return TARGET(self.mod,m_L,mu_L,Sigma_L,R_L)
         
     def KF(self,
+           y,        # The observation of the target at the current time
+           m         # Index of the observation
+           ):
+        """ Create a new target with updated m_t, mu_t, Sigma_t and
+        R_t for the observation, index pair (y,m).  This is
+        essentially Kalman filtering."""
+        self.forecast()
+        return self.update(y,m)
+ 
+    def KF_old(self,
            y,        # The observation of the target at the current time
            m         # Index of the observation
            ):
@@ -188,7 +239,8 @@ class MV1a:
                  O = [[1,0]],                    # Observation porjection
                  Sigma_O = [[0.25]],             # Observational noise
                  Sigma_init = [[25.0,0],[0,1.0]],# Initial state distribution
-                 mu_init = None                  # Initial state distribution
+                 mu_init = None,                 # Initial state distribution
+                 MaxD = 0                        # Threshold for hits
                  ):
         self.N_tar = N_tar
         self.A = scipy.matrix(A)
@@ -202,6 +254,7 @@ class MV1a:
             self.mu_init = scipy.matrix(scipy.zeros(dim)).T
         else:
             self.mu_init = scipy.matrix(mu_init).T
+        self.MaxD = MaxD
 
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T

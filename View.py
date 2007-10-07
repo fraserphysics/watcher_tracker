@@ -14,7 +14,7 @@ a_v = 0.95
 sig_x = 0.01
 sig_v = 0.31
 sig_O = 0.1
-MaxD_I = 0   # Inverse of maximum Malhabonobis distance from forecast to y
+MaxD   = 0   # Inverse of maximum Malhabonobis distance from forecast to y
 MaxP = 1     # Fraction of N! allowed
 #M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
 #            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
@@ -66,9 +66,10 @@ class DemoPlotPanel(demo.PlotPanel):
                            linestyle=self.linestyle)
                 foo_x = [self.x[k][foo_t]]
                 foo_y = [self.y[k][foo_t]]
-                self.subplot.plot(foo_x,foo_y,markerfacecolor=self.colors[k],
-                     markeredgecolor=self.colors[k], marker='+',
-                     markeredgewidth=2, markersize=25)
+                self.subplot.plot(foo_x,foo_y,
+                  markerfacecolor=self.colors[k%len(self.colors)],
+                  markeredgecolor=self.colors[k%len(self.colors)], marker='+',
+                  markeredgewidth=2, markersize=25)
         #Set some plot attributes
         if self.title != None:
             self.subplot.set_title(self.title, fontsize = 12)
@@ -141,10 +142,10 @@ class view_mv1_frame(wx.Frame):
         self.Destroy()
 
     def OnSimClicked(self, event):
-        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s
+        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD
 
         M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD)
         yo,s = M.simulate(T)
         x = scipy.zeros((N_obj,T))
         y = scipy.zeros((N_obj,T))
@@ -165,8 +166,10 @@ class view_mv1_frame(wx.Frame):
         self.plot_panelB._forceDraw(x=y,y=x)
 
     def OnTrackClicked(self, event):
-        global T,N_obj,M,yo,s
+        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD
 
+        M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD)
         t_start = time.time()
         d = M.decode(yo)
         print 'decode time = %f'%(time.time()-t_start)
@@ -216,7 +219,11 @@ class view_mv1_frame(wx.Frame):
 
     def MaxD_sliderUpdate(self, event):
         global MaxD
-        MaxD = self.controlPanel.MaxD_Slider.Fvalue
+        V = self.controlPanel.MaxD_Slider.Fvalue
+        if V > 0:
+            MaxD = 1.0/V
+        else:
+            MaxD = 0
         self.statusbar.SetStatusText('MaxD=%5.3f'%MaxD)
 
     def MaxP_sliderUpdate(self, event):
@@ -300,7 +307,7 @@ class ControlPanel(wx.Panel):
         t_frame,self.t_Slider = VFlab_slider(self, row_C, "t", 0.0, 1.0,
                     0.005, 1.0, parent.t_sliderUpdate, size=(-1, 200))
         MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
-            0.0, 1.0, 0.005, 0.0, parent.MaxD_sliderUpdate, size=(-1, 200))
+            0.0, 9.0, 0.01, 0.0, parent.MaxD_sliderUpdate, size=(-1, 200))
         MaxP_frame,self.MaxP_Slider = VFlab_slider(self, row_C,"MaxP",
             0.0, 1.0, 0.005, 0.0, parent.MaxP_sliderUpdate, size=(-1, 200))
         layout(row_C,[t_frame,MaxD_frame,MaxP_frame],orient=wx.HORIZONTAL)
