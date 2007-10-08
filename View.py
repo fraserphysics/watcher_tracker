@@ -15,7 +15,7 @@ sig_x = 0.01
 sig_v = 0.31
 sig_O = 0.1
 MaxD   = 0   # Inverse of maximum Malhabonobis distance from forecast to y
-MaxP = 1     # Fraction of N! allowed
+MaxP = 120   # Number of permutations allowed
 #M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
 #            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
 foo_t = 0
@@ -145,7 +145,7 @@ class view_mv1_frame(wx.Frame):
         global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD
 
         M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD)
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         yo,s = M.simulate(T)
         x = scipy.zeros((N_obj,T))
         y = scipy.zeros((N_obj,T))
@@ -166,10 +166,10 @@ class view_mv1_frame(wx.Frame):
         self.plot_panelB._forceDraw(x=y,y=x)
 
     def OnTrackClicked(self, event):
-        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD
+        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxP
 
         M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD)
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         t_start = time.time()
         d = M.decode(yo)
         print 'decode time = %f'%(time.time()-t_start)
@@ -228,8 +228,8 @@ class view_mv1_frame(wx.Frame):
 
     def MaxP_sliderUpdate(self, event):
         global MaxP
-        MaxP = self.controlPanel.MaxP_Slider.Fvalue
-        self.statusbar.SetStatusText('MaxP=%5.3f'%MaxP)
+        MaxP = self.controlPanel.MaxP_Slider.GetValue()
+        self.statusbar.SetStatusText('MaxP=%d'%MaxP)
 
     def t_sliderUpdate(self, event):
         global foo_t
@@ -279,7 +279,7 @@ class ControlPanel(wx.Panel):
                                 parent.N_sliderUpdate, value=5, minValue=1,
                                 maxValue=20, size=(-1, 200))
         T_frame,self.T_Slider = Vlab_slider(self, row_A, "T",
-                                parent.T_sliderUpdate, value=20, minValue=1,
+                                parent.T_sliderUpdate, value=0, minValue=1,
                                 maxValue=100, size=(-1, 200))
         layout(row_A,[a_x_frame,a_v_frame,N_frame,T_frame],
                orient=wx.HORIZONTAL)
@@ -308,8 +308,9 @@ class ControlPanel(wx.Panel):
                     0.005, 1.0, parent.t_sliderUpdate, size=(-1, 200))
         MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
             0.0, 9.0, 0.01, 0.0, parent.MaxD_sliderUpdate, size=(-1, 200))
-        MaxP_frame,self.MaxP_Slider = VFlab_slider(self, row_C,"MaxP",
-            0.0, 1.0, 0.005, 0.0, parent.MaxP_sliderUpdate, size=(-1, 200))
+        MaxP_frame,self.MaxP_Slider = Vlab_slider(self, row_C,"MaxP",
+            parent.MaxP_sliderUpdate, value=120, minValue=1, maxValue=120,
+            size=(-1, 200))
         layout(row_C,[t_frame,MaxD_frame,MaxP_frame],orient=wx.HORIZONTAL)
         
         layout(track_frame,[trackButtonA,row_C])

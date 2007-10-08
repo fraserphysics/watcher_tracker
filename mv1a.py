@@ -26,8 +26,9 @@ class TARGET:
         self.children = None # List of targets at t+1 updated with
                              # plausible hits and this target
 
-    def make_children(self,
-                      y_t,   #list of hits at the next time
+    def make_children(self,        # self is a TARGET
+                      y_t,         # list of hits at time t
+                      All_children # Dict of children of all permutations
                       ):
         """ For each of the hits that could plausibly be an
         observation of self, make a child target.  Collect the
@@ -35,21 +36,25 @@ class TARGET:
         """
         self.forecast()
         self.children = {}
-        if self.mod.MaxD > 0.1: # Make a child for hits closer than MaxD
+        if self.mod.MaxD > 0.01: # Make a child for any hit closer than MaxD
             MD = self.mod.MaxD
             for k in xrange(len(y_t)):
                 distance = self.distance(y_t[k])
                 if distance < MD:
+                    key = tuple(self.m_t+[k])
+                    if All_children.has_key(key):
+                        self.children[k] = All_children[key]
+                        continue
                     self.children[k] = self.update(y_t[k],k)
-                    """
-                    print 'test passed, %f < %f'%(distance,MD)
-                    self.children[k] = self.update(y_t[k],k)
-                else:
-                    print 'test failed, %f > %f'%(distance,MD)
-                    """
-        else:                 # Make a child for each hit
+                    All_children[key] = self.children[k]
+        else:   # MaxD is near zero, ie, pruning is off
             for k in xrange(len(y_t)):
+                key = tuple(self.m_t+[k])
+                if All_children.has_key(key):
+                    self.children[k] = All_children[key]
+                    continue
                 self.children[k] = self.update(y_t[k],k)
+                All_children[key] = self.children[k]
     def forecast(self):
         """ Calculate forecast mean and covariance for both state and
         observation.  Save all four for use by KF or Distance.
@@ -218,9 +223,12 @@ class PERMUTATION:
         self.targets = []
         for k in xrange(self.N_tar):
             self.targets.append(best.targets[k].children[self.key[k]])
-    def make_children(self,y_t):
+    def make_children(self, # self is a PERMUTATION
+                      y_t,  # All observations at time t
+                      cousins
+                      ):
         for target in self.targets:
-            target.make_children(y_t)
+            target.make_children(y_t,cousins)
 class MV1a:
     """A simple model of observed motion with the following groups of
     methods:
@@ -240,7 +248,8 @@ class MV1a:
                  Sigma_O = [[0.25]],             # Observational noise
                  Sigma_init = [[25.0,0],[0,1.0]],# Initial state distribution
                  mu_init = None,                 # Initial state distribution
-                 MaxD = 0                        # Threshold for hits
+                 MaxD = 0,                       # Threshold for hits
+                 MaxP = 120
                  ):
         self.N_tar = N_tar
         self.A = scipy.matrix(A)
@@ -255,6 +264,8 @@ class MV1a:
         else:
             self.mu_init = scipy.matrix(mu_init).T
         self.MaxD = MaxD
+        self.MaxD_limit = MaxD
+        self.MaxP = MaxP
 
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
@@ -312,24 +323,43 @@ class MV1a:
         
         # Forward pass through time
         for t in xrange(1,T):
-            
-            # For each old target, collect all plausibly associated
-            # hits and create a corresponding child target by Kalman filtering
-            for perm in old_perms.values():
-                perm.make_children(Ys[t])
-                
-            # Build u' lists for all possible successor permutations at time t
-            new_perms = {} # Use dict so many predecessors can find
-                           # same successor
-            for perm in old_perms.values():
-                perm.forward(new_perms)
+            len_new_perms = 0
+            child_targets = {} # Dict of all targets for time t
+            while len_new_perms is 0:
+                # For each old target, collect all plausibly
+                # associated hits and create a corresponding child
+                # target by Kalman filtering
+                for perm in old_perms.values():
+                    perm.make_children(Ys[t],child_targets)
+                # Build u' lists for all possible successor
+                # permutations at time t.  Use dict for new_perms so
+                # many predecessors can find same successor 
+                new_perms = {}       
+                for perm in old_perms.values():
+                    perm.forward(new_perms)
 
-            # For each permutation at time t, find th best predecessor
+                len_new_perms = len(new_perms.keys())
+                self.MaxD *= 2
+            self.MaxD = max(self.MaxD/4,self.MaxD_limit)
+
+            # For each permutation at time t, find the best predecessor
             # and the associated targets
             for perm in new_perms.values():
                 perm.argmax()
 
-            old_perms = new_perms
+            # Pass up to MaxP new_perms to old_perms
+            if len(new_perms) > self.MaxP:
+                Rs = []
+                for perm in new_perms.values():
+                    Rs.append(perm.nu)
+                Rs.sort()
+                limit = Rs[-self.MaxP]
+                old_perms = {}
+                for key in new_perms.keys():
+                    if new_perms[key].nu >= limit:
+                        old_perms[key] = new_perms[key]
+            else:
+                old_perms = new_perms
 
         # Find the best last permutation
         keys = old_perms.keys()
