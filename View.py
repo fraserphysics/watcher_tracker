@@ -307,7 +307,7 @@ class ControlPanel(wx.Panel):
         t_frame,self.t_Slider = VFlab_slider(self, row_C, "t", 0.0, 1.0,
                     0.005, 1.0, parent.t_sliderUpdate, size=(-1, 200))
         MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
-            0.0, 9.0, 0.01, 0.0, parent.MaxD_sliderUpdate, size=(-1, 200))
+            0.0, 90.0, 0.01, 0.0, parent.MaxD_sliderUpdate, size=(-1, 200))
         MaxP_frame,self.MaxP_Slider = Vlab_slider(self, row_C,"MaxP",
             parent.MaxP_sliderUpdate, value=120, minValue=1, maxValue=120,
             size=(-1, 200))
