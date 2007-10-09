@@ -57,7 +57,8 @@ class TARGET:
                 All_children[key] = self.children[k]
     def forecast(self):
         """ Calculate forecast mean and covariance for both state and
-        observation.  Save all four for use by KF or Distance.
+        observation.  Also calculate K and Sigma_next.  Save all six
+        for use by Update or Distance.
         """
         A = self.mod.A
         O = self.mod.O
@@ -66,6 +67,8 @@ class TARGET:
         self.y_forecast = O*self.mu_a
         Sig_y = O*self.Sigma_a*O.T + self.mod.Sigma_O
         self.Sigma_y_forecast_I = scipy.linalg.inv(Sig_y)
+        self.K = self.Sigma_a*self.mod.O.T*self.Sigma_y_forecast_I
+        self.Sigma_next = (self.mod.Id-self.K*self.mod.O)*self.Sigma_a
     def distance(self,y):
         Delta_y = y - self.y_forecast    # Error of forecast observation
         d_sq = Delta_y.T*self.Sigma_y_forecast_I*Delta_y
@@ -77,12 +80,10 @@ class TARGET:
         """ Create a new target with updated m_t, mu_t, Sigma_t and
         R_t for the observation, index pair (y,m).  This is the second
         half of Kalman filtering step."""
-        K = self.Sigma_a*self.mod.O.T*self.Sigma_y_forecast_I
-        Id = scipy.matrix(scipy.identity(y.shape[0]))
         Delta_y = y - self.y_forecast    # Error of forecast observation
         m_L = self.m_t+[m]
-        Sigma_L = self.Sigma_t + [(Id-K*self.mod.O)*self.Sigma_a]
-        mu_L = self.mu_t + [self.mu_a + K*Delta_y]
+        Sigma_L = self.Sigma_t + [self.Sigma_next]
+        mu_L = self.mu_t + [self.mu_a + self.K*Delta_y]
         R_L = self.R_t + [self.R_t[-1]
               - float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y)/2]
         return TARGET(self.mod,m_L,mu_L,Sigma_L,R_L)
@@ -97,39 +98,6 @@ class TARGET:
         self.forecast()
         return self.update(y,m)
  
-    def KF_old(self,
-           y,        # The observation of the target at the current time
-           m         # Index of the observation
-           ):
-        """ Create a new target with updated m_t, mu_t, Sigma_t and
-        R_t for the observation, index pair (y,m).  This is
-        essentially Kalman filtering."""
-
-        # Unpack necessary matrices
-        mu_t = self.mu_t[-1]
-        Sig_t = self.Sigma_t[-1]
-        R_t = self.R_t[-1]
-        
-        O = self.mod.O
-        Sig_O = self.mod.Sigma_O
-        Sig_D = self.mod.Sigma_D
-        A = self.mod.A
-        Id = scipy.matrix(scipy.identity(Sig_D.shape[0]))
-
-        # Calculate intermediates
-        Sig_a = A*Sig_t*A.T + Sig_D      # Covariance of state forecast
-        mu_a = A*mu_t                    # Mean of state forecast
-        Delta_y = y - O*mu_a             # Error of forecast observation
-        Sig_y = O*Sig_a*O.T+Sig_O        # Covariance of forecast observation
-        Sig_y_I = scipy.linalg.inv(Sig_y)
-        K = Sig_a*O.T*Sig_y_I            # Kalman gain
-        
-        # Calculate new values and put them in lists
-        m_L = self.m_t+[m]
-        Sigma_L = self.Sigma_t + [(Id-K*O)*Sig_a]
-        mu_L = self.mu_t + [mu_a + K*Delta_y]
-        R_L = self.R_t + [R_t - float(Delta_y.T*Sig_y_I*Delta_y)/2]
-        return TARGET(self.mod,m_L,mu_L,Sigma_L,R_L)
     def backtrack(self):
         T = len(self.mu_t)
         A = self.mod.A
@@ -159,7 +127,7 @@ class PERMUTATION:
        
     """
 
-    def __init__(self,
+    def __init__(self,              # Permutation
                  N_tar,
                  key,
                  targets=None
@@ -240,29 +208,38 @@ class MV1a:
     Service methods:
       __init__()
     """
-    def __init__(self,
+    def __init__(self,                           # MVa1
                  N_tar = 3,                      # Number of targets
                  A = [[0.81,1],[0,.81]],         # Linear state dynamics
                  Sigma_D = [[0.01,0],[0,0.4]],   # Dynamical noise
                  O = [[1,0]],                    # Observation porjection
                  Sigma_O = [[0.25]],             # Observational noise
-                 Sigma_init = [[25.0,0],[0,1.0]],# Initial state distribution
+                 Sigma_init = None,              # Initial state distribution
                  mu_init = None,                 # Initial state distribution
                  MaxD = 0,                       # Threshold for hits
                  MaxP = 120
                  ):
         self.N_tar = N_tar
         self.A = scipy.matrix(A)
+        dim,check = self.A.shape
+        if dim != check:
+            raise RuntimeError,"A should be square but it's dimensions are (%d,%d)"%(dim,check)
+        self.Id = scipy.matrix(scipy.identity(dim))
         self.Sigma_D = scipy.matrix(Sigma_D)
         self.O = scipy.matrix(O)
         self.Sigma_O = scipy.matrix(Sigma_O)
         self.N_perm = int(scipy.factorial(N_tar))
-        self.Sigma_init = scipy.matrix(Sigma_init)
         if mu_init == None:
-            dim = self.Sigma_init.shape[0]
             self.mu_init = scipy.matrix(scipy.zeros(dim)).T
         else:
             self.mu_init = scipy.matrix(mu_init).T
+        if Sigma_init == None:# A clever man would simply solve
+            Sigma_init = scipy.matrix(scipy.identity(dim))
+            for t in xrange(100):
+                Sigma_init = self.A*Sigma_init*self.A.T + self.Sigma_D
+            self.Sigma_init = Sigma_init
+        else:
+            self.Sigma_init = scipy.matrix(Sigma_init)
         self.MaxD = MaxD
         self.MaxD_limit = MaxD
         self.MaxP = MaxP
@@ -295,10 +272,8 @@ class MV1a:
                 s_t = self.A*s_j[j] + epsilon
                 y_t = self.O * s_t + eta
                 s_j[j] = s_t
-                
                 obs_t[permute[j]] = y_t
                 state_t.append(s_t)
-                
             obs.append(obs_t)
             states.append(state_t)
         return obs,states

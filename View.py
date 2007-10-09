@@ -7,15 +7,15 @@ matplotlib.use('WXAgg')
 
 random.seed(3)
 
-T = 20
+T = 100
 N_obj = 4
-a_x = 0.81
-a_v = 0.95
-sig_x = 0.01
-sig_v = 0.31
-sig_O = 0.1
-MaxD   = 0   # Inverse of maximum Malhabonobis distance from forecast to y
-MaxP = 120   # Number of permutations allowed
+a_x = 0.9
+a_v = 0.9
+sig_x = 0.1
+sig_v = 0.2
+sig_O = 0.3
+MaxD   = 1/3. # Inverse of maximum Malhabonobis distance from forecast to y
+MaxP = 120    # Number of permutations allowed
 #M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
 #            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
 foo_t = 0
@@ -259,6 +259,7 @@ class ControlPanel(wx.Panel):
     maxThickness = 16
 
     def __init__(self, parent, ID):
+        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,MaxD,MaxP
         wx.Panel.__init__(self, parent, ID, style=wx.RAISED_BORDER)
         buttonSize = (self.BMP_SIZE + 2 * self.BMP_BORDER,
                       self.BMP_SIZE + 2 * self.BMP_BORDER)
@@ -272,14 +273,15 @@ class ControlPanel(wx.Panel):
         row_A = wx.Panel(sim_frame,-1)
 
         a_x_frame,self.a_x_Slider = VFlab_slider(self,row_A,"a_x",
-            0.6, 1.0, 0.01, 0.81, parent.a_x_sliderUpdate, size=(-1, 200))
+            0.6, 1.0, 0.01, a_x, parent.a_x_sliderUpdate, size=(-1, 200))
+        #  from,  to, step, init
         a_v_frame,self.a_v_Slider = VFlab_slider(self,row_A,"a_v",
-            0.8, 1.0, 0.01, 0.95, parent.a_v_sliderUpdate, size=(-1, 200))
+            0.8, 1.0, 0.01, a_v, parent.a_v_sliderUpdate, size=(-1, 200))
         N_frame,self.N_Slider = Vlab_slider(self, row_A, "N",
-                                parent.N_sliderUpdate, value=5, minValue=1,
+                                parent.N_sliderUpdate, value=N_obj, minValue=1,
                                 maxValue=20, size=(-1, 200))
         T_frame,self.T_Slider = Vlab_slider(self, row_A, "T",
-                                parent.T_sliderUpdate, value=0, minValue=1,
+                                parent.T_sliderUpdate, value=T, minValue=1,
                                 maxValue=100, size=(-1, 200))
         layout(row_A,[a_x_frame,a_v_frame,N_frame,T_frame],
                orient=wx.HORIZONTAL)
@@ -287,11 +289,11 @@ class ControlPanel(wx.Panel):
         row_B = wx.Panel(sim_frame,-1)
 
         sig_x_frame,self.sig_x_Slider = VFlab_slider(self,row_B,"sig_x",
-            0.01, 1.0, 0.005, 0.01, parent.sig_x_sliderUpdate, size=(-1, 200))
+            0.01, 1.0, 0.005, sig_x, parent.sig_x_sliderUpdate, size=(-1, 200))
         sig_v_frame,self.sig_v_Slider = VFlab_slider(self,row_B,"sig_v",
-            0.01, 1.0, 0.005, 0.31, parent.sig_v_sliderUpdate, size=(-1, 200))
+            0.01, 1.0, 0.005, sig_v, parent.sig_v_sliderUpdate, size=(-1, 200))
         sig_O_frame,self.sig_O_Slider = VFlab_slider(self,row_B,"sig_O",
-            0.01, 1.0, 0.005, 0.1, parent.sig_O_sliderUpdate, size=(-1, 200))
+            0.01, 1.0, 0.005, sig_O, parent.sig_O_sliderUpdate, size=(-1, 200))
         
         layout(row_B,[sig_x_frame,sig_v_frame,sig_O_frame],
                orient=wx.HORIZONTAL)
@@ -305,11 +307,11 @@ class ControlPanel(wx.Panel):
 
         row_C = wx.Panel(track_frame,-1)
         t_frame,self.t_Slider = VFlab_slider(self, row_C, "t", 0.0, 1.0,
-                    0.005, 1.0, parent.t_sliderUpdate, size=(-1, 200))
+                    0.005, 0, parent.t_sliderUpdate, size=(-1, 200))
         MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
-            0.0, 90.0, 0.01, 0.0, parent.MaxD_sliderUpdate, size=(-1, 200))
+            0.0, 2.0, 0.002, MaxD, parent.MaxD_sliderUpdate, size=(-1, 200))
         MaxP_frame,self.MaxP_Slider = Vlab_slider(self, row_C,"MaxP",
-            parent.MaxP_sliderUpdate, value=120, minValue=1, maxValue=120,
+            parent.MaxP_sliderUpdate, value=MaxP, minValue=1, maxValue=120,
             size=(-1, 200))
         layout(row_C,[t_frame,MaxD_frame,MaxP_frame],orient=wx.HORIZONTAL)
         
