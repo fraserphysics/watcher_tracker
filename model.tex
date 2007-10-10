@@ -31,7 +31,7 @@
 \begin{document}
 \maketitle
 
-\section{Introduction}
+\section*{Introduction}
 \label{sec:introduction}
 
 For tracking, I want the maximum a posteriori (MAP) or \emph{decoded}
@@ -55,7 +55,7 @@ about filtering in the document, but the essential material concerns
 decoding.  The material on decoding does not depend on the material on
 filtering.  So, you may ignore the filtering sections.
 
-\subsection{Decoding}
+\subsection*{Decoding}
 \label{sec:decoding}
 
 I will use the following definitions to describe decoding:
@@ -91,7 +91,7 @@ of states $ \ts{\hat s}{\tau}{1}{T}$ from a sequence of observations $
   & \quad \ti{\hat s}{t} = B( \ti{\hat s}{t+1},t)
 \end{align*}
 
-\subsection{Filtering}
+\subsection*{Filtering}
 \label{sec:filtering}
 
 With the definitions
@@ -222,9 +222,9 @@ contains only a single sequence of permutations $\ts{\hat
 \label{sec:single-sequence}
 
 I'll begin by considering decoding a trajectory of a single object
-from a single sequence of observations.  Using the notation in
-Section~\ref{sec:decoding}, and assuming that $\nu(s,t)$ is quadratic,
-I can write the following recursion:
+from a single sequence of observations.  Using the notation in the
+introduction, and assuming that $\nu(s,t)$ is quadratic, I can write
+the following recursion:
 \begin{align}
   \nu(s,t) &= -\frac{1}{2}(s-\mu_{t})^T
     \Sigma_{t}^{-1}(s-\mu_{t}) + R_t \nonumber \\
@@ -350,7 +350,7 @@ I write
   &= \sum_k R(k,t|M) + \sum_k \left (\nu(x_k,t|M) -  R(k,t|M) \right),
 \end{align*}
 where $\bar x_k$ is the $x$ value that maximizes $\nu(M,x_k,t)$ for a
-the best permutaion sequence ending in the given $M$ and $R(k,t|M)$ is
+the best permutation sequence ending in the given $M$ and $R(k,t|M)$ is
 the remainder from Eqn.~\eqref{eq:R_alg} for the $k^{\text{th}}$
 object given the that sequence of permutations.  Each $B(s,t)$ maps
 from $(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time $t$, and
@@ -465,6 +465,66 @@ and
 Like \eqref{eq:a1} \eqref{eq:alphaT} is a mixture of Gaussians.  The
 number of components in the mixture $\left| \ts{M}{t}{1}{T}\right| =
 (N!)^T$ is absurdly large.
+
+\section{Model Version Two: Variable Visibility}
+\label{sec:model2}
+
+In MVI of the previous section, I described the state at each time as
+a combination of the position and velocities of the targets and the
+map from targets to observations.  Recall from
+Section~\ref{sec:multiple}:
+\begin{align*}
+  s &\equiv (M,\bx) \\
+  M & \text{ is a permutation} \\
+  \bx &\equiv (x_1,x_2,\ldots,x_N).
+\end{align*}
+For \emph{MVII} I introduce a discrete \emph{visibility} for each
+target, ie, \newcommand{\bv}{{\mathbf{v}}}
+\begin{align*}
+  s &\equiv (M,\bx,\bv) \\
+  \bv &\equiv (v_1,v_2,\ldots,v_N).
+\end{align*}
+I assume that only targets with $v_k=0$ are visible and that
+visibility ($v$), phase space dynamics ($x$), and association ($M$) are
+independent.
+
+The following pair of equations define the model:
+\begin{equation}
+  P(\ti{s}{t+1}|\ti{s}{t}) = \frac{1}{\left| \M \right|} \prod_i
+  P(\ti{x_i}{t+1}|\ti{x_i}{t})\, P(\ti{v_i}{t+1}|\ti{v_i}{t})
+\end{equation}
+\begin{equation}
+  P(y|s) =
+  \begin{cases}
+    0 & \text{If } \left| \{i:v_i=0 \} \right| \neq \text{number of
+      observations} \\
+    \prod_{i:v_i=0} P(y(M(i))|x_i) & \text{Otherwise}
+  \end{cases}
+\end{equation}
+The only new parameters are $P(\ti{v_i}{t+1}|\ti{v_i}{t+1})$ the
+probabilities of transitions between visibility states.  I find the
+modifications to algorithms for MVI required for MVII by observing
+\begin{align}
+  u'(M,\bx,\bv,M',\bx',\bv't) &= \nu(M,\bx,\bv) - \log(N!) + \log \left(
+    P(\bx'|\bx)\right) \nonumber \\
+  & \quad + \log \left( P(\bv'|\bv)\right) + \log \left(
+  P(\ti{y}{t+1}|M',\bx')\right)
+\end{align}
+and noting that $\log \left( P(\bv'|\bv)\right)$ is the only new term
+and
+\begin{equation}
+  \label{eq:1}
+   \log \left( P(\bv'|\bv)\right) = \sum_i \log \left(
+     P(v_i'|v_i)\right),
+\end{equation}
+where the subscript $i$ identifies the target.  \textbf{Caution:} I
+may have to keep track of logs of determinants or something because
+the covariances at a given time are different for different targets
+depending on the number of updates applied.
+
+\section{Model Version Three: Background False Alarms}
+\label{sec:model3}
+
 
 \appendix
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}

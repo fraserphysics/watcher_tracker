@@ -32,29 +32,20 @@ class TARGET:
                       ):
         """ For each of the hits that could plausibly be an
         observation of self, make a child target.  Collect the
-        children in a dict, attach it to self and return it.
+        children in a dict and attach it to self.
         """
         self.forecast()
         self.children = {}
-        if self.mod.MaxD > 0.01: # Make a child for any hit closer than MaxD
-            MD = self.mod.MaxD
-            for k in xrange(len(y_t)):
-                distance = self.distance(y_t[k])
-                if distance < MD:
-                    key = tuple(self.m_t+[k])
-                    if All_children.has_key(key):
-                        self.children[k] = All_children[key]
-                        continue
-                    self.children[k] = self.update(y_t[k],k)
-                    All_children[key] = self.children[k]
-        else:   # MaxD is near zero, ie, pruning is off
-            for k in xrange(len(y_t)):
+        MD = self.mod.MaxD
+        for k in xrange(len(y_t)):
+            if MD < 0.01 or self.distance(y_t[k]) < MD:
+                # If MaxD is near zero, ie, pruning is off or hit is
+                # closer than MaxD
                 key = tuple(self.m_t+[k])
-                if All_children.has_key(key):
-                    self.children[k] = All_children[key]
-                    continue
-                self.children[k] = self.update(y_t[k],k)
-                All_children[key] = self.children[k]
+                if not All_children.has_key(key):
+                    All_children[key] = self.update(y_t[k],k)
+                self.children[k] = All_children[key]
+                
     def forecast(self):
         """ Calculate forecast mean and covariance for both state and
         observation.  Also calculate K and Sigma_next.  Save all six
@@ -140,14 +131,21 @@ class PERMUTATION:
         self.nu = None              # Utility of best path ending here
         
     def forward(self,
-                new_perms   # A dict of permutations for the next time step
+                new_perms,   # A dict of permutations for the next time step
+                len_y
                 ):
         """ For each plausible successor S of the PERMUTATION self
         append the following pair of values to S.predecessor: 1. A
         pointer back to self and 2. The value of u'(self,S,t+1).
         """
-        # Create a list of successor permutations to consider
-        old_list = []
+        # Create a list of associations between observations and
+        # targets to consider as sucessors to the association "self".
+
+        # Iterate over targets in the present association.  Initialize
+        # with target[0]
+        old_list = [] # List of partial associations.  At level k,
+                      # each association says which y is associated
+                      # with targets with indices smaller than k
         for child in self.targets[0].children.values():
             m_tail = child.m_t[-1]
             old_list.append({
@@ -156,6 +154,14 @@ class PERMUTATION:
                 'perm':[m_tail],           # Map from targets to hits
                 'R':child.R_t[-1]          # u'(self,suc,t+1)
                 })
+        # Initialization for k=0 done
+
+        # Using the old list of partial associations of length k, for
+        # each additional target, combine each possible (target,
+        # observation) paring with each old partial association that
+        # does not already have a match for that observation and
+        # append it to the new list of partial associations of length
+        # k+1
         for k in xrange(1,len(self.targets)):
             new_list = []
             for child in self.targets[k].children.values():
@@ -172,8 +178,21 @@ class PERMUTATION:
             old_list = new_list
         # y[t+1][old_list[i]['perm'][j]] is associated with target[j]
 
+        # Make sure that for each association each observation is
+        # associated with a target.  Not necessary of MV1a, but is
+        # necessary for models that allow number of targets and
+        # observations to differ
+        final_list = []
+        for candidate in old_list:
+            OK = True
+            for k in xrange(len_y):
+                if not candidate['dup_check'].has_key(k):
+                    OK = False
+                    continue
+            if OK:
+                final_list.append(candidate)
         # Initialize successors if necessary and set their predecessors
-        for entry in old_list:
+        for entry in final_list:
             key = tuple(entry['perm'])  # Dict keys can be tuples but not lists
             if not new_perms.has_key(key):
                 new_perms[key] = PERMUTATION(self.N_tar,key)
@@ -311,7 +330,7 @@ class MV1a:
                 # many predecessors can find same successor 
                 new_perms = {}       
                 for perm in old_perms.values():
-                    perm.forward(new_perms)
+                    perm.forward(new_perms,len(Ys[t]))
 
                 len_new_perms = len(new_perms.keys())
                 self.MaxD *= 2
