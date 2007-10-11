@@ -517,10 +517,7 @@ and
    \log \left( P(\bv'|\bv)\right) = \sum_i \log \left(
      P(v_i'|v_i)\right),
 \end{equation}
-where the subscript $i$ identifies the target.  \textbf{Caution:} I
-may have to keep track of logs of determinants or something because
-the covariances at a given time are different for different targets
-depending on the number of updates applied.
+where the subscript $i$ identifies the target.
 
 Doing a forward interation on a target that is not visible requires
 expressions like Eqns.~\eqref{eq:decode_u'}-\eqref{eq:Sigma_yI} but
@@ -548,6 +545,20 @@ without an observation, ie,
 
 \section{Model Version Three: Background False Alarms}
 \label{sec:model3}
+
+This model, \emph{MVIII}, generates hits like MVII except that in
+addition it generates noise hits or \emph{false alarms}.  The false
+alarms are drawn from the initial $y$ distribution
+$(\normal{\mu_0}{\Sigma_0})$ and the number of hits is drawn from a
+Poisson distribution with expected value $\lambda$.  Thus the
+probability density of $y$ given that it is a false alarm is
+\begin{equation*}
+  P(y|\text{FA}) = \lambda \NormalE{\mu_0}{\Sigma_0}{y}.
+\end{equation*}
+
+For decoding, at time $t$, add $N_{\text{FA}}*\log(P(y|\text{FA}))$ to
+the value of $\nu$ for an assignment if it includes $N_{\text{FA}}$
+attributions to false alarms.
 
 
 \appendix
@@ -704,211 +715,6 @@ $Id$
 \end{verbatim}
 
 \end{document}
-
-\newpage
-\hrule
-From here on I've just kept old text that I might use again as I
-develop the document.\\
-\hrule
-\section{Model}
-\label{sec:model}
-
-The number of moving objects in my model is a constant $N_s$ over
-time.  Objects may or may not be visible.  At time $t$, visibility,
-position, and velocity
-\begin{equation*}
-  \ti{s}{j,t} \equiv \left(\ti{v}{j,t},\ti{x}{j,t},\ti{\dot x}{j,t} \right)
-\end{equation*}
-characterize the state of the $j\th$ object, and the vector
-\begin{equation*}
-  \ti{s}{t} \equiv \os{s}{j,t}{j=1}{N_s}
-\end{equation*}
-constitutes the entire state.  Each visibility component has three
-possible values with the following interpretation
-\begin{equation*}
-  \ti{v}{j,t} =
-  \begin{cases}
-    1 & \text{Object is visible} \\
-    2 & \text{Object is not visible for this frame} \\
-    3 & \text{Object is not visible for at least three frames}
-  \end{cases}
-\end{equation*}
-The components $\ti{s}{j,t}$ of the state evolve independently of each
-other.  The following equations describe
-$P(\ti{s}{j,t+1}|\ti{s}{j,t})$, ie, the dynamics of each component:
-\begin{subequations}
-  \label{eq:dynamics}
-  \begin{align}
-    P_{\ti{v}{j,t+1}|\ti{v}{j,t}} &= V, & V &=
-    \begin{bmatrix}
-      P(1 \rightarrow 1) & P(1 \rightarrow 2) & 0 \\
-      P(2 \rightarrow 1) & P(2 \rightarrow 2) & P(2 \rightarrow 3) \\
-      0 & P(3 \rightarrow 2) & P(3 \rightarrow 3)
-    \end{bmatrix} \\
-    \begin{bmatrix} \ti{x}{j,t+1} \\ \ti{\xdot}{j,t+1} \end{bmatrix}
-    &= A   \begin{bmatrix} \ti{x}{j,t} \\ \ti{\xdot}{j,t} \end{bmatrix}
-    + \epsilon_{j,t}, & \epsilon_{j,t} &\sim
-    \normal{0}{\Sigma_{D}} \text{ iid} \\
-    A &= \begin{bmatrix}
-      1 & 0 & 1 & 0 \\
-      0 & 1 & 0 & 1 \\
-      0 & 0 & 1 & 0 \\
-      0 & 0 & 0 & 1
-    \end{bmatrix} &
-    \Sigma_{D} &= \begin{bmatrix}
-      \sigma^2_{xD} & 0 & 0 & 0 \\
-      0 & \sigma^2_{xD} & 0 & 0 \\
-      0 & 0 & \sigma^2_{\xdot D} & 0 \\
-      0 & 0 & 0 & \sigma^2_{\xdot D}
-    \end{bmatrix}
-  \end{align}
-\end{subequations}
-
-An observation vector consists of $N_y$ locations
-$\ti{y}{t}=\os{y}{t,i}{i=1}{N_y}$, and the probability that state $\ti{s}{t}$
-would produce observation $\ti{y}{t}$ is
-\begin{equation}
-  \label{eq:ob}
-  P(\ti{y}{t}|\ti{s}{t}) \equiv
-  \begin{cases}
-    0 & \text{if} N_y \neq N_{\text{visible}} \\
-    \frac{1}{\left|\M \right|} \sum_{M \in \M}
-    \prod_{i=1}^{N_y} P(\ti{y}{t,M(i)}|\ti{s}{t,i}) & \text{otherwise}
-  \end{cases}
-\end{equation}
-where $\M$ is the set of permutations of $N_y$ items\footnote{This
-  observation model describes indistinguishable observations.  An
-  easier alternative would be objects that had different colors, or
-  even easier, objects that had observable unique tags.},
-\begin{equation*}
-  \ti{y}{t,i}|\ti{s}{t,j} \sim
-  \NormalE{\ti{x}{t,j}}{\Sigma_o}{\ti{y}{t,i}} \text{ and }
-  \Sigma_o = \begin{bmatrix} \sigma_{xo}^2 & 0 \\ 0 &
-    \sigma_{xo}^2 \end{bmatrix}.
-\end{equation*}
-In summary, aside from the initial state distribution, the model has
-the following 7 degrees of freedom:
-\begin{center}
-  \begin{tabular}{|cp{15em}c|}
-    \hline
-    Symbol & Description & Degrees of freedom \\
-    \hline
-    $T$ & Probabilities of transition between visibility levels & 4 \\
-    $\Sigma_D$ & Dynamical noise & 2 \\
-    $\Sigma_o$ & Observation noise & 1 \\
-    \hline
-  \end{tabular} 
-\end{center}
-
-\section{Forward algorithm}
-\label{sec:forward}
-
-A complete model consists of seven parameters described in
-Section~\ref{sec:model} and an initial distribution over states, ie,
-$P_{s(0)}$.  Given a sequence $\os{y}{t}{t=1}{T}$ of $T$ vectors of
-measurements and a complete model, the forward algorithm calculates a
-sequence of \emph{forecasts} $\os{f}{t}{t=1}{T}$ and \emph{updates}
-$\os{\alpha}{t}{t=1}{T}$.  Each forecast $\ti{f}{t}$ characterizes the
-conditional distribution of states given all measurements up to the
-previous time
-\begin{equation*}
-  \ti{f}{t} \rightarrow P(\ti{s}{t+1}|\os{y}{\tau}{\tau=1}{t}).
-\end{equation*}
-and each update $\ti{\alpha}{t}$ characterizes the conditional
-distribution of states given all measurements up to the present time
-\begin{equation*}
-  \ti{\alpha}{t} \rightarrow P(\ti{s}{t}|\os{y}{\tau}{\tau=1}{t}).
-\end{equation*}
-I will denote the initial distribution over states as
-$\ti{\alpha}{0}$.
-
-The forward algorithm is recursive.  Each full iteration of the
-recursion uses $\ti{y}{t+1}$ and $\ti{\alpha}{t}$ to calculate
-$\ti{\alpha}{t+1}$ in the following steps:
-\begin{subequations}
-  \label{eq:Forward}
-\begin{align}
-  \label{eq:f1}
-  \ti{f}{t+1} &\equiv P_{\ti{s}{t+1}|\os{y}{\tau}{\tau=1}{t}} =
-  \EV{\ti{\alpha}{t}}{P(\ti{s}{t+1}|\ti{s}{t})} \\ 
-  \label{eq:f2}
-  \ti{a}{t+1} &\equiv
-  P_{\ti{y}{t+1},\ti{s}{t+1}|\os{y}{\tau}{\tau=1}{t}} = P_{y|s}
-  \ti{f}{t+1} \\
-  \label{eq:f3}
-  \ti{\gamma}{t+1} &\equiv P(\ti{y}{t+1}|\os{y}{\tau}{\tau=1}{t}) = \EV{\ti{f}{t+1}}{P(\ti{y}{t+1}|\ti{s}{t+1})} \\
-  \label{eq:f4}
-  \ti{\alpha}{t+1} &= \frac{\ti{a}{t+1}}{\ti{\gamma}{t+1}}
-\end{align}
-\end{subequations}
-where the items on the left have the following interpretations:
-\begin{description}
-\item[$\ti{f}{t+1}$] A distribution of states $s$
-\item[$\ti{a}{t+1}$] An unnormalized distribution of states $s$
-\item[$\ti{\gamma}{t+1}$] A scalar; the conditional probability of the
-  observation $\ti{y}{t+1}$ given the model and the previous observations
-\item[$\ti{\alpha}{t+1}$] A distribution of states $s$
-\end{description}
-
-Each forecast and update characterizes a distribution of possible
-states and thus has the same structure with the following
-constituents\footnote{This is wrong.  The first update operation
-  produces a mixture of Gaussians with $N_s$ components, and each
-  subsequent update increases the number of components by another
-  factor of $N_s$.}:
-\begin{subequations}
-  \label{eq:psForm}
-  \begin{align}
-    P_j &\equiv \begin{bmatrix} P_{v_j}(1), P_{v_j}(2), P_{v_j}(3)
-    \end{bmatrix}, ~\forall j\\
-    \mu_j &\equiv \begin{bmatrix} \mu_{j,1} \\ \mu_{j,2} \\ \mu_{j,3} \\
-      \mu_{j,4} \end{bmatrix}, ~\forall j\\
-    \Sigma_j, &~~~~~\forall j
-  \end{align}
-\end{subequations}
-
-Using Eqn.~\eqref{eq:dynamics}, I implement step~\eqref{eq:f1} by:
-\begin{subequations}
-  \label{eq:f1I}
-  \begin{align}
-    P_{vfj} &= P_{v\alpha j} T\\
-    \mu_{fj} &= A \mu_{\alpha j}\\
-    \Sigma_{fj} &= A \Sigma_{\alpha j} A\transpose + \Sigma_D
-  \end{align}
-\end{subequations}
-
-It would be nice if step~\eqref{eq:f2} lead to each component say
-$a_j$ being the distribution of a weighted sum of variables with
-distributions $f_k$ because that will lead to $\ti{\alpha}{t+1}$ having the
-form \eqref{eq:psForm}, but $a_j$ is simply a weighted sum of the
-distributions $f_k$, ie, an ugly mixture of Gaussians.
-
-Roughly:
-\begin{align*}
-  a(s) &= \sum_M \prod_j P(y_{M(j)}|s_j) f(s_j) \\
-  a(s_j) &= \sum_i  P(y_i|s_j) f(s_j) \sum_{M:M(j)=i}  \prod_k
-  P(y_{M(k)}|s_k) f(s_k)\\
-  &= \sum_i  P(y_i|s_j) f(s_j) w_{i,j} \\
-  &= \sum_i  w_{i,j} \NormalE{x_j}{\Sigma_{xo}}{y_i}
-  \NormalE{\mu_{fj}}{\Sigma_{fj}}{\begin{bmatrix} x_j\\ \xdot_j
-    \end{bmatrix}}
-\end{align*}
-
-
-\subsection{Fudge}
-\label{sec:fudge}
-
-The following adjustments come to mind:
-\begin{description}
-\item[Hard sphere:] Require $\left|\mu_{j,1:2} - \mu_{k,1:2} \right| >
-  \delta,~\forall j,k$
-\item[Bounded positions:] Require $0 < \mu_{j,1} <
-  \text{max}_1,~\forall j$ with a similar requirement for component 2
-\item[Bounded velocities:] Require $0 < \mu_{j,3} <
-  \text{max}_3,~\forall j$ with a similar requirement for component 4
-\item[Bounded variance] Complicated bounds on $\Sigma_{\alpha,j}$ and
-  $\Sigma_{a,j}$
-\end{description}
 
 %%%---------------
 %%% Local Variables:

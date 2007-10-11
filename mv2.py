@@ -10,7 +10,7 @@ class TARGET(mv1a.TARGET):
            y,        # The observation of the target at the current time
            m         # Index of the observation
            ):
-        """ Like mv1a.TARGET.update, but allows for observation "None".
+        """ Like mv1a.TARGET.update, but allows for missing observations
 
         Create a new target with updated m_t, mu_t, Sigma_t and R_t
         for the observation, index pair (y,m)."""
@@ -60,6 +60,7 @@ class PERMUTATION(mv1a.PERMUTATION):
                       cousins # Targets from all permutations
                       ):
         for target in self.targets:
+            # Continue/fork this target for each plausible hit
             target.make_children(y_t,cousins)
             # For each target, consider the possibility that it is not
             # visible at this time
@@ -67,8 +68,8 @@ class PERMUTATION(mv1a.PERMUTATION):
             if not cousins.has_key(key):
                 cousins[key] = target.update(None,-1)
             # The following assignment is right whether cousins[key]
-            # was made by the previous line or if it was made for
-            # another permutation.
+            # was made by this call or if it was made for another
+            # permutation.
             target.children[-1] = cousins[key]
 
 class MV2(mv1a.MV1a):
@@ -121,7 +122,6 @@ class MV2(mv1a.MV1a):
             obs_t = []
             for j in xrange(self.N_tar):
                 if v_j[j] is not 0:
-                    obs_t.append(None)
                     continue
                 eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
                 obs_t.append(self.O * x_j[permute[j]] + eta)

@@ -335,6 +335,8 @@ class MV1a:
                     perm.forward(new_perms,len(Ys[t]))
 
                 len_new_perms = len(new_perms.keys())
+                if self.MaxD < 1e-6:
+                    break
                 self.MaxD *= 2
             self.MaxD = max(self.MaxD/4,self.MaxD_limit)
 
