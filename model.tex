@@ -522,6 +522,30 @@ may have to keep track of logs of determinants or something because
 the covariances at a given time are different for different targets
 depending on the number of updates applied.
 
+Doing a forward interation on a target that is not visible requires
+expressions like Eqns.~\eqref{eq:decode_u'}-\eqref{eq:Sigma_yI} but
+without an observation, ie,
+
+
+\begin{align}
+  \nu(s,t) &= -\frac{1}{2}(s-\mu_{t})^T
+    \Sigma_{t}^{-1}(s-\mu_{t}) + R_t \nonumber \\
+  u'(s,s',t) &= \nu(s,t) -\frac{1}{2} \log(\left|\Sigma_D\right|)  - 
+  \frac{1}{2}(s'-As)^T \Sigma_{D}^{-1} (s'-As)  \nonumber \\
+  B(s,t) &= \argmax_{q} u'(q,s,t) \nonumber \\
+  &= \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1} \left(
+    \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right) \nonumber \\
+  \nu(s,t+1) &= u'(B(s,t),s,t) \nonumber \\
+  &\equiv  -\frac{1}{2}(s-\mu_{t+1})^T
+  \Sigma_{t+1}^{-1}(s-\mu_{t+1}) + R_{t+1} \nonumber \\
+  \label{eq:new_Sigma_noy}
+  \Sigma_{t+1} & = \left( \Sigma_D + A \Sigma_tA^T \right) \\
+  \label{eq:new_mu_noy}
+  \mu_{t+1} &= A \mu_t \\
+  \label{eq:new_R_noy}
+  R_{t+1} &= R_t -\frac{1}{2}  \log(\left|\Sigma_D\right|).
+\end{align}
+
 \section{Model Version Three: Background False Alarms}
 \label{sec:model3}
 
