@@ -1,4 +1,4 @@
-import wx, mv1a, demo, random, scipy, time
+import wx, mv1a, mv2, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
 matplotlib.interactive(True)
@@ -16,6 +16,7 @@ sig_v = 0.2
 sig_O = 0.3
 MaxD   = 1/3. # Inverse of maximum Malhabonobis distance from forecast to y
 MaxP = 120    # Number of permutations allowed
+Model_Class = mv1a.MV1a
 #M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
 #            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
 foo_t = 0
@@ -114,7 +115,7 @@ def VFlab_slider(binder, parent, label, Min, Max, Step, Value, call_back,
 
 class view_mv1_frame(wx.Frame):
     def __init__(self, parent):
-        self.title = "MV1 Viewer"
+        self.title = "MV* Viewer"
         wx.Frame.__init__(self, parent, -1, self.title)
         self.initStatusBar()
         self.controlPanel = ControlPanel(self, -1)
@@ -141,10 +142,21 @@ class view_mv1_frame(wx.Frame):
     def OnCloseWindow(self, event):
         self.Destroy()
 
+    def DummyClicked(self, event):
+        print 'DummyClicked'
+        
+    def Mv1Clicked(self, event):
+        global Model_Class
+        Model_Class = mv1a.MV1a
+        
+    def Mv2Clicked(self, event):
+        global Model_Class
+        Model_Class = mv2.MV2
+        
     def OnSimClicked(self, event):
-        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD
+        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Model_Class
 
-        M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
+        M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         yo,s = M.simulate(T)
         x = scipy.zeros((N_obj,T))
@@ -160,15 +172,16 @@ class view_mv1_frame(wx.Frame):
             for t in xrange(T):
                 x[k][t] = s[t][k][0,0]
                 y[k][t] = s[t][k][1,0]
-                ts_x[k][t] = t+0.5
-                ts_y[k][t] = yo[t][k][0,0]
+                if yo[t][k] is not None:
+                    ts_x[k][t] = t+0.5
+                    ts_y[k][t] = yo[t][k][0,0]
         self.plot_panelA._forceDraw(x=ts_x,y=ts_y)
         self.plot_panelB._forceDraw(x=y,y=x)
 
     def OnTrackClicked(self, event):
-        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxP
+        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxP,Model_Class
 
-        M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
+        M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         t_start = time.time()
         d = M.decode(yo)
@@ -264,6 +277,12 @@ class ControlPanel(wx.Panel):
         buttonSize = (self.BMP_SIZE + 2 * self.BMP_BORDER,
                       self.BMP_SIZE + 2 * self.BMP_BORDER)
 
+        mv1Button = wx.Button(parent=self, id=-1, label='MV1')
+        self.Bind(wx.EVT_BUTTON, parent.Mv1Clicked, mv1Button)
+
+        mv2Button = wx.Button(parent=self, id=-1, label='MV2')
+        self.Bind(wx.EVT_BUTTON, parent.Mv2Clicked, mv2Button)
+
         sim_frame = wx.Panel(self,-1)
         
         simButtonA = wx.Button(parent=sim_frame, id=-1, label='Simulate')
@@ -317,7 +336,7 @@ class ControlPanel(wx.Panel):
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
-        layout(self,[sim_frame,track_frame])
+        layout(self,[mv1Button,mv2Button,sim_frame,track_frame])
 
 class view_mv1_app(wx.App):
     def OnInit(self):

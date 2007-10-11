@@ -298,14 +298,16 @@ class MV1a:
         return obs,states
 
     def decode(self,
-               Ys # Observations. Ys[t][k] is the kth hit at time t
+               Ys, # Observations. Ys[t][k] is the kth hit at time t
+               DPERMUTATION=PERMUTATION,
+               DTARGET=TARGET
                ):
         """Return MAP state sequence """
         T = len(Ys)
 
         # Initialize by making a target for each of the hits at t=0
         # and collecting those targets in a single permutation.
-        target_0 = TARGET(self,[],[self.mu_init],[self.Sigma_init],[0.0])
+        target_0 = DTARGET(self,[0],[self.mu_init],[self.Sigma_init],[0.0])
         targets = []
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
@@ -313,7 +315,7 @@ class MV1a:
                 del(list[0])
             targets.append(target_k)
         key = tuple(range(self.N_tar))
-        old_perms = {key:PERMUTATION(self.N_tar,key,targets=targets)}
+        old_perms = {key:DPERMUTATION(self.N_tar,key,targets=targets)}
         
         # Forward pass through time
         for t in xrange(1,T):

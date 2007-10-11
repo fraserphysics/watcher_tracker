@@ -12,31 +12,48 @@ class TARGET(mv1a.TARGET):
            ):
         """ Like mv1a.TARGET.update, but allows for observation "None".
 
-        Create a new target with updated m_t, mu_t, Sigma_t and
-        R_t for the observation, index pair (y,m).  This is the second
-        half of Kalman filtering step."""
-        vv = [self.m_L[-1],m]
-        for k in [0,1]:
-            if vv[k] is -1:
-                vv[k] = 1
-            else:
-                vv[k] = 0
-        Delta_R = math.log(self.mod.PV_V[vv[0],vv[1]])
+        Create a new target with updated m_t, mu_t, Sigma_t and R_t
+        for the observation, index pair (y,m)."""
         m_L = self.m_t+[m]
-        if y is None:
-            Sigma_L = self.Sigma_t + [self.Sigma_a]
-            mu_L = self.mu_t + [self.mu_a]
-            Delta_R -= self.mod.log_det_Sig_D/2
-        else:
-            Delta_y = y - self.y_forecast    # Error of forecast observation
-            Sigma_L = self.Sigma_t + [self.Sigma_next]
-            mu_L = self.mu_t + [self.mu_a + self.K*Delta_y]
-            Delta_R -= (self.mod.log_det_Sig_D+self.mod.log_det_Sig_O + float(
-                Delta_y.T*self.Sigma_y_forecast_I*Delta_y))/2
+        Delta_R,mu_new,Sigma_new = self.utility(y)
+        Sigma_L = self.Sigma_t + [Sigma_new]
+        mu_L = self.mu_t + [mu_new]
         R_L = self.R_t + [self.R_t[-1] + Delta_R]
         
         return TARGET(self.mod,m_L,mu_L,Sigma_L,R_L)
 
+    def utility(self,y):
+        """ Calculates Delta_R, mu_new, and Sigma_new for both
+        update() and distance().  This is the second half of Kalman
+        filtering step.
+        """
+        if self.m_t[-1] is -1:
+            v_old = 1
+        else:
+            v_old = 0 # Last time target was visible
+        if y is None:
+            v_new = 1 # This time the target is invisible
+        else:
+            v_new = 0
+        Delta_R = math.log(self.mod.PV_V[v_old,v_new])
+        if y is None:
+            Sigma_new = self.Sigma_a
+            mu_new = self.mu_a
+            Delta_R -= self.mod.log_det_Sig_D/2
+        else:
+            Delta_y = y - self.y_forecast    # Error of forecast observation
+            Sigma_new = self.Sigma_next
+            mu_new = self.mu_a + self.K*Delta_y
+            Delta_R -= (self.mod.log_det_Sig_D+self.mod.log_det_Sig_O + float(
+                Delta_y.T*self.Sigma_y_forecast_I*Delta_y))/2
+        return (Delta_R,mu_new,Sigma_new)
+    
+    def distance(self,y):
+        """ For MV1a this was the Malhalanobis distance of y from
+        forecast y.  Here I generalize to sqrt(-2 Delta_R)
+        """
+        return float(-2*self.utility(y)[0])**.5
+    
 class PERMUTATION(mv1a.PERMUTATION):
     def make_children(self,   # self is a PERMUTATION
                       y_t,    # All observations at time t
@@ -44,17 +61,28 @@ class PERMUTATION(mv1a.PERMUTATION):
                       ):
         for target in self.targets:
             target.make_children(y_t,cousins)
+            # For each target, consider the possibility that it is not
+            # visible at this time
             key = tuple(target.m_t+[-1])
             if not cousins.has_key(key):
                 cousins[key] = target.update(None,-1)
+            # The following assignment is right whether cousins[key]
+            # was made by the previous line or if it was made for
+            # another permutation.
             target.children[-1] = cousins[key]
 
 class MV2(mv1a.MV1a):
-    def __init__(self,PV_V=[[1,0],[0,1]],**kwargs):
+    def __init__(self,PV_V=[[.9,.1],[.2,.8]],**kwargs):
         mv1a.MV1a.__init__(self,**kwargs)
         self.PV_V = scipy.matrix(PV_V)
         self.log_det_Sig_D = scipy.linalg.det(self.Sigma_D)
         self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
+    def decode(self,
+               Ys, # Observations. Ys[t][k] is the kth hit at time t
+               DPERMUTATION=PERMUTATION,
+               DTARGET=TARGET
+               ):
+        return mv1a.MV1a.decode(self,Ys,DPERMUTATION=PERMUTATION,DTARGET=TARGET)
 
     
     def simulate(self, T):
@@ -75,6 +103,7 @@ class MV2(mv1a.MV1a):
         xs = []
         vs = []
         for t in xrange(T):
+            x_j_new = range(self.N_tar)
             if t>0:
                 i = random.randint(0,self.N_perm-1)
             else:
@@ -83,20 +112,22 @@ class MV2(mv1a.MV1a):
             state_t = []
             for j in xrange(self.N_tar):
                 pv = self.PV_V[v_j[j],0]
-                if pv > random.random():
+                if pv > random.random() or t is 0:
                     v_j[j] = 0
                 else:
                     v_j[j] = 1
                 epsilon = util.normalS(zero_x,self.Sigma_D) # Dynamical noise
-                x_j[j] = self.A*x_j[j] + epsilon
+                x_j_new[j] = self.A*x_j[j] + epsilon
             obs_t = []
             for j in xrange(self.N_tar):
                 if v_j[j] is not 0:
+                    obs_t.append(None)
                     continue
                 eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
                 obs_t.append(self.O * x_j[permute[j]] + eta)
             obs.append(obs_t)
-            xs.append(x_j)
+            xs.append(x_j_new)
+            x_j = x_j_new
         return obs,xs
 
 # Test code
@@ -104,19 +135,23 @@ if __name__ == '__main__':
     import time
     random.seed(3)
     ts = time.time()
-    M = MV2(N_tar=4)
+    M = MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]])
+    print 'before simulate'
     y,s = M.simulate(5)
+    print 'before decode'
     d = M.decode(y)
     print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
-    for t in xrange(len(y)):
+    for t in xrange(len(s)):
         print 't=%d    y         s           d'%t
-        for k in xrange(len(y[t])):
-            print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
+        for k in xrange(len(s[t])):
+            try:
+                print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
+            except:
+                print ' k=%d        '%k,
             for f in (s[t][k],d[t][k]):
                 print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
             print ' '
-    print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)+\
-          'Takes 0.58 seconds on my AMD Sempron 3000'
+    print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)
 
 #---------------
 # Local Variables:
