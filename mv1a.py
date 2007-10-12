@@ -104,7 +104,7 @@ class TARGET:
             mu_t = self.mu_t[t]
             s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
         return s_t
-        
+    
 class PERMUTATION:
     """A representation of a particular association of hits to targets
     at a particular time.
@@ -143,7 +143,7 @@ class PERMUTATION:
     
     def forward(self,
                 new_perms,   # A dict of permutations for the next time step
-                len_y
+                y_t
                 ):
         """ For each plausible successor S of the PERMUTATION self
         append the following pair of values to S.predecessor: 1. A
@@ -190,13 +190,13 @@ class PERMUTATION:
         # y[t+1][old_list[i]['perm'][j]] is associated with target[j]
 
         # Make sure that for each association each observation is
-        # associated with a target.  Not necessary of MV1a, but is
+        # associated with a target.  Not necessary for MV1a, but is
         # necessary for models that allow number of targets and
         # observations to differ
         final_list = []
         for candidate in old_list:
             OK = True
-            for k in xrange(len_y):
+            for k in xrange(len(y_t)):
                 if not candidate['dup_check'].has_key(k):
                     OK = False
                     continue
@@ -344,7 +344,7 @@ class MV1a:
                 # many predecessors can find same successor 
                 new_perms = {}       
                 for perm in old_perms.values():
-                    perm.forward(new_perms,len(Ys[t]))
+                    perm.forward(new_perms,Ys[t])
 
                 len_new_perms = len(new_perms.keys())
                 self.MaxD *= 2
@@ -383,17 +383,19 @@ t=%d, len(old_perms)=%d, len(child_targets)=%d len(Ys[t])=%d
         # Backtrack to get trajectories
 
         tracks = []
+        y_tracks = []
         for target in perm_best.targets:
             tracks.append(target.backtrack())
-        # "Transpose" for backward compatibility
-        s_all = []
-        for t in xrange(len(tracks[0])):
-            s_t = []
-            for k in xrange(len(tracks)):
-                s_t.append(tracks[k][t])
-            s_all.append(s_t)
-        return s_all
-
+            y_tt = []
+            for t in xrange(T):
+                k = target.m_t[t]
+                if k>=0 and k < len(Ys[t]):
+                    y_tt.append(Ys[t][k])
+                else:
+                    y_tt.append(None)
+            y_tracks.append(y_tt)
+        return (tracks,y_tracks)
+    
 # Test code
 if __name__ == '__main__':
     import time
@@ -401,13 +403,13 @@ if __name__ == '__main__':
     ts = time.time()
     M = MV1a(N_tar=4)
     y,s = M.simulate(5)
-    d = M.decode(y)
+    d,tmp = M.decode(y)
     print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
     for t in xrange(len(y)):
         print 't=%d    y         s           d'%t
         for k in xrange(len(y[t])):
             print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
-            for f in (s[t][k],d[t][k]):
+            for f in (s[t][k],d[k][t]):
                 print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
             print ' '
     print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)+\

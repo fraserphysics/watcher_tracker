@@ -84,9 +84,10 @@ class MV2(mv1a.MV1a):
         self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
     def decode(self,
                Ys, # Observations. Ys[t][k] is the kth hit at time t
-               DTARGET=TARGET
+               DTARGET=TARGET,
+               DPERMUTATION=mv1a.PERMUTATION
                ):
-        return mv1a.MV1a.decode(self,Ys,DTARGET=TARGET)
+        return mv1a.MV1a.decode(self,Ys,DTARGET=TARGET, DPERMUTATION=DPERMUTATION)
 
     
     def simulate(self, T):
@@ -151,7 +152,7 @@ if __name__ == '__main__':
                 print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
             except:
                 print ' k=%d        '%k,
-            for f in (s[t][k],d[t][k]):
+            for f in (s[t][k],d[k][t]):
                 print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
             print ' '
     print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)

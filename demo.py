@@ -47,8 +47,7 @@ class PlotPanel(wx.Panel):
     figure is triggered by an Idle event.
     """
     def __init__(self, parent, id = -1, color = None, ylabel=None, xlabel='x',
-          title=None, dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE,
-          **kwargs):
+          title=None, dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE, **kwargs):
         wx.Panel.__init__(self, parent, id = id, style = style, **kwargs)
         self.figure = Figure(None, dpi)
         self.canvas = NoRepaintCanvas(self, -1, self.figure)
@@ -59,6 +58,8 @@ class PlotPanel(wx.Panel):
         self._SetSize()
         self.x = None
         self.y = None
+        self.x_B = None
+        self.y_B = None
         self.A_marks = None
         self.B_marks = None
         self.linestyle = '-'

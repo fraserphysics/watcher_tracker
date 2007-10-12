@@ -1,4 +1,4 @@
-import wx, mv1a, mv2, demo, random, scipy, time
+import wx, mv1a, mv2, mv3, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
 matplotlib.interactive(True)
@@ -59,9 +59,9 @@ class DemoPlotPanel(demo.PlotPanel):
                  markerfacecolor=self.colors[k%len(self.colors)],
                  markeredgecolor=self.colors[k%len(self.colors)], marker='x',
                  markeredgewidth=2,markersize=25)
-        if N > N_obj:
-            for k in xrange(N_obj,N):
-                self.subplot.plot(self.x[k],self.y[k], lw=2,
+        if self.x_B:
+            for k in xrange(N_obj):
+                self.subplot.plot(self.x_B[k],self.y_B[k], lw=2,
                            color=self.colors[k%len(self.colors)],
                            linestyle=self.linestyle)
 
@@ -79,11 +79,16 @@ class DemoPlotPanel(demo.PlotPanel):
         if self.xlabel != None:
             self.subplot.set_xlabel(self.xlabel, fontsize = 10)
 
-    def _forceDraw(self,x=None,y=None,A_marks=None,B_marks=None):
+    def _forceDraw(self,x=None,y=None,x_B=None,y_B=None,A_marks=None,
+                   B_marks=None):
         if x != None:
             self.x=x
         if y != None:
             self.y=y
+        if x_B != None:
+            self.x_B=x_B
+        if y_B != None:
+            self.y_B=y_B
         if A_marks != None:
             self.A_marks=A_marks
         if B_marks != None:
@@ -157,30 +162,36 @@ class view_mv1_frame(wx.Frame):
         global Model_Class
         Model_Class = mv2.MV2
         
+    def Mv3Clicked(self, event):
+        global Model_Class
+        Model_Class = mv3.MV3
+        
     def OnSimClicked(self, event):
         global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Model_Class
 
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         yo,s = M.simulate(T)
-        x = scipy.zeros((N_obj,T))
-        y = scipy.zeros((N_obj,T))
         ts_x = []
         ts_y = []
-        x = []
-        y = []
+        x_A = []
+        y_A = []
 
         for k in xrange(N_obj):
-            for List in (ts_x,ts_y,x,y):
+            for List in (ts_x,ts_y,x_A,y_A):
                 List.append([])
             for t in xrange(T):
-                x[k].append(s[t][k][0,0])
-                y[k].append(s[t][k][1,0])
+                y_A[k].append(s[t][k][0,0])
+                x_A[k].append(s[t][k][1,0])
                 if len(yo[t]) > k:
-                    ts_x[k].append(t)
+                    ts_x[k].append(t+0.5)
                     ts_y[k].append(yo[t][k][0,0])
+        self.plot_panelA.A_marks = None
+        self.plot_panelA.x_B = None
         self.plot_panelA._forceDraw(x=ts_x,y=ts_y)
-        self.plot_panelB._forceDraw(x=y,y=x)
+        self.plot_panelB.A_marks = None
+        self.plot_panelB.x_B = None
+        self.plot_panelB._forceDraw(x=x_A,y=y_A)
 
     def OnTrackClicked(self, event):
         global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxP,Model_Class
@@ -188,26 +199,26 @@ class view_mv1_frame(wx.Frame):
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         t_start = time.time()
-        d = M.decode(yo)
+        d,yd = M.decode(yo)
         print 'decode time = %f'%(time.time()-t_start)
 
-        x = scipy.zeros((N_obj,T))
-        y = scipy.zeros((N_obj,T))
-        ts_x = []
-        ts_y = []
-        x = []
-        y = []
+        x_B = []
+        y_B = []
+        x_By = []
+        y_By = []
 
-        for k in xrange(2*N_obj):
-            for List in (x,y):
-                List.append(scipy.zeros(T))
         for k in xrange(N_obj):
+            for List in (x_B,y_B,x_By,y_By):
+                List.append([])
             for t in xrange(T):
-                x[k][t] = s[t][k][0,0]
-                y[k][t] = s[t][k][1,0]
-                x[N_obj+k][t] = d[t][k][0,0]
-                y[N_obj+k][t] = d[t][k][1,0]
-        self.plot_panelB._forceDraw(x=y,y=x)
+                y_B[k].append(d[k][t][0,0])
+                x_B[k].append(d[k][t][1,0])
+                if yd[k][t]:
+                    y_By[k].append(yd[k][t][0,0])
+                    x_By[k].append(t)
+        self.plot_panelB.B_marks = None
+        self.plot_panelB._forceDraw(x_B=x_B,y_B=y_B)
+        self.plot_panelA._forceDraw(x_B=x_By,y_B=y_By)
     
     def a_x_sliderUpdate(self, event):
         global a_x
@@ -252,6 +263,7 @@ class view_mv1_frame(wx.Frame):
         global N_obj,s,yo
         Ft = self.controlPanel.t_Slider.Fvalue
         t = max(0,min(T-1,int(T*Ft)))
+        self.statusbar.SetStatusText('t=%d'%t)
         A_marks=[]
         for k in xrange(len(yo[t])):
             A_marks.append({'x':[t], 'y':[yo[t][k][0,0]]})
@@ -260,7 +272,14 @@ class view_mv1_frame(wx.Frame):
         for k in xrange(N_obj):
             A_marks.append({'x':[s[t][k][1,0]], 'y':[s[t][k][0,0]]})
         self.plot_panelB._forceDraw(A_marks=A_marks)
-        self.statusbar.SetStatusText('t=%d'%t)
+        if not self.plot_panelB.x_B:
+            return
+        B_marks = []
+        x = self.plot_panelB.x_B
+        y = self.plot_panelB.y_B
+        for k in xrange(N_obj):
+            B_marks.append({'x':[x[k][t]], 'y':[y[k][t]]})
+        self.plot_panelB._forceDraw(B_marks=B_marks)
         
     def T_sliderUpdate(self, event):
         global T
@@ -292,6 +311,9 @@ class ControlPanel(wx.Panel):
 
         mv2Button = wx.Button(parent=self, id=-1, label='MV2')
         self.Bind(wx.EVT_BUTTON, parent.Mv2Clicked, mv2Button)
+
+        mv3Button = wx.Button(parent=self, id=-1, label='MV3')
+        self.Bind(wx.EVT_BUTTON, parent.Mv3Clicked, mv3Button)
 
         sim_frame = wx.Panel(self,-1)
         
@@ -346,7 +368,7 @@ class ControlPanel(wx.Panel):
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
-        layout(self,[mv1Button,mv2Button,sim_frame,track_frame])
+        layout(self,[mv1Button,mv2Button,mv3Button,sim_frame,track_frame])
 
 class view_mv1_app(wx.App):
     def OnInit(self):
