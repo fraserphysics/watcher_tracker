@@ -53,25 +53,29 @@ class TARGET(mv1a.TARGET):
         forecast y.  Here I generalize to sqrt(-2 Delta_R)
         """
         return float(-2*self.utility(y)[0])**.5
-    
-class PERMUTATION(mv1a.PERMUTATION):
-    def make_children(self,   # self is a PERMUTATION
-                      y_t,    # All observations at time t
-                      cousins # Targets from all permutations
-                      ):
-        for target in self.targets:
-            # Continue/fork this target for each plausible hit
-            target.make_children(y_t,cousins)
-            # For each target, consider the possibility that it is not
-            # visible at this time
-            key = tuple(target.m_t+[-1])
-            if not cousins.has_key(key):
-                cousins[key] = target.update(None,-1)
-            # The following assignment is right whether cousins[key]
-            # was made by this call or if it was made for another
-            # permutation.
-            target.children[-1] = cousins[key]
 
+    def make_children(self,        # self is a TARGET
+                      y_t,         # list of hits at time t
+                      All_children # Dict of children of all permutations
+                      ):
+        """ For each of the hits that could plausibly be an
+        observation of self (including missed hits), make a child
+        target.  Collect the children in a dict and attach it to self.
+        """
+        self.forecast()     # Do forecast part of Kalman filter
+        self.children = {}  # Dict with observation indices as keys
+        y_plus = y_t+[None] # y_plus[-1] for invisible y
+        for k in xrange(-1,len(y_t)):
+            y = y_plus[k]
+            if self.mod.MaxD > 0.01 and self.distance(y) > self.mod.MaxD:
+                continue
+                # If hit is closer than MaxD or MaxD is near zero, ie,
+                # pruning is off or
+            key = tuple(self.m_t+[k])
+            if not All_children.has_key(key):
+                All_children[key] = self.update(y,k)
+            self.children[k] = All_children[key]
+                
 class MV2(mv1a.MV1a):
     def __init__(self,PV_V=[[.9,.1],[.2,.8]],**kwargs):
         mv1a.MV1a.__init__(self,**kwargs)
@@ -80,10 +84,9 @@ class MV2(mv1a.MV1a):
         self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
     def decode(self,
                Ys, # Observations. Ys[t][k] is the kth hit at time t
-               DPERMUTATION=PERMUTATION,
                DTARGET=TARGET
                ):
-        return mv1a.MV1a.decode(self,Ys,DPERMUTATION=PERMUTATION,DTARGET=TARGET)
+        return mv1a.MV1a.decode(self,Ys,DTARGET=TARGET)
 
     
     def simulate(self, T):

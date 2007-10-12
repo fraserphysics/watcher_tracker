@@ -25,6 +25,10 @@ class TARGET:
         self.R_t = R_t
         self.children = None # List of targets at t+1 updated with
                              # plausible hits and this target
+    def dump(self):
+        print 'Dump target: m_t=',self.m_t
+        if self.children is not None:
+            print'  len(self.children)=%d'%len(self.children)
 
     def make_children(self,        # self is a TARGET
                       y_t,         # list of hits at time t
@@ -129,7 +133,14 @@ class PERMUTATION:
         self.predecessor_perm = []  # List of predecessor permutations
         self.predecessor_u_prime=[] # List of u' values for the predecessors
         self.nu = None              # Utility of best path ending here
-        
+
+    def dump(self):
+        print 'dumping a permutation. N_tar=%d, nu=%d, len(targets)=%d'%\
+              (self.N_tar,self.nu,len(self.targets))
+        print 'hits -> targets map:', self.key
+        for target in self.targets:
+            target.dump()
+    
     def forward(self,
                 new_perms,   # A dict of permutations for the next time step
                 len_y
@@ -167,8 +178,8 @@ class PERMUTATION:
             for child in self.targets[k].children.values():
                 m_tail = child.m_t[-1]
                 for partial in old_list:
-                    if partial['dup_check'].has_key(m_tail):
-                        continue
+                    if m_tail >= 0 and partial['dup_check'].has_key(m_tail):
+                        continue # Many targets mapping to invisible y OK
                     new_dict = partial['dup_check'].copy()
                     new_dict[m_tail] = None
                     new_perm = partial['perm']+[m_tail]
@@ -311,8 +322,9 @@ class MV1a:
         targets = []
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
-            for list in (target_k.mu_t,target_k.Sigma_t,target_k.R_t):
-                del(list[0])
+            for List in [target_k.m_t,target_k.mu_t,target_k.Sigma_t,
+                         target_k.R_t]:
+                del(List[0])
             targets.append(target_k)
         key = tuple(range(self.N_tar))
         old_perms = {key:DPERMUTATION(self.N_tar,key,targets=targets)}
@@ -335,9 +347,11 @@ class MV1a:
                     perm.forward(new_perms,len(Ys[t]))
 
                 len_new_perms = len(new_perms.keys())
-                if self.MaxD < 1e-6:
-                    break
                 self.MaxD *= 2
+                if len_new_perms is 0 and (self.MaxD<1e-6 or self.MaxD>1e6):
+                    raise RuntimeError,"""No new_perms in decode():
+t=%d, len(old_perms)=%d, len(child_targets)=%d len(Ys[t])=%d
+"""%(t,len(old_perms), len(child_targets),len(Ys[t]))
             self.MaxD = max(self.MaxD/4,self.MaxD_limit)
 
             # For each permutation at time t, find the best predecessor
