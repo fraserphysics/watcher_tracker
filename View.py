@@ -7,10 +7,10 @@ matplotlib.use('WXAgg')
 
 random.seed(3)
 
-T = 100
+T = 20
 N_obj = 4
-a_x = 0.9
-a_v = 0.9
+a_x = 0.98
+a_v = 0.98
 sig_x = 0.1
 sig_v = 0.2
 sig_O = 0.3
@@ -19,7 +19,6 @@ MaxP = 120    # Number of permutations allowed
 Model_Class = mv1a.MV1a
 #M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
 #            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
-foo_t = 0
 
 class FloatSlider(wx.Slider):
     def __init__(self, parent, ID, Min, Max, Step, Value, call_back, **kwargs):
@@ -53,21 +52,22 @@ class DemoPlotPanel(demo.PlotPanel):
         for k in xrange(N_obj):
             self.subplot.plot(self.x[k],self.y[k],
                  markerfacecolor=self.colors[k%len(self.colors)],
-                              marker='o',linewidth=0)
-            foo_x = [self.x[k][foo_t]]
-            foo_y = [self.y[k][foo_t]]
-            self.subplot.plot(foo_x,foo_y,
-                  markerfacecolor=self.colors[k%len(self.colors)],
-                  markeredgecolor=self.colors[k%len(self.colors)], marker='x',
-                              markeredgewidth=2,markersize=25)
+                 marker='o',linewidth=0)
+            if self.A_marks is None or len(self.A_marks)-1 < k:
+                continue
+            self.subplot.plot(self.A_marks[k]['x'],self.A_marks[k]['y'],
+                 markerfacecolor=self.colors[k%len(self.colors)],
+                 markeredgecolor=self.colors[k%len(self.colors)], marker='x',
+                 markeredgewidth=2,markersize=25)
         if N > N_obj:
             for k in xrange(N_obj,N):
                 self.subplot.plot(self.x[k],self.y[k], lw=2,
                            color=self.colors[k%len(self.colors)],
                            linestyle=self.linestyle)
-                foo_x = [self.x[k][foo_t]]
-                foo_y = [self.y[k][foo_t]]
-                self.subplot.plot(foo_x,foo_y,
+
+                if self.B_marks is None or len(self.B_marks)-1 < k:
+                    continue
+                self.subplot.plot(self.B_marks[k]['x'],self.B_marks[k]['y'],
                   markerfacecolor=self.colors[k%len(self.colors)],
                   markeredgecolor=self.colors[k%len(self.colors)], marker='+',
                   markeredgewidth=2, markersize=25)
@@ -79,11 +79,15 @@ class DemoPlotPanel(demo.PlotPanel):
         if self.xlabel != None:
             self.subplot.set_xlabel(self.xlabel, fontsize = 10)
 
-    def _forceDraw(self,x=None,y=None):
+    def _forceDraw(self,x=None,y=None,A_marks=None,B_marks=None):
         if x != None:
             self.x=x
         if y != None:
             self.y=y
+        if A_marks != None:
+            self.A_marks=A_marks
+        if B_marks != None:
+            self.B_marks=B_marks
         self.draw()
         self._SetSize()
 
@@ -168,13 +172,13 @@ class view_mv1_frame(wx.Frame):
 
         for k in xrange(N_obj):
             for List in (ts_x,ts_y,x,y):
-                List.append(scipy.zeros(T))
+                List.append([])
             for t in xrange(T):
-                x[k][t] = s[t][k][0,0]
-                y[k][t] = s[t][k][1,0]
-                if yo[t][k] is not None:
-                    ts_x[k][t] = t+0.5
-                    ts_y[k][t] = yo[t][k][0,0]
+                x[k].append(s[t][k][0,0])
+                y[k].append(s[t][k][1,0])
+                if len(yo[t]) > k:
+                    ts_x[k].append(t)
+                    ts_y[k].append(yo[t][k][0,0])
         self.plot_panelA._forceDraw(x=ts_x,y=ts_y)
         self.plot_panelB._forceDraw(x=y,y=x)
 
@@ -245,12 +249,18 @@ class view_mv1_frame(wx.Frame):
         self.statusbar.SetStatusText('MaxP=%d'%MaxP)
 
     def t_sliderUpdate(self, event):
-        global foo_t
+        global N_obj,s,yo
         Ft = self.controlPanel.t_Slider.Fvalue
-        foo_t = max(0,min(T-1,int(T*Ft)))
-        self.plot_panelA._forceDraw()
-        self.plot_panelB._forceDraw()
-        self.statusbar.SetStatusText('t=%d'%foo_t)
+        t = max(0,min(T-1,int(T*Ft)))
+        A_marks=[]
+        for k in xrange(len(yo[t])):
+            A_marks.append({'x':[t], 'y':[yo[t][k][0,0]]})
+        self.plot_panelA._forceDraw(A_marks=A_marks)
+        A_marks=[]
+        for k in xrange(N_obj):
+            A_marks.append({'x':[s[t][k][1,0]], 'y':[s[t][k][0,0]]})
+        self.plot_panelB._forceDraw(A_marks=A_marks)
+        self.statusbar.SetStatusText('t=%d'%t)
         
     def T_sliderUpdate(self, event):
         global T

@@ -59,6 +59,8 @@ class PlotPanel(wx.Panel):
         self._SetSize()
         self.x = None
         self.y = None
+        self.A_marks = None
+        self.B_marks = None
         self.linestyle = '-'
         self.colors = ('red', 'green', 'blue', 'magenta',  'purple',
               'brown', 'orange', 'black', 'cyan',
