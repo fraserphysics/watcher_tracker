@@ -33,7 +33,7 @@ class PERMUTATION(mv1a.PERMUTATION):
             old_list.append({
                 'dup_check':{m_tail:None}, # Ensure unique hit associations
                 'perm':[m_tail],           # Map from targets to hits
-                'R':child.R_t[-1]          # u'(self,suc,t+1)
+                'R':child.R_t + self.nu    # u'(self,suc,t+1)
                 })
 
         for k in xrange(1,len(self.targets)):
@@ -47,7 +47,7 @@ class PERMUTATION(mv1a.PERMUTATION):
                     new_dict = partial['dup_check'].copy()
                     new_dict[m_tail] = None
                     new_perm = partial['perm']+[m_tail]
-                    new_R = partial['R']+child.R_t[-1]
+                    new_R = partial['R']+child.R_t
                     new_list.append({'dup_check':new_dict,'perm':new_perm,
                                      'R':new_R})
             old_list = new_list
@@ -59,13 +59,15 @@ class PERMUTATION(mv1a.PERMUTATION):
 
         # For each association apply a penalty of log(P(y)) for each
         # observation y not associated with a target.
-        Sigma = self.targets[0].mod.Sigma_FA
+        Sigma_I = self.targets[0].mod.Sigma_FA_I
         norm = self.targets[0].mod.log_FA_norm
         for k in xrange(len(y_t)):
-            penalty = norm - y_t[k].T*Sigma*y_t[k]/2
+            penalty = float(norm - y_t[k].T*Sigma_I*y_t[k]/2)
             for entry in old_list:
                 if not entry['dup_check'].has_key(k):
-                    entry['R'] += penalty
+                    entry['R'] += penalty # FixMe: penalties not
+                                          # propagated beyond next
+                                          # time.
         # Initialize successors if necessary and set their predecessors
         for entry in old_list:
             key = tuple(entry['perm'])  # Dict keys can be tuples but not lists
@@ -74,14 +76,27 @@ class PERMUTATION(mv1a.PERMUTATION):
             successor = new_perms[key]
             successor.predecessor_perm.append(self)
             successor.predecessor_u_prime.append(entry['R'])
+    def argmax(self):
+        """Select best predecessor, evaluate self.nu, collect list of
+        appropriate child targets from that predecessor, and attach
+        that list to self.  MUST PROPAGATE EXTRA R FOR FAs
+        """
+        k_max = util.argmax(self.predecessor_u_prime)
+        self.nu = self.predecessor_u_prime[k_max]
+        best = self.predecessor_perm[k_max]
+        self.targets = []
+        for k in xrange(self.N_tar):
+            self.targets.append(best.targets[k].children[self.key[k]])
 
 class MV3(mv2.MV2):
     def __init__(self,Lambda=0.1,**kwargs):
         mv2.MV2.__init__(self,**kwargs)
         self.Lambda = Lambda # Average number of false alarms per frame
-        self.Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
+        Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
+        self.Sigma_FA = Sigma_FA
         self.log_FA_norm = math.log(self.Lambda) - math.log(
-            scipy.linalg.det(self.Sigma_FA))/2
+            scipy.linalg.det(Sigma_FA))/2
+        self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
     
     def decode(self,
                Ys, # Observations. Ys[t][k] is the kth hit at time t
@@ -144,7 +159,7 @@ if __name__ == '__main__':
     print 'before simulate'
     y,s = M.simulate(5)
     print 'before decode'
-    d = M.decode(y)
+    d,tmp = M.decode(y)
     print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
     for t in xrange(len(s)):
         print 't=%d    y         s           d'%t

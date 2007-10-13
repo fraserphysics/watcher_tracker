@@ -16,7 +16,7 @@ class TARGET:
                  m_t,      # History of hit indices used
                  mu_t,     # History of means
                  Sigma_t,  # History of variances
-                 R_t       # History of residuals
+                 R_t       # Most recent residual
                  ):
         self.mod = mod
         self.m_t = m_t
@@ -79,8 +79,7 @@ class TARGET:
         m_L = self.m_t+[m]
         Sigma_L = self.Sigma_t + [self.Sigma_next]
         mu_L = self.mu_t + [self.mu_a + self.K*Delta_y]
-        R_L = self.R_t + [self.R_t[-1]
-              - float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y)/2]
+        R_L = - float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y)/2
         return TARGET(self.mod,m_L,mu_L,Sigma_L,R_L)
         
     def KF(self,
@@ -125,14 +124,15 @@ class PERMUTATION:
     def __init__(self,              # Permutation
                  N_tar,
                  key,
-                 targets=None
+                 targets=None,
+                 nu=0.0
                  ):
         self.N_tar = N_tar
         self.key = key              # Permutation tuple: hits -> targets
         self.targets = targets      # List of targets
         self.predecessor_perm = []  # List of predecessor permutations
         self.predecessor_u_prime=[] # List of u' values for the predecessors
-        self.nu = None              # Utility of best path ending here
+        self.nu = nu                # Utility of best path ending here
 
     def dump(self):
         print 'dumping a permutation. N_tar=%d, nu=%d, len(targets)=%d'%\
@@ -163,7 +163,7 @@ class PERMUTATION:
                 'dup_check':{m_tail:None}, # Hash table to ensure unique
                                            # hit associations
                 'perm':[m_tail],           # Map from targets to hits
-                'R':child.R_t[-1]          # u'(self,suc,t+1)
+                'R':child.R_t + self.nu    # u'(self,suc,t+1)
                 })
         # Initialization for k=0 done
 
@@ -183,7 +183,7 @@ class PERMUTATION:
                     new_dict = partial['dup_check'].copy()
                     new_dict[m_tail] = None
                     new_perm = partial['perm']+[m_tail]
-                    new_R = partial['R']+child.R_t[-1]
+                    new_R = partial['R']+child.R_t
                     new_list.append({'dup_check':new_dict,'perm':new_perm,
                                      'R':new_R})
             old_list = new_list
@@ -318,16 +318,17 @@ class MV1a:
 
         # Initialize by making a target for each of the hits at t=0
         # and collecting those targets in a single permutation.
-        target_0 = DTARGET(self,[0],[self.mu_init],[self.Sigma_init],[0.0])
+        target_0 = DTARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0)
         targets = []
+        nu_0 = 0.0
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
-            for List in [target_k.m_t,target_k.mu_t,target_k.Sigma_t,
-                         target_k.R_t]:
+            nu_0 += target_k.R_t
+            for List in [target_k.m_t,target_k.mu_t,target_k.Sigma_t]:
                 del(List[0])
             targets.append(target_k)
         key = tuple(range(self.N_tar))
-        old_perms = {key:DPERMUTATION(self.N_tar,key,targets=targets)}
+        old_perms = {key:DPERMUTATION(self.N_tar,key,targets=targets,nu=nu_0)}
         
         # Forward pass through time
         for t in xrange(1,T):
@@ -379,6 +380,7 @@ t=%d, len(old_perms)=%d, len(child_targets)=%d len(Ys[t])=%d
         for i in xrange(len(keys)):
             R[i] = old_perms[keys[i]].nu
         perm_best = old_perms[keys[R.argmax()]]
+        print 'nu_max=%f'%perm_best.nu
         
         # Backtrack to get trajectories
 

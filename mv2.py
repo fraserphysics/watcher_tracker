@@ -18,9 +18,8 @@ class TARGET(mv1a.TARGET):
         Delta_R,mu_new,Sigma_new = self.utility(y)
         Sigma_L = self.Sigma_t + [Sigma_new]
         mu_L = self.mu_t + [mu_new]
-        R_L = self.R_t + [self.R_t[-1] + Delta_R]
         
-        return TARGET(self.mod,m_L,mu_L,Sigma_L,R_L)
+        return TARGET(self.mod,m_L,mu_L,Sigma_L,Delta_R)
 
     def utility(self,y):
         """ Calculates Delta_R, mu_new, and Sigma_new for both
@@ -143,7 +142,7 @@ if __name__ == '__main__':
     print 'before simulate'
     y,s = M.simulate(5)
     print 'before decode'
-    d = M.decode(y)
+    d,tmp = M.decode(y)
     print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
     for t in xrange(len(s)):
         print 't=%d    y         s           d'%t

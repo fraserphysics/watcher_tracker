@@ -184,7 +184,7 @@ class view_mv1_frame(wx.Frame):
                 y_A[k].append(s[t][k][0,0])
                 x_A[k].append(s[t][k][1,0])
                 if len(yo[t]) > k:
-                    ts_x[k].append(t+0.5)
+                    ts_x[k].append(t)
                     ts_y[k].append(yo[t][k][0,0])
         self.plot_panelA.A_marks = None
         self.plot_panelA.x_B = None
