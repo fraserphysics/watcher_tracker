@@ -519,7 +519,7 @@ and
 \end{equation}
 where the subscript $i$ identifies the target.
 
-Doing a forward interation on a target that is not visible requires
+Doing a forward iteration on a target that is not visible requires
 expressions like Eqns.~\eqref{eq:decode_u'}-\eqref{eq:Sigma_yI} but
 without an observation, ie,
 
@@ -556,10 +556,35 @@ probability density of $y$ given that it is a false alarm is
   P(y|\text{FA}) = \lambda \NormalE{\mu_0}{\Sigma_0}{y}.
 \end{equation*}
 
-For decoding, at time $t$, add $N_{\text{FA}}*\log(P(y|\text{FA}))$ to
-the value of $\nu$ for an assignment if it includes $N_{\text{FA}}$
-attributions to false alarms.
+\marginpar{Separate state probability from observation probability.}
+For decoding, if you attribute the observations $y_1^{N_{\text{FA}}}$
+to false alarms at time $t$, add $\sum_k^{N_{\text{FA}}}
+\log(P(y_k|\text{FA}))$ and $\log \left(
+  \frac{e^{-\lambda}\lambda^{N_{\text{FA}}}}{N_{\text{FA}}!}\right)$ to
+the value of $\nu$.
 
+
+\section{Model Version Four: Variable Number of Targets}
+\label{sec:model4}
+
+\emph{MVIV} creates $N_{\text{new}}$ new targets at each time step.
+We use a Poisson distribution with a small mean to model
+$N_{\text{new}}$; at most times there are no new states.  We draw the
+positions and velocities of the new states from the same distribution
+for initial states.
+
+\marginpar{Separate state probability from observation probability.}
+For decoding, if you attribute the observations $y_1^{N_{\text{new}}}$
+to new targets at time $t$, add $\sum_k^{N_{\text{new}}}
+\log(P(y_k|\text{new}))$ and $\log \left(
+  \frac{e^{-\lambda}\lambda^{N_{\text{new}}}}{N_{\text{new}}!}\right)$
+to the value of $\nu$.
+
+While it would be simpler to treat false alarms and new targets with
+the same model mechanism, since new targets will frequently arise at
+edges while false alarms will happen in other areas more frequently,
+I expect better performance by using separate mechanisms to the two
+kinds of events.
 
 \appendix
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}
