@@ -14,8 +14,8 @@ a_v = 0.98
 sig_x = 0.1
 sig_v = 0.2
 sig_O = 0.3
-MaxD   = 1/3. # Inverse of maximum Malhabonobis distance from forecast to y
-MaxP = 120    # Number of permutations allowed
+MaxD   = 1/4.0 # Inverse of maximum Malhabonobis distance from forecast to y
+MaxP = 120     # Number of permutations allowed
 Model_Class = mv1a.MV1a
 #M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
 #            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
@@ -49,7 +49,7 @@ class DemoPlotPanel(demo.PlotPanel):
         self.subplot.hold(True)
         self.subplot.clear()
         N = len(self.x)
-        for k in xrange(N_obj):
+        for k in xrange(len(self.x)):
             self.subplot.plot(self.x[k],self.y[k],
                  markerfacecolor=self.colors[k%len(self.colors)],
                  marker='o',linewidth=0)
@@ -95,6 +95,8 @@ class DemoPlotPanel(demo.PlotPanel):
             self.B_marks=B_marks
         self.draw()
         self._SetSize()
+    def save(self,file_name):
+        self.figure.savefig(file_name)
 
 def layout(panel, compList, orient=wx.VERTICAL):
     box = wx.BoxSizer(orient)
@@ -178,21 +180,30 @@ class view_mv1_frame(wx.Frame):
         y_A = []
 
         for k in xrange(N_obj):
-            for List in (ts_x,ts_y,x_A,y_A):
+            for List in (x_A,y_A):
                 List.append([])
             for t in xrange(T):
                 y_A[k].append(s[t][k][0,0])
                 x_A[k].append(s[t][k][1,0])
-                if len(yo[t]) > k:
-                    ts_x[k].append(t)
-                    ts_y[k].append(yo[t][k][0,0])
+        ts_x = []
+        ts_y = []
+        for t in xrange(T):
+            for y in yo[t]:
+                ts_x.append(t)
+                ts_y.append(y[0,0])
         self.plot_panelA.A_marks = None
         self.plot_panelA.x_B = None
-        self.plot_panelA._forceDraw(x=ts_x,y=ts_y)
+        self.plot_panelA._forceDraw(x=[ts_x],y=[ts_y])
         self.plot_panelB.A_marks = None
         self.plot_panelB.x_B = None
         self.plot_panelB._forceDraw(x=x_A,y=y_A)
 
+    def SaveClicked(self, event):
+        global T
+        self.plot_panelA.save('figA.png')
+        self.plot_panelB.save('figB.png')
+        print "Save clicked"
+        
     def OnTrackClicked(self, event):
         global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxP,Model_Class
 
@@ -306,6 +317,9 @@ class ControlPanel(wx.Panel):
         buttonSize = (self.BMP_SIZE + 2 * self.BMP_BORDER,
                       self.BMP_SIZE + 2 * self.BMP_BORDER)
 
+        saveButton = wx.Button(parent=self, id=-1, label='Save')
+        self.Bind(wx.EVT_BUTTON, parent.SaveClicked, saveButton)
+
         mv1Button = wx.Button(parent=self, id=-1, label='MV1')
         self.Bind(wx.EVT_BUTTON, parent.Mv1Clicked, mv1Button)
 
@@ -368,7 +382,8 @@ class ControlPanel(wx.Panel):
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
-        layout(self,[mv1Button,mv2Button,mv3Button,sim_frame,track_frame])
+        layout(self,[saveButton,mv1Button,mv2Button,mv3Button,sim_frame,
+                     track_frame])
 
 class view_mv1_app(wx.App):
     def OnInit(self):

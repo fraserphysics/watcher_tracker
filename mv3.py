@@ -76,20 +76,9 @@ class PERMUTATION(mv1a.PERMUTATION):
             successor = new_perms[key]
             successor.predecessor_perm.append(self)
             successor.predecessor_u_prime.append(entry['R'])
-    def argmax(self):
-        """Select best predecessor, evaluate self.nu, collect list of
-        appropriate child targets from that predecessor, and attach
-        that list to self.  MUST PROPAGATE EXTRA R FOR FAs
-        """
-        k_max = util.argmax(self.predecessor_u_prime)
-        self.nu = self.predecessor_u_prime[k_max]
-        best = self.predecessor_perm[k_max]
-        self.targets = []
-        for k in xrange(self.N_tar):
-            self.targets.append(best.targets[k].children[self.key[k]])
 
 class MV3(mv2.MV2):
-    def __init__(self,Lambda=0.1,**kwargs):
+    def __init__(self,Lambda=0.3,**kwargs):
         mv2.MV2.__init__(self,**kwargs)
         self.Lambda = Lambda # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
@@ -139,10 +128,12 @@ class MV3(mv2.MV2):
                 x_j_new[j] = self.A*x_j[j] + epsilon
             obs_t = []
             for j in xrange(self.N_tar):
-                for k in xrange(scipy.random.poisson(self.Lambda/self.N_tar)):
-                    obs_t.append(util.normalS(zero_y,self.Sigma_FA))
-                if v_j[j] is not 0:
-                    continue
+                if t > 0: # force exactly N_tar observations at t=0
+                    for k in xrange(scipy.random.poisson(
+                        self.Lambda/self.N_tar)):
+                        obs_t.append(util.normalS(zero_y,self.Sigma_FA))
+                        if v_j[j] is not 0:
+                            continue
                 eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
                 obs_t.append(self.O * x_j[permute[j]] + eta)
             obs.append(obs_t)
