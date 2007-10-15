@@ -132,8 +132,8 @@ class MV3(mv2.MV2):
                     for k in xrange(scipy.random.poisson(
                         self.Lambda/self.N_tar)):
                         obs_t.append(util.normalS(zero_y,self.Sigma_FA))
-                        if v_j[j] is not 0:
-                            continue
+                    if v_j[j] is not 0:
+                        continue
                 eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
                 obs_t.append(self.O * x_j[permute[j]] + eta)
             obs.append(obs_t)
