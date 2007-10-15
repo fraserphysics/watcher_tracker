@@ -1,0 +1,67 @@
+\documentclass{article}
+
+%\topmargin +1in % was +27pt
+%\textheight 625pt % was 505
+\begin{document}
+%\pagestyle{empty}
+\noindent
+\hfill October 15, 2007\\
+\noindent
+\begin{description}
+\item[To:] Watcher Trackers
+\item[From:] Andy Fraser
+\item[Subject:] Agenda for 2007-10-16 Meeting
+\item[Time and Place] 9:00-10:00 in TA-3, Building SM-40, Room W106A
+\vspace{1cm}
+\end{description}
+
+\noindent
+We will meet to discuss work on tracking in general and in particular
+work on tracking for the watcher project.  I'll start by reviewing the
+work I've done.  Then we'll talk about how to proceed.
+
+\begin{enumerate}
+\item Current status of Andy's models and algorithms:
+  \begin{description}
+  \item[Models:] The models that I've developed have:
+    \begin{itemize}
+    \item Fixed number of targets
+    \item Linear Gaussian dynamics and observations
+    \item Sticky observablity (missed detections)
+    \item False alarms
+    \end{itemize}
+  \item[Algorithms:]  The code that I've written for such models have:
+    \begin{itemize}
+    \item Complexity of approximately $T\cdot N!\cdot N^2$ for an
+      exhaustive search for the optimal solution.  Here, $T$ is the
+      number of frames, and $N$ is the number of targets.
+    \item Complexity of approximately $T\cdot N_A\cdot N_\epsilon^2$ for
+      a search that considers only $N_A$ associations at each time
+      and has only $N_\epsilon$ trajectories in a neighborhood
+    \end{itemize}
+  \item[Data:] I have only worked with simulated data to date
+  \item[Analysis:] Spend about 20 minutes reviewing dynamic
+    programming as a generalization of the Viterbi algorithm
+  \end{description}
+\item Work to do:
+  We will discuss general approaches and issues like the importance of
+  \emph{real time} results.
+  \begin{description}
+  \item[Models:] Must allow the number of targets to vary over time
+  \item[Algorithms:] Want complexity to go as sum of cluster
+    complexities not product of cluster complexities
+  \item[Data:] To work with Albuquerque data
+  \item[Analysis:] Understand performance cost of non-optimal
+    algorithms
+  \end{description}
+\end{enumerate}
+
+\vfill \hrule
+\begin{verbatim}
+$Id:$
+\end{verbatim}
+\end{document}
+
+%%% Local Variables:
+%%% eval: (TeX-PDF-mode)
+%%% End:
