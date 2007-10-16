@@ -46,8 +46,9 @@ class PlotPanel(wx.Panel):
     flag, and the actually redrawing of the
     figure is triggered by an Idle event.
     """
-    def __init__(self, parent, id = -1, color = None, ylabel=None, xlabel='x',
-          title=None, dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE, **kwargs):
+    def __init__(self, parent, id = -1, color = None, ylabel='y', xlabel='x',
+          title='title', dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE,
+                 **kwargs):
         wx.Panel.__init__(self, parent, id = id, style = style, **kwargs)
         self.figure = Figure(None, dpi)
         self.canvas = NoRepaintCanvas(self, -1, self.figure)
@@ -56,13 +57,6 @@ class PlotPanel(wx.Panel):
         self.Bind(wx.EVT_SIZE, self._onSize)
         self._resizeflag = True
         self._SetSize()
-        self.x = None
-        self.y = None
-        self.x_B = None
-        self.y_B = None
-        self.A_marks = None
-        self.B_marks = None
-        self.linestyle = '-'
         self.colors = ('red', 'green', 'blue', 'magenta',  'purple',
               'brown', 'orange', 'black', 'cyan',
               'goldenrod', 'yellow', 'aquamarine', 'navy')

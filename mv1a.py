@@ -385,17 +385,14 @@ t=%d, len(old_perms)=%d, len(child_targets)=%d len(Ys[t])=%d
         # Backtrack to get trajectories
 
         tracks = []
-        y_tracks = []
-        for target in perm_best.targets:
+        y_tracks = [] # y[t][A[t][k]] is associated with target k
+        for t in xrange(T):
+            y_tracks.append({}) # Association dicts
+        for k in xrange(len(perm_best.targets)):
+            target = perm_best.targets[k]
             tracks.append(target.backtrack())
-            y_tt = []
             for t in xrange(T):
-                k = target.m_t[t]
-                if k>=0 and k < len(Ys[t]):
-                    y_tt.append(Ys[t][k])
-                else:
-                    y_tt.append(None)
-            y_tracks.append(y_tt)
+                y_tracks[t][k] = target.m_t[t]
         return (tracks,y_tracks)
     
 # Test code
