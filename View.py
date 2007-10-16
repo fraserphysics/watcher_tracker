@@ -15,11 +15,9 @@ a_v = 0.98
 sig_x = 0.1
 sig_v = 0.2
 sig_O = 0.3
-MaxD   = 1/4.0 # Inverse of maximum Malhabonobis distance from forecast to y
+MaxD   = 4.0   # Maximum Malhabonobis distance from forecast to y
 MaxP = 120     # Number of permutations allowed
 Model_Class = mv1a.MV1a
-#M = mv1a.MV1a(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-#            Sigma_D = [[sig_x**2,0],[0,sig_v**2]])
 
 class FloatSlider(wx.Slider):
     def __init__(self, parent, ID, Min, Max, Step, Value, call_back, **kwargs):
@@ -38,76 +36,6 @@ class FloatSlider(wx.Slider):
         self.Fvalue = self.FMin + Ivalue*self.FStep
         self.Call_Back(event)
 
-class DemoPlotPanel(demo.PlotPanel):
-    """An example plotting panel. The only method that needs 
-    overriding is the draw method"""
-    def __init__(self, parent, **kwargs):
-        demo.PlotPanel.__init__(self, parent, **kwargs)
-        self.x = None
-        self.y = None
-        self.x_B = None
-        self.y_B = None
-        self.A_marks = None
-        self.B_marks = None
-        self.linestyle = '-'
-    def draw(self):
-        if not hasattr(self, 'subplot'):
-            self.subplot = self.figure.add_subplot(111)
-        #Now draw it
-        if self.x is None:
-            return
-        self.subplot.hold(True)
-        self.subplot.clear()
-        N = len(self.x)
-        for k in xrange(len(self.x)):
-            self.subplot.plot(self.x[k],self.y[k],
-                 markerfacecolor=self.colors[k%len(self.colors)],
-                 marker='o',linewidth=0)
-            if self.A_marks is None or len(self.A_marks)-1 < k:
-                continue
-            self.subplot.plot(self.A_marks[k]['x'],self.A_marks[k]['y'],
-                 markerfacecolor=self.colors[k%len(self.colors)],
-                 markeredgecolor=self.colors[k%len(self.colors)], marker='x',
-                 markeredgewidth=2,markersize=25)
-        if self.x_B:
-            for k in xrange(N_obj):
-                self.subplot.plot(self.x_B[k],self.y_B[k], lw=2,
-                           color=self.colors[k%len(self.colors)],
-                           linestyle=self.linestyle)
-
-                if self.B_marks is None or len(self.B_marks)-1 < k:
-                    continue
-                self.subplot.plot(self.B_marks[k]['x'],self.B_marks[k]['y'],
-                  markerfacecolor=self.colors[k%len(self.colors)],
-                  markeredgecolor=self.colors[k%len(self.colors)], marker='+',
-                  markeredgewidth=2, markersize=25)
-        #Set some plot attributes
-        if self.title != None:
-            self.subplot.set_title(self.title, fontsize = 12)
-        if self.ylabel != None:
-            self.subplot.set_ylabel(self.ylabel, fontsize = 10)
-        if self.xlabel != None:
-            self.subplot.set_xlabel(self.xlabel, fontsize = 10)
-
-    def _forceDraw(self,x=None,y=None,x_B=None,y_B=None,A_marks=None,
-                   B_marks=None):
-        if x != None:
-            self.x=x
-        if y != None:
-            self.y=y
-        if x_B != None:
-            self.x_B=x_B
-        if y_B != None:
-            self.y_B=y_B
-        if A_marks != None:
-            self.A_marks=A_marks
-        if B_marks != None:
-            self.B_marks=B_marks
-        self.draw()
-        self._SetSize()
-    def save(self,file_name):
-        self.figure.savefig(file_name)
-
 class PlotPanelA(demo.PlotPanel):
     """A variation on DemoPlotPanel for panel A that plots different
     numbers of observations at each time"""
@@ -116,8 +44,7 @@ class PlotPanelA(demo.PlotPanel):
         self.y = None  # y[t] is a list of observations
         self.A = None  # A[t] is a dict.  y[t][A[t][k]] is associated
                        # with target k
-        self.t = None  # t is index of y to mark
-        self.linestyle = '-'
+        self.t = 0     # t is index of y to mark
     def draw(self):
         if not hasattr(self, 'subplot'):
             self.subplot = self.figure.add_subplot(111)
@@ -125,6 +52,7 @@ class PlotPanelA(demo.PlotPanel):
             return
         self.subplot.hold(True)
         self.subplot.clear()
+        # Draw dots for each observation/hit
         for t in xrange(len(self.y)):
             y_t = self.y[t]
             if len(y_t) is 0:
@@ -134,10 +62,11 @@ class PlotPanelA(demo.PlotPanel):
                               linewidth=0)
             if self.t is t:
                 self.subplot.plot(x_t,y_t,markerfacecolor='black',
-                 markeredgecolor='black', marker='x',
+                 markeredgecolor='black', marker='x',linewidth=0,
                  markeredgewidth=2,markersize=25)
         if self.A is None:
             return
+        # If associations are available, use them to connect dots
         linesx = {}
         linesy = {}
         for t in xrange(len(self.A)):
@@ -152,27 +81,66 @@ class PlotPanelA(demo.PlotPanel):
         for key in linesx.keys():
             self.subplot.plot(linesx[key],linesy[key], lw=2,color='black',
                            linestyle='-')
-        #Set some plot attributes
         self.subplot.set_title(self.title, fontsize = 12)
         self.subplot.set_ylabel(self.ylabel, fontsize = 10)
         self.subplot.set_xlabel(self.xlabel, fontsize = 10)
 
-    def _forceDraw(self,y=None,A=None,t=None):
-        if y != None:
-            self.y=y
-        if A != None:
-            self.A=A
-        if t != None:
-            self.t=t
+    def _forceDraw(self):
         self.draw()
         self._SetSize()
     def save(self,file_name):
         self.figure.savefig(file_name)
 
+class PlotPanelB(PlotPanelA):
+    """A variation on PlotPanelA for plotting state space trajectories"""
+    def __init__(self, parent, **kwargs):
+        demo.PlotPanel.__init__(self, parent, **kwargs)
+        self.s = None  # states (s[t][k][0,0],s[t][k][1,0]) is a point
+        self.d = None  # decoded states (d[k][t][0,0],d[k][t][1,0]) is a point
+        self.t = 0     # t is index of s and d to mark
+    def draw(self):
+        if not hasattr(self, 'subplot'):
+            self.subplot = self.figure.add_subplot(111)
+        if self.s is None:
+            return
+        self.subplot.hold(True)
+        self.subplot.clear()
+        N_tar = len(self.s[0])
+        T = len(self.s)
+        # Draw dots for each state at each time
+        for k in xrange(N_tar):
+            color = self.colors[k%len(self.colors)]
+            x = []
+            y = []
+            for t in xrange(T):
+                x.append(self.s[t][k][1,0])
+                y.append(self.s[t][k][0,0])
+            self.subplot.plot(x,y,markerfacecolor=color,marker='o',
+                              linewidth=0)
+            self.subplot.plot([x[self.t]],[y[self.t]],markerfacecolor=color,
+                 markeredgecolor=color, marker='x',linewidth=0,
+                 markeredgewidth=2,markersize=25)
+        if self.d is None:
+            return
+        # Draw lines for each decoded state trajectory
+        for k in xrange(N_tar):
+            x = []
+            y = []
+            for t in xrange(T):
+                x.append(self.d[k][t][1,0])
+                y.append(self.d[k][t][0,0])
+            color = self.colors[k%len(self.colors)]
+            self.subplot.plot(x,y, lw=2, color=color, linestyle='-')
+            self.subplot.plot([x[self.t]],[y[self.t]],markerfacecolor=color,
+                 markeredgecolor=color, marker='+',linewidth=0,
+                 markeredgewidth=2,markersize=25)
+        self.subplot.set_title(self.title, fontsize = 12)
+        self.subplot.set_ylabel(self.ylabel, fontsize = 10)
+        self.subplot.set_xlabel(self.xlabel, fontsize = 10)
+
 def layout(panel, compList, orient=wx.VERTICAL):
     box = wx.BoxSizer(orient)
     for c in compList:
-        #box.Add(c, 0, wx.ALL, panel.SPACING)
         box.Add(c, 0, wx.EXPAND, 4)
     panel.SetSizer(box)
     box.Fit(panel)
@@ -203,8 +171,7 @@ class view_mv1_frame(wx.Frame):
         self.controlPanel = ControlPanel(self, -1)
         self.plot_panelA = PlotPanelA(self,ylabel="Position",
                xlabel='Time',title='Observations', size=(400,800))
-        #self.plot_panelA.colors = N_obj*['black']
-        self.plot_panelB = DemoPlotPanel(self,ylabel="Position",
+        self.plot_panelB = PlotPanelB(self,ylabel="Position",
                xlabel='Velocity',title='State Space', size=(400,800))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         sizer.Add(self.controlPanel,0,wx.EXPAND,4)
@@ -215,17 +182,12 @@ class view_mv1_frame(wx.Frame):
         
     def initStatusBar(self):
         self.statusbar = self.CreateStatusBar()
-        #self.statusbar.SetFieldsCount(3)
-        #self.statusbar.SetStatusWidths([-1, -2, -3])
 
     def OnNew(self, event): pass
 
     def OnCloseWindow(self, event):
         self.Destroy()
 
-    def DummyClicked(self, event):
-        print 'DummyClicked'
-        
     def Mv1Clicked(self, event):
         global Model_Class
         Model_Class = mv1a.MV1a
@@ -244,24 +206,12 @@ class view_mv1_frame(wx.Frame):
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         yo,s = M.simulate(T)
-        ts_x = []
-        ts_y = []
-        x_A = []
-        y_A = []
-
-        for k in xrange(N_obj):
-            for List in (x_A,y_A):
-                List.append([])
-            for t in xrange(T):
-                y_A[k].append(s[t][k][0,0])
-                x_A[k].append(s[t][k][1,0])
-        ts_x = []
-        ts_y = []
         self.plot_panelA.A=None
-        self.plot_panelA._forceDraw(y=yo)
-        self.plot_panelB.A_marks = None
-        self.plot_panelB.x_B = None
-        self.plot_panelB._forceDraw(x=x_A,y=y_A)
+        self.plot_panelA.y=yo
+        self.plot_panelA._forceDraw()
+        self.plot_panelB.s=s
+        self.plot_panelB.d=None
+        self.plot_panelB._forceDraw()
 
     def SaveClicked(self, event):
         global T
@@ -276,20 +226,11 @@ class view_mv1_frame(wx.Frame):
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         t_start = time.time()
         d,yd = M.decode(yo)
-        print 'decode time = %f'%(time.time()-t_start)
-
-        x_B = []
-        y_B = []
-
-        for k in xrange(N_obj):
-            for List in (x_B,y_B):
-                List.append([])
-            for t in xrange(T):
-                y_B[k].append(d[k][t][0,0])
-                x_B[k].append(d[k][t][1,0])
-        self.plot_panelB._forceDraw(x_B=x_B,y_B=y_B)
-        self.plot_panelA._forceDraw(A=yd)
-        #self.plot_panelA._forceDraw(x_B=x_By,y_B=y_By)
+        print 'decode time = %f,MaxD=%f'%(time.time()-t_start,MaxD)
+        self.plot_panelA.A=yd
+        self.plot_panelA._forceDraw()
+        self.plot_panelB.d=d
+        self.plot_panelB._forceDraw()
     
     def a_x_sliderUpdate(self, event):
         global a_x
@@ -338,19 +279,10 @@ class view_mv1_frame(wx.Frame):
             return
         foo_t = t
         self.statusbar.SetStatusText('t=%d'%t)
-        self.plot_panelA._forceDraw(t=t)
-        A_marks=[]
-        for k in xrange(N_obj):
-            A_marks.append({'x':[s[t][k][1,0]], 'y':[s[t][k][0,0]]})
-        self.plot_panelB._forceDraw(A_marks=A_marks)
-        if not self.plot_panelB.x_B:
-            return
-        B_marks = []
-        x = self.plot_panelB.x_B
-        y = self.plot_panelB.y_B
-        for k in xrange(N_obj):
-            B_marks.append({'x':[x[k][t]], 'y':[y[k][t]]})
-        self.plot_panelB._forceDraw(B_marks=B_marks)
+        self.plot_panelA.t=t
+        self.plot_panelA._forceDraw()
+        self.plot_panelB.t=t
+        self.plot_panelB._forceDraw()
         
     def T_sliderUpdate(self, event):
         global T
@@ -434,7 +366,7 @@ class ControlPanel(wx.Panel):
         t_frame,self.t_Slider = VFlab_slider(self, row_C, "t", 0.0, 1.0,
                     0.005, 0, parent.t_sliderUpdate, size=(-1, 200))
         MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
-            0.0, 2.0, 0.002, MaxD, parent.MaxD_sliderUpdate, size=(-1, 200))
+            0.0, 2.0, 0.002, 1/MaxD, parent.MaxD_sliderUpdate, size=(-1, 200))
         MaxP_frame,self.MaxP_Slider = Vlab_slider(self, row_C,"MaxP",
             parent.MaxP_sliderUpdate, value=MaxP, minValue=1, maxValue=120,
             size=(-1, 200))

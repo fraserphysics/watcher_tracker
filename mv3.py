@@ -58,16 +58,19 @@ class PERMUTATION(mv1a.PERMUTATION):
         # target[j]
 
         # For each association apply a penalty of log(P(y)) for each
-        # observation y not associated with a target.
+        # observation y not associated with a target plus a penalty of
+        # log(P(N_FA))
         Sigma_I = self.targets[0].mod.Sigma_FA_I
         norm = self.targets[0].mod.log_FA_norm
-        for k in xrange(len(y_t)):
-            penalty = float(norm - y_t[k].T*Sigma_I*y_t[k]/2)
-            for entry in old_list:
+        Lambda = self.targets[0].mod.Lambda
+        for entry in old_list:
+            N_FA = 0
+            for k in xrange(len(y_t)):
                 if not entry['dup_check'].has_key(k):
-                    entry['R'] += penalty # FixMe: penalties not
-                                          # propagated beyond next
-                                          # time.
+                    N_FA +=1
+                    entry['R'] += float(norm - y_t[k].T*Sigma_I*y_t[k]/2)
+            entry['R'] += math.log(Lambda**N_FA/scipy.factorial(N_FA))
+            
         # Initialize successors if necessary and set their predecessors
         for entry in old_list:
             key = tuple(entry['perm'])  # Dict keys can be tuples but not lists
@@ -83,8 +86,7 @@ class MV3(mv2.MV2):
         self.Lambda = Lambda # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
         self.Sigma_FA = Sigma_FA
-        self.log_FA_norm = math.log(self.Lambda) - math.log(
-            scipy.linalg.det(Sigma_FA))/2
+        self.log_FA_norm = - math.log(scipy.linalg.det(Sigma_FA))/2
         self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
     
     def decode(self,
