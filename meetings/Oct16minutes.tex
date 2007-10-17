@@ -1,0 +1,69 @@
+\documentclass{article}
+
+%\topmargin +1in % was +27pt
+%\textheight 625pt % was 505
+\begin{document}
+%\pagestyle{empty}
+\noindent
+\hfill October 17, 2007\\
+\noindent
+\begin{description}
+\item[To:] Watcher Trackers
+\item[From:] Andy Fraser
+\item[Subject:] Minutes for 2007-10-16 Meeting
+\vspace{1cm}
+\end{description}
+
+\noindent
+\begin{description}
+\item[Attendance:] S.~Brumby, D.~Eads, A.~Fraser, R.~Porter,
+  E.~Rosten and J.~Theiler.
+\item[Presentations:] Andy showed 1-d simulations and reviewed the
+  generalization of the Viterbi algorithm to state spaces that have
+  continuous components.
+\item[Discussion:] We touched on many topics including:
+  \begin{itemize}
+  \item The challenge to develop variants of Andy's algorithms that
+    will operate on big images in acceptable time
+  \item The importance of including vehicle-vehicle interactions in models
+  \item The possibility of using PDEs rather than finite dimensional
+    maps in models
+  \item The relationship between tracking algorithms that we currently
+    apply to real images and model based algorithms
+  \item The importance of being \emph{real time} or \emph{causal}. Ed
+    is for it, Andy doesn't want to do it, Reid thinks it's too soon
+  \end{itemize}
+\item[Tasks:] We touched on the following list of tasks.  I include
+  names of folks that I hope will work on them
+  \begin{description}
+  \item[Models:] Must allow the number of targets to vary over time.
+    \textbf{Andy} said that he will do it \emph{tomorrow}.
+  \item[Algorithms:]
+    \begin{itemize}
+    \item Want complexity to go as sum of cluster complexities not
+      product of cluster complexities.  I hope that I can get
+      \textbf{Ed} to work on integrating things like graph
+      partitioning into the algorithms.
+    \item Tag plausible errors.  No one even suggested an interest in
+      working on this
+    \end{itemize}
+  \item[Data:] Work with Albuquerque data.  Reid is working on the
+    data that Christie marked.  \textbf{Andy} will write code to apply
+    to that data when he has algorithms that can derive tracks from it
+    in less than a day
+  \item[Analysis:] Understand performance cost of non-optimal
+    algorithms.  While no one volunteered to study that specific
+    question, \textbf{Steven} will review Andy's algorithm derivation
+    for correctness.
+  \end{description}
+\end{description}
+
+\vfill \hrule
+\begin{verbatim}
+$Id:$
+\end{verbatim}
+\end{document}
+
+%%% Local Variables:
+%%% eval: (TeX-PDF-mode)
+%%% End:
