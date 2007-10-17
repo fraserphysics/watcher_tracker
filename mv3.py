@@ -81,6 +81,12 @@ class PERMUTATION(mv1a.PERMUTATION):
             successor.predecessor_u_prime.append(entry['R'])
 
 class MV3(mv2.MV2):
+    """ A state consists of: Association; Locations; and Visibilities;
+    (and the derivable N_FA), ie,
+
+    s = (M,X,V,N_FA)
+    
+    """
     def __init__(self,Lambda=0.3,**kwargs):
         mv2.MV2.__init__(self,**kwargs)
         self.Lambda = Lambda # Average number of false alarms per frame
@@ -98,49 +104,54 @@ class MV3(mv2.MV2):
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
+        #Start with N_tar visible targets
         x_j = []
         v_j = []
         for j in xrange(self.N_tar):
             x_j.append(util.normalS(self.mu_init,self.Sigma_init))
-            v_j.append(0) # Start with all trajectories visible
+            v_j.append(0)
+        i_t = 0   # First association: No shuffle
+        N_FA = 0  # No false alarms for t=0
 
+        # Set up useful parameters
         x_dim = self.mu_init.shape[1]
         zero_x = scipy.matrix(scipy.zeros(x_dim))
         y_dim = self.Sigma_O.shape[0]
         zero_y = scipy.matrix(scipy.zeros(y_dim))
-        
+
+        # Lists for results
         obs = []
         xs = []
         vs = []
         for t in xrange(T):
-            x_j_new = range(self.N_tar)
-            if t>0:
-                i = random.randint(0,self.N_perm-1)
-            else:
-                i = 0 # No shuffle for t=0
-            permute = util.index_to_permute(i,self.N_tar)
-            state_t = []
+            xs.append(x_j)        # Save X[t] part of state for return
+            # Generate observations Y[t]
+            obs_t = []
+            permute = util.index_to_permute(i_t,self.N_tar)
+            for k in xrange(N_FA):
+                obs_t.append(util.normalS(zero_y,self.Sigma_FA))
             for j in xrange(self.N_tar):
+                if v_j[j] is not 0:
+                    continue
+                eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
+                obs_t.append(self.O * x_j[permute[j]] + eta)
+            obs.append(obs_t)     # Save Y[t] for return
+            # Generate next state
+            i_t = random.randint(0,self.N_perm-1)
+            x_j_new = self.N_tar*[None]
+            for j in xrange(self.N_tar):
+                # Make a new x for each target
+                epsilon = util.normalS(zero_x,self.Sigma_D) # Dynamical noise
+                x_j_new[j] = self.A*x_j[j] + epsilon
+                # Make a new visibility for each target
                 pv = self.PV_V[v_j[j],0]
                 if pv > random.random() or t is 0:
                     v_j[j] = 0
                 else:
                     v_j[j] = 1
-                epsilon = util.normalS(zero_x,self.Sigma_D) # Dynamical noise
-                x_j_new[j] = self.A*x_j[j] + epsilon
-            obs_t = []
-            for j in xrange(self.N_tar):
-                if t > 0: # force exactly N_tar observations at t=0
-                    for k in xrange(scipy.random.poisson(
-                        self.Lambda/self.N_tar)):
-                        obs_t.append(util.normalS(zero_y,self.Sigma_FA))
-                    if v_j[j] is not 0:
-                        continue
-                eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
-                obs_t.append(self.O * x_j[permute[j]] + eta)
-            obs.append(obs_t)
-            xs.append(x_j_new)
             x_j = x_j_new
+            # Select N_FA for the next t
+            N_FA = scipy.random.poisson(self.Lambda)
         return obs,xs
 
 # Test code

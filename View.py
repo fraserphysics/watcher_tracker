@@ -226,7 +226,7 @@ class view_mv1_frame(wx.Frame):
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxP=MaxP)
         t_start = time.time()
         d,yd = M.decode(yo)
-        print 'decode time = %f,MaxD=%f'%(time.time()-t_start,MaxD)
+        print 'decode time = %f'%(time.time()-t_start)
         self.plot_panelA.A=yd
         self.plot_panelA._forceDraw()
         self.plot_panelB.d=d

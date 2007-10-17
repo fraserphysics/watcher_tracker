@@ -45,15 +45,43 @@ track ie,
 Note that the MAP track is different than the sequence of
 \emph{filtered} forecasts.  A filtered estimate, ie,
 \begin{equation*}
-  P(S(t)|\ts{y}{\tau}{1}{t}).
+  P(S(t)|\ts{y}{\tau}{1}{t}),
 \end{equation*}
 is the entire a posteriori distribution at each time given the
 observations up to that time.  When I began thinking about tracking
 and writing this document, I thought that the best approach would be
 to do filtering.  I've left some of the work I did while thinking
-about filtering in the document, but the essential material concerns
-decoding.  The material on decoding does not depend on the material on
-filtering.  So, you may ignore the filtering sections.
+about filtering in Appendix~\ref{sec:filtering} which you may safely
+ignore.
+
+\subsection*{Model Assumptions}
+\label{sec:model-assumptions}
+
+The following assumptions describe a \emph{state space model}:
+\begin{description}
+\item[The state dynamics are Markov:]
+  \begin{equation}
+    \label{eq:Markov}
+    P(\ts{s}{\tau}{1}{t-1},\ts{s}{\tau}{t+1}{T}|\ti{s}{t}) =
+    P(\ts{s}{\tau}{1}{t-1}|\ti{s}{t}) ~ P(\ts{s}{\tau}{t+1}{T}|\ti{s}{t}),
+  \end{equation}
+  ie, the future is conditionally independent of the past given the present.
+\item[The observations depend only on the states:] Or more precisely,
+  the observation at time $t$ is conditionally independent of
+  everything else given the state at time $t$, ie,
+  \begin{equation}
+    \label{eq:IndependentY}
+    P(\ti{y}{t},z|\ti{s}{t}) =  P(\ti{y}{t}|\ti{s}{t}) ~  P(z|\ti{s}{t})
+  \end{equation}
+  where $z$ can be any collection of other states and observations.
+\end{description}
+If these assumptions hold, the following functions completely describe
+a model:
+\begin{description}
+\item[State transition probability:] $P(\ti{s}{t+1}|\ti{s}{t})$
+\item[Conditional observation probability:] $P(\ti{y}{t}|\ti{s}{t})$
+\item[Initial state distribution] $P(\ti{s}{1})$
+\end{description}
 
 \subsection*{Decoding}
 \label{sec:decoding}
@@ -386,7 +414,7 @@ The following pair of equations define the model:
     \prod_{i:v_i=0} P(y(M(i))|x_i) & \text{Otherwise}
   \end{cases}
 \end{equation}
-The only new parameters are $P(\ti{v_i}{t+1}|\ti{v_i}{t+1})$ the
+The only new parameters are $P(\ti{v_i}{t+1}|\ti{v_i}{t})$ the
 probabilities of transitions between visibility states.  I find the
 modifications to algorithms for MVI required for MVII by observing
 \begin{align}
@@ -434,10 +462,10 @@ without an observation, ie,
 This model, \emph{MVIII}, generates hits like MVII except that in
 addition it generates noise hits or \emph{false alarms}.  The false
 alarms are drawn from the initial $y$ distribution
-$(\normal{\mu_0}{\Sigma_0})$ and the number of hits is drawn from a
+$\normal{\mu_0}{\Sigma_0}$ and the number of hits is drawn from a
 Poisson distribution with expected value $\lambda$.  The number of
 false alarms, $N_{\text{FA}}$, is a characteristic of a state or
-association, ie, $s \equiv (N_{\text{FA}},M,\bx)$ and
+association, ie, $s \equiv (M,\bx,\bv,N_{\text{FA}})$ and
 \begin{equation}
   \label{eq:2}
   P(\ti{s}{t+1}|\ti{s}{t},\ti{M}{t+1},\ti{\bx}{t+1}) =
@@ -475,6 +503,18 @@ the same model mechanism, since new targets will frequently arise at
 edges while false alarms will happen in other areas more frequently, I
 expect better performance by using separate mechanisms to model the
 two kinds of events.
+
+\textbf{Caution:} Since the dimension of the state changes with time,
+we should make sure that the results of algorithms do not depend on
+coordinates.
+
+Ultimately MVIV will have the following properties:
+\begin{itemize}
+\item Start with a random number of targets
+\item New targets created randomly
+\item Old targets removed after being invisible for some number of
+  frames
+\end{itemize}
 
 \appendix
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}
