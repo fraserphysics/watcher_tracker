@@ -4,7 +4,24 @@ mv3.py: Models that allow both missed detections and false alarms
 import numpy, scipy, scipy.linalg, random, math
 
 import util, mv2, mv1a
-    
+
+class PARTIAL():
+    def __init__(self,parent=None,cause=None):
+        if parent is None and cause is None:
+            self.dup_check = {} # Prevent duplicate target entries
+            self.perm = []      # Map from hits to sources
+            self.u_prime = 0    # u'(self,suc,t+1)
+            return
+        self.dup_check = parent.dup_check.copy()
+        if cause.key:
+            self.dup_check[cause.key] = None # Block reuse of this key
+        self.perm = parent.perm + [cause]
+        self.u_prime = parent.u_prime + cause.R
+class CAUSE():
+    def __init__(self, type, target=None, key=None):
+        self.type = type # 'target' or 'FA'
+        self.target=target
+        self.key=key
 class PERMUTATION(mv1a.PERMUTATION):
     """
     New Methods:
@@ -20,65 +37,53 @@ class PERMUTATION(mv1a.PERMUTATION):
         append the following pair of values to S.predecessor: 1. A
         pointer back to self and 2. The value of u'(self,S,t+1).
         """
-        # Create a list of plausible successor associations between
-        # targets and observations.
-
-        old_list = [] # List of partial associations.  At level k,
-                      # each association says which y is associated
-                      # with targets with indices smaller than k
-                      
-        # Initialize with target[k=0]
-        for child in self.targets[0].children.values():
-            m_tail = child.m_t[-1]         # Index of hit for child
-            old_list.append({
-                'dup_check':{m_tail:None}, # Ensure unique hit associations
-                'perm':[m_tail],           # Map from targets to hits
-                'R':child.R_t + self.nu    # u'(self,suc,t+1)
-                })
-
-        for k in xrange(1,len(self.targets)):
+        FA = CAUSE('FA')
+        # For each observation, list the plausible causes
+        causes = []
+        for k in xrange(len(y_t)):
+            causes.append([FA])
+        for k in xrange(len(self.targets)):
+            target = self.targets[k]
+            for child in target.children.values():
+                causes[child.m_t[-1]].append(CAUSE('target',child,k))
+        
+        # Initialize list of partial associations.
+        old_list = [PARTIAL()]
+        # Make list of plausible associations.  At level k, each
+        # association explains the source of each y_t[i] for i<k.
+        for k in xrange(len(y_t)):
             new_list = []
-            for child in self.targets[k].children.values():
-                m_tail = child.m_t[-1]
-                for partial in old_list:
-                    if m_tail >= 0 and partial['dup_check'].has_key(m_tail):
-                        continue # Many targets mapping to invisible y OK
-                                 # But no 2 targets map to same visible y 
-                    new_dict = partial['dup_check'].copy()
-                    new_dict[m_tail] = None
-                    new_perm = partial['perm']+[m_tail]
-                    new_R = partial['R']+child.R_t
-                    new_list.append({'dup_check':new_dict,'perm':new_perm,
-                                     'R':new_R})
+            y_t_k = y_t[k]
+            for partial in old_list:
+                for cause in causes[k]:
+                    if partial.dup_check is not cause.key:
+                        new_list.append(PARTIAL(partial,cause))
             old_list = new_list
-        # Each entry in old_list is a dict that has a plausible
-        # association for each hit in y[t+1].  For the ith
-        # association, if k=old_list[i]['perm'][j] < 0, then target[j]
-        # is not visible, otherwise y[t+1][k] is associated with
-        # target[j]
 
-        # For each association apply a penalty of log(P(y)) for each
-        # observation y not associated with a target plus a penalty of
-        # log(P(N_FA))
+        # Now each entry in old_list is a PARTIAL and entry.perm[k]
+        # is a plausible CAUSE for hit y_t[k]
+
+        # For each entry apply a penalty of log(P(y)) for each false
+        # alarm cause plus a penalty of log(P(N_FA))
         Sigma_I = self.targets[0].mod.Sigma_FA_I
         norm = self.targets[0].mod.log_FA_norm
         Lambda = self.targets[0].mod.Lambda
         for entry in old_list:
             N_FA = 0
             for k in xrange(len(y_t)):
-                if not entry['dup_check'].has_key(k):
+                if entry.perm[k].type is 'FA':
                     N_FA +=1
-                    entry['R'] += float(norm - y_t[k].T*Sigma_I*y_t[k]/2)
-            entry['R'] += math.log(Lambda**N_FA/scipy.factorial(N_FA))
+                    entry.u_prime += float(norm - y_t[k].T*Sigma_I*y_t[k]/2)
+            entry.u_prime += math.log(Lambda**N_FA/scipy.factorial(N_FA))
             
         # Initialize successors if necessary and set their predecessors
         for entry in old_list:
-            key = tuple(entry['perm'])  # Dict keys can be tuples but not lists
+            key = tuple(entry.perm)  # Dict keys can be tuples but not lists
             if not new_perms.has_key(key):
                 new_perms[key] = PERMUTATION(self.N_tar,key)
             successor = new_perms[key]
             successor.predecessor_perm.append(self)
-            successor.predecessor_u_prime.append(entry['R'])
+            successor.predecessor_u_prime.append(entry.u_prime)
 
 class MV3(mv2.MV2):
     """ A state consists of: Association; Locations; and Visibilities;
