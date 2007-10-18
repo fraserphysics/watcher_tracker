@@ -5,23 +5,40 @@ import numpy, scipy, scipy.linalg, random, math
 
 import util, mv2, mv1a
 
-class PARTIAL():
-    def __init__(self,parent=None,cause=None):
+class PARTIAL:
+    def __init__(self,parent=None,cause=None,nu=None):
         if parent is None and cause is None:
-            self.dup_check = {} # Prevent duplicate target entries
+            self.dup_check = {} # Dict of parent targets used
             self.perm = []      # Map from hits to sources
-            self.u_prime = 0    # u'(self,suc,t+1)
+            self.u_prime = nu   # u'(self,suc,t+1)
+            self.targets = []   # List of targets
             return
         self.dup_check = parent.dup_check.copy()
-        if cause.key:
-            self.dup_check[cause.key] = None # Block reuse of this key
-        self.perm = parent.perm + [cause]
+        self.targets = []       # For cause.type 'FA'
+        if cause.type is 'target':
+            self.dup_check[cause.parent_key] = None # Block reuse of parent
+            self.targets = parent.targets + [cause.target]
+        self.perm = parent.perm + [cause.k]
         self.u_prime = parent.u_prime + cause.R
-class CAUSE():
-    def __init__(self, type, target=None, key=None):
-        self.type = type # 'target' or 'FA'
-        self.target=target
-        self.key=key
+    def invisible(self,parent):
+        child = parent.children[-1]
+        self.targets += [child]
+        self.u_prime += child.R_t
+class CAUSE:
+    def __init__(self, type, parent=None, k=None, Sigma_I=None, y=None):
+        self.type = type    # 'target' or 'FA'
+        if type is 'target':
+            self.parent_key = tuple(parent.m_t)
+            self.target=parent.children[k]
+            self.R = self.target.R_t
+            self.k = k
+            return
+        if self.type is 'FA':
+            self.R = float(- y.T*Sigma_I*y/2)
+            self.k = -1
+            self.parent_key = None
+            return
+        raise RuntimeError,"Cause type %s not known"%self.type
 class PERMUTATION(mv1a.PERMUTATION):
     """
     New Methods:
@@ -31,60 +48,76 @@ class PERMUTATION(mv1a.PERMUTATION):
 
     def forward(self,
                 new_perms,   # A dict of permutations for the next time step
-                y_t          # A list of hits at this time step
+                y_t          # A list of hits at the next time step
                 ):
         """ For each plausible successor S of the PERMUTATION self,
         append the following pair of values to S.predecessor: 1. A
         pointer back to self and 2. The value of u'(self,S,t+1).
         """
-        FA = CAUSE('FA')
         # For each observation, list the plausible causes
         causes = []
+        Sigma_FA_I=self.targets[0].mod.Sigma_FA_I
+        norm = self.targets[0].mod.log_FA_norm
+        Lambda = self.targets[0].mod.Lambda
         for k in xrange(len(y_t)):
-            causes.append([FA])
-        for k in xrange(len(self.targets)):
-            target = self.targets[k]
-            for child in target.children.values():
-                causes[child.m_t[-1]].append(CAUSE('target',child,k))
+            causes.append([CAUSE('FA',Sigma_I=Sigma_FA_I,y=y_t[k])])
+            for target in self.targets:
+                if target.children.has_key(k):
+                    causes[k].append(CAUSE('target',target,k))
         
         # Initialize list of partial associations.
-        old_list = [PARTIAL()]
+        old_list = [PARTIAL(nu=self.nu)]
         # Make list of plausible associations.  At level k, each
         # association explains the source of each y_t[i] for i<k.
         for k in xrange(len(y_t)):
-            new_list = []
             y_t_k = y_t[k]
+            new_list = []
             for partial in old_list:
                 for cause in causes[k]:
-                    if partial.dup_check is not cause.key:
+                    if not partial.dup_check.has_key(cause.parent_key):
                         new_list.append(PARTIAL(partial,cause))
             old_list = new_list
+
+        # For each plausible child association, account for the
+        # invisible targets and the number of false alarms
+        for entry in old_list:
+            N_FA = len(y_t) - len(entry.dup_check)
+            entry.u_prime += N_FA*norm + math.log(Lambda**N_FA/scipy.factorial(N_FA))
+            for target in self.targets:
+                key = tuple(target.m_t)
+                if entry.dup_check.has_key(key):
+                    continue
+                entry.invisible(target)
 
         # Now each entry in old_list is a PARTIAL and entry.perm[k]
         # is a plausible CAUSE for hit y_t[k]
 
-        # For each entry apply a penalty of log(P(y)) for each false
-        # alarm cause plus a penalty of log(P(N_FA))
-        Sigma_I = self.targets[0].mod.Sigma_FA_I
-        norm = self.targets[0].mod.log_FA_norm
-        Lambda = self.targets[0].mod.Lambda
-        for entry in old_list:
-            N_FA = 0
-            for k in xrange(len(y_t)):
-                if entry.perm[k].type is 'FA':
-                    N_FA +=1
-                    entry.u_prime += float(norm - y_t[k].T*Sigma_I*y_t[k]/2)
-            entry.u_prime += math.log(Lambda**N_FA/scipy.factorial(N_FA))
-            
         # Initialize successors if necessary and set their predecessors
         for entry in old_list:
-            key = tuple(entry.perm)  # Dict keys can be tuples but not lists
+            key = tuple(entry.perm)  # Key for successor
             if not new_perms.has_key(key):
                 new_perms[key] = PERMUTATION(self.N_tar,key)
             successor = new_perms[key]
             successor.predecessor_perm.append(self)
             successor.predecessor_u_prime.append(entry.u_prime)
-
+    def argmax(self):
+        """Select best predecessor, evaluate self.nu, collect list of
+        appropriate child targets from that predecessor, and attach
+        that list to self
+        """
+        k_max = util.argmax(self.predecessor_u_prime)
+        self.nu = self.predecessor_u_prime[k_max]
+        best = self.predecessor_perm[k_max]
+        self.targets = []
+        # For each target in the predecessor, find the child that
+        # belongs in this successor and attach it here.  Note that
+        # self.key[k] indicates the cause of y_t[k].
+        look_up = (self.N_tar+1)*[-1]
+        for i in xrange(len(self.key)):
+            look_up[self.key[i]] = i
+        for k in xrange(self.N_tar):
+            i = look_up[k] # Index of observation caused by target k
+            self.targets.append(best.targets[k].children[i])
 class MV3(mv2.MV2):
     """ A state consists of: Association; Locations; and Visibilities;
     (and the derivable N_FA), ie,
