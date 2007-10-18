@@ -28,7 +28,7 @@ class TARGET:
     def dump(self):
         print 'Dump target: m_t=',self.m_t
         if self.children is not None:
-            print'  len(self.children)=%d'%len(self.children)
+            print'  len(self.children)=%d\n'%len(self.children), self.children
 
     def make_children(self,        # self is a TARGET
                       y_t,         # list of hits at time t

@@ -6,37 +6,63 @@ import numpy, scipy, scipy.linalg, random, math
 import util, mv2, mv1a
 
 class PARTIAL:
-    def __init__(self,parent=None,cause=None,nu=None):
+    """ A partial association.  A loop in forward() builds up partials
+    into full associations by interating over the hits at a given
+    time.
+    """
+    def __init__(self,
+                 parent=None, # A PARTIAL
+                 cause=None,  # CAUSE of next hit in y_t
+                 nu=None      # nu from parent association/permutation
+                 ):
         if parent is None and cause is None:
             self.dup_check = {} # Dict of parent targets used
-            self.perm = []      # Map from hits to sources
+            self.perm = []      # Map from hits to sources.  Will become key
             self.u_prime = nu   # u'(self,suc,t+1)
             self.targets = []   # List of targets
             return
+        if not (parent and cause):
+            raise RuntimeError,\
+                  "parent and cause must both be None or both be defined"
         self.dup_check = parent.dup_check.copy()
-        self.targets = []       # For cause.type 'FA'
-        if cause.type is 'target':
-            self.dup_check[cause.parent_key] = None # Block reuse of parent
-            self.targets = parent.targets + [cause.target]
-        self.perm = parent.perm + [cause.k]
+        self.perm = parent.perm + [cause.index]
         self.u_prime = parent.u_prime + cause.R
+        if cause.type is 'target':
+            self.dup_check[cause.index] = None # Block reuse of parent
+            self.targets = parent.targets + [cause.target]
+            return
+        if cause.type is 'FA':
+            self.targets = parent.targets
+            return
+        raise RuntimeError,"Cause type %s not known"%cause.type
     def invisible(self,parent):
-        child = parent.children[-1]
+        """ Assign child target and utility for a parent that does not
+        cause any hits in y_t
+        """
+        try:
+            child = parent.children[-1]
+        except:
+            raise RuntimeError,\
+               'There is no invisible child.  Perhaps MaxD is too ambitious.'
         self.targets += [child]
         self.u_prime += child.R_t
 class CAUSE:
-    def __init__(self, type, parent=None, k=None, Sigma_I=None, y=None):
-        self.type = type    # 'target' or 'FA'
-        if type is 'target':
-            self.parent_key = tuple(parent.m_t)
-            self.target=parent.children[k]
+    def __init__(self,
+                 type,         # 'target' or 'FA'
+                 target=None,  # Child target that caused y
+                 index=None,   # Index of parent for target, -1 for FA
+                 Sigma_I=None, # To calculate R for FA
+                 y=None        # To calculate R for FA
+                 ):
+        self.type = type  
+        if type is 'target': 
+            self.index = index 
+            self.target= target
             self.R = self.target.R_t
-            self.k = k
             return
         if self.type is 'FA':
+            self.index = -1
             self.R = float(- y.T*Sigma_I*y/2)
-            self.k = -1
-            self.parent_key = None
             return
         raise RuntimeError,"Cause type %s not known"%self.type
 class PERMUTATION(mv1a.PERMUTATION):
@@ -54,40 +80,44 @@ class PERMUTATION(mv1a.PERMUTATION):
         append the following pair of values to S.predecessor: 1. A
         pointer back to self and 2. The value of u'(self,S,t+1).
         """
-        # For each observation, list the plausible causes
-        causes = []
+        # Fetch values for calculating the utility of false alarms
         Sigma_FA_I=self.targets[0].mod.Sigma_FA_I
         norm = self.targets[0].mod.log_FA_norm
         Lambda = self.targets[0].mod.Lambda
+        
+        # For each observation, list the plausible causes
+        causes = []
         for k in xrange(len(y_t)):
+            # False alarm is plausible
             causes.append([CAUSE('FA',Sigma_I=Sigma_FA_I,y=y_t[k])])
-            for target in self.targets:
-                if target.children.has_key(k):
-                    causes[k].append(CAUSE('target',target,k))
+            for i in xrange(len(self.targets)):
+                if self.targets[i].children.has_key(k):
+                    # If has_key(k) then child is plausible cause
+                    child = self.targets[i].children[k]
+                    causes[k].append(CAUSE('target',child,i))
         
         # Initialize list of partial associations.
         old_list = [PARTIAL(nu=self.nu)]
         # Make list of plausible associations.  At level k, each
         # association explains the source of each y_t[i] for i<k.
         for k in xrange(len(y_t)):
-            y_t_k = y_t[k]
             new_list = []
             for partial in old_list:
                 for cause in causes[k]:
-                    if not partial.dup_check.has_key(cause.parent_key):
+                    # Don't use same self.targets[index] more than once
+                    if not partial.dup_check.has_key(cause.index):
                         new_list.append(PARTIAL(partial,cause))
             old_list = new_list
 
-        # For each plausible child association, account for the
-        # invisible targets and the number of false alarms
+        # For each plausible association, account for the invisible
+        # targets and the number of false alarms
         for entry in old_list:
             N_FA = len(y_t) - len(entry.dup_check)
-            entry.u_prime += N_FA*norm + math.log(Lambda**N_FA/scipy.factorial(N_FA))
-            for target in self.targets:
-                key = tuple(target.m_t)
-                if entry.dup_check.has_key(key):
-                    continue
-                entry.invisible(target)
+            entry.u_prime += N_FA*norm + math.log(
+                Lambda**N_FA/scipy.factorial(N_FA) )
+            for k in xrange(len(self.targets)):
+                if not entry.dup_check.has_key(k):
+                    entry.invisible(self.targets[k])
 
         # Now each entry in old_list is a PARTIAL and entry.perm[k]
         # is a plausible CAUSE for hit y_t[k]
@@ -116,8 +146,15 @@ class PERMUTATION(mv1a.PERMUTATION):
         for i in xrange(len(self.key)):
             look_up[self.key[i]] = i
         for k in xrange(self.N_tar):
-            i = look_up[k] # Index of observation caused by target k
-            self.targets.append(best.targets[k].children[i])
+            i = look_up[k] # Index of observation caused by target k.
+            # If target[k] was invisible, look_up[k] = -1
+            try:
+                self.targets.append(best.targets[k].children[i])
+            except:
+                print 'self.key=',self.key,'\nlook_up=',look_up
+                print 'k=%d, i=%d.  Now try best.targets[%d].dump()'%(k,i,k)
+                best.targets[k].dump()
+                self.targets.append(best.targets[k].children[i])
 class MV3(mv2.MV2):
     """ A state consists of: Association; Locations; and Visibilities;
     (and the derivable N_FA), ie,
