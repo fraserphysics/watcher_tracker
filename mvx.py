@@ -1,6 +1,6 @@
 """
-mvx.py: All model variations in a single file.  I started this after
-writing mv3.py which imported mv2.py and mv1a.py.  I wanted more
+FILE: mvx.py  All model variations in a single file.  I started this
+after writing mv3.py which imported mv2.py and mv1a.py.  I wanted more
 coherence before starting on mv4 which allows a variable number of
 targets.
 
@@ -22,11 +22,15 @@ class TARGET:
                  m_t,      # History of hit indices used
                  mu_t,     # History of means
                  Sigma_t,  # History of variances
-                 R_t       # Most recent residual
+                 R_t,      # Most recent residual
+                 index=None
                  ):
-        global Target_Counter
-        self.index = Target_Counter
-        Target_Counter += 1
+        if isinstance(index,type(0)): # Check for int
+            self.index = index
+        else:
+            global Target_Counter
+            self.index = Target_Counter
+            Target_Counter += 1
         self.mod = mod
         self.m_t = m_t
         self.mu_t = mu_t
@@ -34,6 +38,8 @@ class TARGET:
         self.R_t = R_t
         self.children = None # List of targets at t+1 updated with
                              # plausible hits and this target
+    def New(self, *args,**kwargs):
+        return TARGET(*args,**kwargs)
     def dump(self):
         print 'Dump target: m_t=',self.m_t
         print '             index=%d, len(mu_t)=%d'%(self.index,len(self.mu_t))
@@ -87,7 +93,8 @@ class TARGET:
         Delta_R,mu_new,Sigma_new = self.utility(y)
         Sigma_L = self.Sigma_t + [Sigma_new]
         mu_L = self.mu_t + [mu_new]
-        return TARGET(self.mod,m_L,mu_L,Sigma_L,Delta_R)
+        return self.New(self.mod,m_L,mu_L,Sigma_L,Delta_R,
+                             index=self.index)
     def utility(self,y,R0=0.0):
         """ Calculates Delta_R, mu_new, and Sigma_new for both
         update() and distance().  This is the second half of Kalman
@@ -96,7 +103,7 @@ class TARGET:
         Delta_y = y - self.y_forecast    # Error of forecast observation
         Sigma_new = self.Sigma_next
         mu_new = self.mu_a + self.K*Delta_y
-        Delta_R = R0+float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y)/2
+        Delta_R = R0-float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y)/2
         return (Delta_R,mu_new,Sigma_new)
     def KF(self,
            y,        # The observation of the target at the current time
@@ -105,14 +112,10 @@ class TARGET:
         """ Create a new target with unique index, fresh m_t, mu_t,
         Sigma_t and R_t for the observation.  This is essentially
         Kalman filtering."""
-        global Target_Counter
         self.forecast()
-        self.index = Target_Counter
         r = self.update(y,m)
-        r.m_t,r.mu_t,r.Sigma_t = [r.m_t[-1]],[r.mu_t[-1]],[r.Sigma_t[-1]]
-        r.index = Target_Counter
-        Target_Counter += 1
-        return r
+        return self.New(self.mod,[r.m_t[-1]],[r.mu_t[-1]],
+                             [r.Sigma_t[-1]],r.R_t)
     def backtrack(self):
         T = len(self.mu_t)
         A = self.mod.A
@@ -126,14 +129,16 @@ class TARGET:
         return s_t
 
 class TARGET2(TARGET):
+    def New(self, *args,**kwargs):
+        return TARGET2(*args,**kwargs)
     def make_children(self,y_t,All_children):
         """  Include invisibility.
         """
-        TARGET.make_children(y_t,All_children)
+        TARGET.make_children(self,y_t,All_children)
         key = tuple(self.m_t + [-1])
         if not All_children.has_key(key):
-            All_children[key] = self.update(y,k)
-        self.children[k] = All_children[key]
+            All_children[key] = self.update(None,-1)
+        self.children[-1] = All_children[key]  # Child for invisible y
 
     def utility(self,y):
         """ Calculates Delta_R, mu_new, and Sigma_new for both
@@ -153,8 +158,9 @@ class TARGET2(TARGET):
             Sigma_new = self.Sigma_a
             mu_new = self.mu_a
             Delta_R -= self.mod.log_det_Sig_D/2
+            print 'TARGET2.utility(): v_old=%d, v_new=%d, Delta_R=%f'%(v_old,v_new,Delta_R)
             return (Delta_R,mu_new,Sigma_new)
-        return TARGET.utility(y,R0=Delta_R)
+        return TARGET.utility(self,y,R0=Delta_R)
 
 class CAUSE:
     def __init__(self,
@@ -439,9 +445,9 @@ class MV1:
         
         # Forward pass through time
         old_As = [partial]
-        successors = SUCCESSOR_DB()     # Just to make the while loop start
         for t in xrange(1,T):
-            child_targets = {} # Dict of all targets for time t
+            child_targets = {}          # Dict of all targets for time t
+            successors = SUCCESSOR_DB() # Just to make the while loop start
             while successors.length() is 0:
                 # For each old target, collect all plausibly
                 # associated hits and create a corresponding child
@@ -451,15 +457,21 @@ class MV1:
                 # Build u' lists for all possible successor
                 # associations at time t.  Put new_As in DB so many
                 # predecessors can find same successor
-                successors = SUCCESSOR_DB()    
+                successors = SUCCESSOR_DB()
                 for A in old_As:
                     A.forward(successors,Ys[t])
                 self.MaxD *= 2
-                if successors.length() is 0 and (self.MaxD<1e-6 or self.MaxD>1e6):
-                    raise RuntimeError,'No new associations in decode():\nt=%d, len(old_perms)=%d, len(child_targets)=%d len(Ys[t])=%d'%(t,len(old_perms), len(child_targets),len(Ys[t]))
+                if successors.length() is 0 and \
+                       (self.MaxD<1e-6 or self.MaxD>1e6):
+                    raise RuntimeError,"""
+No new associations in decode():
+t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
+successors.length()=%d
+"""%\
+                (t,len(old_As), len(child_targets),len(Ys[t]),self.MaxD,
+                 successors.length())
                 # End of while
             self.MaxD = max(self.MaxD/4,self.MaxD_limit)
-
             # For each association at time t, find the best predecessor
             # and the associated targets and collect them in old_As
             new_As = successors.maxes()
@@ -471,13 +483,14 @@ class MV1:
                     Rs.append(A.nu)
                 Rs.sort()
                 limit = Rs[-self.MaxP]
-                old_perms = []
+                old_As = []
                 for A in new_As:
                     if A.nu >= limit:
                         old_As.append(A)
             else:
                 old_As = new_As
-
+        # End of for loop over t
+        
         # Find the best last association
         R = scipy.zeros(len(old_As))
         for i in xrange(len(old_As)):
@@ -485,8 +498,6 @@ class MV1:
         A_best = old_As[R.argmax()]
         print 'nu_max=%f'%A_best.nu
 
-        for target in A_best.targets:
-            target.dump()
         # Backtrack to get trajectories
         tracks = [] # tracks[k][t] is the x vector for target_k at time t
         y_A = []    # y_A[t] is a dict.  y_A[t][k] gives the index of
@@ -498,35 +509,94 @@ class MV1:
             target = A_best.targets[k]
             tracks.append(target.backtrack())
             for t in xrange(T):
-                try:
-                    y_A[t][k] = target.m_t[t]
-                except:
-                    print 't=%d,  k=%d,  T=%d'%(t,k,T)
-                    target.dump()
-                    print 'y_A[t]= ',y_A[t]
-                    print 'target.m_t=',target.m_t
-                    print 'target.m_t[t]=',target.m_t[t]
-                    y_A[t][k] = target.m_t[t]
+                y_A[t][k] = target.m_t[t]
         return (tracks,y_A)
+                
+class MV2(MV1):
+    def __init__(self,PV_V=[[.9,.1],[.2,.8]],**kwargs):
+        MV1.__init__(self,**kwargs)
+        self.PV_V = scipy.matrix(PV_V)
+        self.log_det_Sig_D = scipy.linalg.det(self.Sigma_D)
+        self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
+    def decode(self,
+               Ys, # Observations. Ys[t][k] is the kth hit at time t
+               DTARGET=TARGET2,
+               DASSOCIATION=ASSOCIATION
+               ):
+        return MV1.decode(self,Ys,DTARGET=DTARGET, DASSOCIATION=DASSOCIATION)
+
+    
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        x_j = []
+        v_j = []
+        for j in xrange(self.N_tar):
+            x_j.append(util.normalS(self.mu_init,self.Sigma_init))
+            v_j.append(0) # Start with all trajectories visible
+
+        x_dim = self.mu_init.shape[1]
+        zero_x = scipy.matrix(scipy.zeros(x_dim))
+        y_dim = self.Sigma_O.shape[0]
+        zero_y = scipy.matrix(scipy.zeros(y_dim))
+        
+        obs = []
+        xs = []
+        vs = []
+        for t in xrange(T):
+            x_j_new = range(self.N_tar)
+            if t>0:
+                i = random.randint(0,self.N_perm-1)
+            else:
+                i = 0 # No shuffle for t=0
+            permute = util.index_to_permute(i,self.N_tar)
+            state_t = []
+            for j in xrange(self.N_tar):
+                pv = self.PV_V[v_j[j],0]
+                if pv > random.random() or t is 0:
+                    v_j[j] = 0
+                else:
+                    v_j[j] = 1
+                epsilon = util.normalS(zero_x,self.Sigma_D) # Dynamical noise
+                x_j_new[j] = self.A*x_j[j] + epsilon
+            obs_t = []
+            for j in xrange(self.N_tar):
+                if v_j[j] is not 0:
+                    continue
+                eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
+                obs_t.append(self.O * x_j[permute[j]] + eta)
+            obs.append(obs_t)
+            xs.append(x_j_new)
+            x_j = x_j_new
+        return obs,xs
     
 # Test code
 if __name__ == '__main__':
     import time
     random.seed(3)
     ts = time.time()
-    M = MV1(N_tar=4)
-    y,s = M.simulate(5)
-    d,tmp = M.decode(y)
-    print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
-    for t in xrange(len(y)):
-        print 't=%d    y         s           d'%t
-        for k in xrange(len(y[t])):
-            print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
-            for f in (s[t][k],d[k][t]):
-                print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
-            print ' '
+    for M in (MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),MV1(N_tar=4)):
+    #for M in (MV1(N_tar=4),MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]])):
+
+        print 'before simulate'
+        y,s = M.simulate(5)
+        print 'before decode'
+        d,tmp = M.decode(y)
+        print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
+        for t in xrange(len(s)):
+            print 't=%d    y         s           d'%t
+            for k in xrange(len(s[t])):
+                try:
+                    print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
+                except:
+                    print ' k=%d        '%k,
+                for f in (s[t][k],d[k][t]):
+                    print '(%4.2f, %4.2f)  '%(f[0,0],f[1,0]),
+                print ' '
+        
+        print '\n'
     print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)+\
-          'Takes 0.58 seconds on my AMD Sempron 3000'
+          'Takes 0.30 seconds on my AMD Sempron 3000'
 
 #---------------
 # Local Variables:

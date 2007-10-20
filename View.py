@@ -1,4 +1,4 @@
-import wx, mv1a, mv2, mv3, demo, random, scipy, time
+import wx, mv1a, mv2, mv3, mvx, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
 matplotlib.interactive(True)
@@ -200,6 +200,10 @@ class view_mv1_frame(wx.Frame):
         global Model_Class
         Model_Class = mv3.MV3
         
+    def MvxClicked(self, event):
+        global Model_Class
+        Model_Class = mvx.MV1
+        
     def OnSimClicked(self, event):
         global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Model_Class
 
@@ -321,6 +325,9 @@ class ControlPanel(wx.Panel):
         mv3Button = wx.Button(parent=self, id=-1, label='MV3')
         self.Bind(wx.EVT_BUTTON, parent.Mv3Clicked, mv3Button)
 
+        mvxButton = wx.Button(parent=self, id=-1, label='MVx')
+        self.Bind(wx.EVT_BUTTON, parent.MvxClicked, mvxButton)
+
         sim_frame = wx.Panel(self,-1)
         
         simButtonA = wx.Button(parent=sim_frame, id=-1, label='Simulate')
@@ -374,7 +381,7 @@ class ControlPanel(wx.Panel):
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
-        layout(self,[saveButton,mv1Button,mv2Button,mv3Button,sim_frame,
+        layout(self,[saveButton,mv1Button,mv2Button,mv3Button,mvxButton,sim_frame,
                      track_frame])
 
 class view_mv1_app(wx.App):
