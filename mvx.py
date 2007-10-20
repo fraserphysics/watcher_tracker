@@ -36,7 +36,7 @@ class TARGET:
         self.mu_t = mu_t
         self.Sigma_t = Sigma_t
         self.R_t = R_t
-        self.children = None # List of targets at t+1 updated with
+        self.children = None # Dict of targets at t+1 updated with
                              # plausible hits and this target
     def New(self, *args,**kwargs):
         return TARGET(*args,**kwargs)
@@ -132,8 +132,7 @@ class TARGET2(TARGET):
     def New(self, *args,**kwargs):
         return TARGET2(*args,**kwargs)
     def make_children(self,y_t,All_children):
-        """  Include invisibility.
-        """
+        """  Include invisibility."""
         TARGET.make_children(self,y_t,All_children)
         key = tuple(self.m_t + [-1])
         if not All_children.has_key(key):
@@ -158,7 +157,6 @@ class TARGET2(TARGET):
             Sigma_new = self.Sigma_a
             mu_new = self.mu_a
             Delta_R -= self.mod.log_det_Sig_D/2
-            print 'TARGET2.utility(): v_old=%d, v_new=%d, Delta_R=%f'%(v_old,v_new,Delta_R)
             return (Delta_R,mu_new,Sigma_new)
         return TARGET.utility(self,y,R0=Delta_R)
 
@@ -191,7 +189,7 @@ class SUCCESSOR_DB:
         rv = []
         for suc in self.successors.values():
             rv.append(suc['associations'][util.argmax(suc['u_primes'])])
-        return rv
+        return rv     
 class ASSOCIATION:
     """This is the discrete part of the state.  It gives an
     explanation for how the collection of observations at time t were
@@ -207,32 +205,32 @@ class ASSOCIATION:
 
      make_children:  Call target.make_children() for each target
     """
-    def __init__(self,
-                 parent=None, # A partial association
-                 cause=None,  # CAUSE of next hit in y_t
-                 nu=None      # nu from parent association/permutation
-                 ):
-        if parent is None and cause is None:
-            self.par_tars = {}  # Dict of parent targets
-            self.targets = []   # List of child targets
-            self.h2c = []       # Map from hits to causes.  Will become key
-            self.nu = nu        # Utility of best path ending here
-            return
-        if not (parent and cause):
-            raise RuntimeError,\
-                  "parent and cause must both be None or both be defined"
-        self.par_tars = parent.par_tars.copy()
-        self.par_tars[cause.index] = None # Prevent reuse of target
-        self.targets = parent.targets + [cause.target]
-        self.h2c = parent.h2c + [cause.index]
-        self.nu = parent.nu + cause.R
+    def __init__(self,nu):
+        self.nu = nu        # Utility of best path ending here
+        self.par_tars = {}  # Dict of parent targets
+        self.targets = []   # List of child targets
+        self.h2c = []       # Map from hits to causes.  Will become key
+        self.extra_forward = [] # Stub for extra methods to use in forward
+        self.type='ASSOCIATION'
+    def New(self, *args,**kwargs):
+        return ASSOCIATION(*args,**kwargs)
+    def Fork(self, # Create a child that extendsm self by cause
+            cause,  # CAUSE of next hit in y_t
+            ):
+        CA = self.New(self.nu + cause.R)
+        CA.par_tars = self.par_tars.copy()
+        CA.par_tars[cause.index] = None # Prevent reuse of target
+        CA.targets = self.targets + [cause.target]
+        CA.h2c = self.h2c + [cause.index]
+        return CA
     
     def dump(self):
-        print 'dumping a association. N_tar=%d, nu=%d, len(targets)=%d'%\
-              (self.N_tar,self.nu,len(self.targets))
-        print 'hits -> targets map:', self.key
+        print 'dumping an association of type',self.type,\
+  'nu=%f, len(targets)=%d'%(self.nu,len(self.targets))
+        print 'hits -> causes map:', self.h2c, 'targets:'
         for target in self.targets:
             target.dump()
+        print '\n'
     
     def make_children(self, # self is a ASSOCIATION
                       y_t,  # All observations at time t
@@ -260,7 +258,7 @@ class ASSOCIATION:
                     # If has_key(k) then child is plausible cause
                     causes[k].append(CAUSE(target.children[k]))
         # Initialize list of partial associations.
-        old_list = [ASSOCIATION(nu=self.nu)]
+        old_list = [self.New(self.nu)]
         # Make list of plausible associations.  At level k, each
         # association explains the source of each y_t[i] for i<k.
         for k in xrange(len(y_t)):
@@ -269,8 +267,12 @@ class ASSOCIATION:
                 for cause in causes[k]:
                     # Don't use same target index more than once
                     if not partial.par_tars.has_key(cause.index):
-                        new_list.append(ASSOCIATION(partial,cause))
+                        new_list.append(partial.Fork(cause))
             old_list = new_list
+
+        for partial in old_list:
+            for method in self.extra_forward:
+                method(partial,y_t)
 
         # Now each entry in old_list is a complete association and
         # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
@@ -280,7 +282,28 @@ class ASSOCIATION:
         # key.
         for association in old_list:
             successors.enter(association)
-        
+class ASSOCIATION2(ASSOCIATION):
+    """See ASSOCIATION above.  This differs by adding extra_forward
+    method invisibles()
+    """
+    def __init__(self,*args,**kwargs):
+        ASSOCIATION.__init__(self,*args,**kwargs)
+        # Extra method to use in forward
+        self.extra_forward = [self.invisibles]
+        self.type='ASSOCIATION2'
+    def New(self, *args,**kwargs):
+        return ASSOCIATION2(*args,**kwargs)
+    def invisibles(self,partial,y):
+        for target in self.targets:
+            if not partial.par_tars.has_key(target.index):
+                try:
+                    child = target.children[-1]
+                except:
+                    raise RuntimeError,\
+        'There is no invisible child.  Perhaps MaxD is too ambitious.'
+                partial.targets.append(child)
+                partial.nu += child.R_t
+
 class ASSOCIATION3(ASSOCIATION):
     """
     New Methods:
@@ -438,10 +461,10 @@ class MV1:
         # Initialize by making a target and cause for each of the hits
         # at t=0 and collecting them in a single association.
         target_0 = DTARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0)
-        partial = ASSOCIATION(nu=0.0)
+        partial = DASSOCIATION(0.0)
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
-            partial = ASSOCIATION(partial,CAUSE(target_k))
+            partial = partial.Fork(CAUSE(target_k))
         
         # Forward pass through time
         old_As = [partial]
@@ -467,9 +490,8 @@ class MV1:
 No new associations in decode():
 t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
 successors.length()=%d
-"""%\
-                (t,len(old_As), len(child_targets),len(Ys[t]),self.MaxD,
-                 successors.length())
+"""%(t,len(old_As), len(child_targets),len(Ys[t]),self.MaxD,
+     successors.length())
                 # End of while
             self.MaxD = max(self.MaxD/4,self.MaxD_limit)
             # For each association at time t, find the best predecessor
@@ -521,7 +543,7 @@ class MV2(MV1):
     def decode(self,
                Ys, # Observations. Ys[t][k] is the kth hit at time t
                DTARGET=TARGET2,
-               DASSOCIATION=ASSOCIATION
+               DASSOCIATION=ASSOCIATION2
                ):
         return MV1.decode(self,Ys,DTARGET=DTARGET, DASSOCIATION=DASSOCIATION)
 

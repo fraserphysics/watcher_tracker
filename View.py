@@ -202,7 +202,7 @@ class view_mv1_frame(wx.Frame):
         
     def MvxClicked(self, event):
         global Model_Class
-        Model_Class = mvx.MV1
+        Model_Class = mvx.MV2
         
     def OnSimClicked(self, event):
         global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Model_Class
