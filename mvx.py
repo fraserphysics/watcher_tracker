@@ -103,7 +103,10 @@ class TARGET:
         Delta_y = y - self.y_forecast    # Error of forecast observation
         Sigma_new = self.Sigma_next
         mu_new = self.mu_a + self.K*Delta_y
-        Delta_R = R0-float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y)/2
+        Delta_R = R0-float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
+                           +self.mod.log_det_Sig_O)/2
+        # Term log_det_Sig_O makes total nu match old mv2.py but not
+        # match for mv1a.py.
         return (Delta_R,mu_new,Sigma_new)
     def KF(self,
            y,        # The observation of the target at the current time
@@ -152,11 +155,10 @@ class TARGET2(TARGET):
             v_new = 1 # This time the target is invisible
         else:
             v_new = 0
-        Delta_R = math.log(self.mod.PV_V[v_old,v_new])
+        Delta_R = math.log(self.mod.PV_V[v_old,v_new])-self.mod.log_det_Sig_D/2
         if y is None:
             Sigma_new = self.Sigma_a
             mu_new = self.mu_a
-            Delta_R -= self.mod.log_det_Sig_D/2
             return (Delta_R,mu_new,Sigma_new)
         return TARGET.utility(self,y,R0=Delta_R)
 
