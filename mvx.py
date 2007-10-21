@@ -135,7 +135,8 @@ class TARGET2(TARGET):
     def New(self, *args,**kwargs):
         return TARGET2(*args,**kwargs)
     def make_children(self,y_t,All_children):
-        """  Include invisibility."""
+        """Add a child for invisible y to children from
+        TARGET.make_children()."""
         TARGET.make_children(self,y_t,All_children)
         key = tuple(self.m_t + [-1])
         if not All_children.has_key(key):
@@ -143,9 +144,7 @@ class TARGET2(TARGET):
         self.children[-1] = All_children[key]  # Child for invisible y
 
     def utility(self,y):
-        """ Calculates Delta_R, mu_new, and Sigma_new for both
-        update() and distance().  This is the second half of Kalman
-        filtering step.
+        """Include log_prob factors for Sig_D and visibility transitions.
         """
         if self.m_t[-1] is -1:
             v_old = 1
@@ -164,11 +163,21 @@ class TARGET2(TARGET):
 
 class CAUSE:
     def __init__(self,
-                 target=None  # Child target that caused y
+                 target  # Child target that caused y
                  ):
+        self.type = 'target'
         self.index = target.index # Time invariant index of target
         self.target= target
         self.R = target.R_t
+class CAUSE_FA(CAUSE):
+    def __init__(self,
+                 y,        # To calculate R for FA
+                 Sigma_I   # To calculate R for FA
+                 ):
+        self.type = 'FA'
+        self.index = -1
+        self.R = -float(y.T*Sigma_I*y/2)
+        #self.R = -10.0
 class SUCCESSOR_DB:
     """
     """
@@ -207,29 +216,35 @@ class ASSOCIATION:
 
      make_children:  Call target.make_children() for each target
     """
-    def __init__(self,nu):
+    def __init__(self,nu,mod):
         self.nu = nu        # Utility of best path ending here
-        self.par_tars = {}  # Dict of parent targets
+        self.mod = mod      # Model, to convey parameters
+        self.tar_dict = {}  # Dict of targets
         self.targets = []   # List of child targets
         self.h2c = []       # Map from hits to causes.  Will become key
         self.extra_forward = [] # Stub for extra methods to use in forward
+        self.cause_checks = [self.check_targets]
         self.type='ASSOCIATION'
     def New(self, *args,**kwargs):
         return ASSOCIATION(*args,**kwargs)
-    def Fork(self, # Create a child that extendsm self by cause
+    def Fork(self, # Create a child that extends self by cause
             cause,  # CAUSE of next hit in y_t
             ):
-        CA = self.New(self.nu + cause.R)
-        CA.par_tars = self.par_tars.copy()
-        CA.par_tars[cause.index] = None # Prevent reuse of target
+        CA = self.New(self.nu + cause.R,self.mod)
+        CA.tar_dict = self.tar_dict.copy()
+        CA.tar_dict[cause.index] = None # Prevent reuse of target
         CA.targets = self.targets + [cause.target]
         CA.h2c = self.h2c + [cause.index]
         return CA
-    
+    def check_targets(self,k,causes,y):
+        for target in self.targets:
+            if target.children.has_key(k):
+                # If has_key(k) then child is plausible cause
+                causes.append(CAUSE(target.children[k]))    
     def dump(self):
-        print 'dumping an association of type',self.type,\
-  'nu=%f, len(targets)=%d'%(self.nu,len(self.targets))
-        print 'hits -> causes map:', self.h2c, 'targets:'
+        print 'dumping an association of type',self.type,':'
+        print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
+        print 'hits -> causes map=', self.h2c
         for target in self.targets:
             target.dump()
         print '\n'
@@ -240,7 +255,6 @@ class ASSOCIATION:
                       ):
         for target in self.targets:
             target.make_children(y_t,cousins)
-                
     def forward(self,
                 successors,   # A DB of associations for the next time step
                 y_t
@@ -255,12 +269,10 @@ class ASSOCIATION:
         causes = []
         for k in xrange(len(y_t)):
             causes.append([])
-            for target in self.targets:
-                if target.children.has_key(k):
-                    # If has_key(k) then child is plausible cause
-                    causes[k].append(CAUSE(target.children[k]))
+            for check in self.cause_checks:
+                check(k,causes[k],y_t[k])
         # Initialize list of partial associations.
-        old_list = [self.New(self.nu)]
+        old_list = [self.New(self.nu,self.mod)]
         # Make list of plausible associations.  At level k, each
         # association explains the source of each y_t[i] for i<k.
         for k in xrange(len(y_t)):
@@ -268,14 +280,15 @@ class ASSOCIATION:
             for partial in old_list:
                 for cause in causes[k]:
                     # Don't use same target index more than once
-                    if not partial.par_tars.has_key(cause.index):
+                    # tar_dict has only targets, not FAs
+                    if not partial.tar_dict.has_key(cause.index):
                         new_list.append(partial.Fork(cause))
             old_list = new_list
-
+        # For each association, do extra work work required for
+        # nonstandard hit/target combinations
         for partial in old_list:
             for method in self.extra_forward:
                 method(partial,y_t)
-
         # Now each entry in old_list is a complete association and
         # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
 
@@ -286,7 +299,9 @@ class ASSOCIATION:
             successors.enter(association)
 class ASSOCIATION2(ASSOCIATION):
     """See ASSOCIATION above.  This differs by adding extra_forward
-    method invisibles()
+    method invisibles() that allows and accounts for targets that move
+    from an association at time t-1 to an association at time t
+    without being visible at time t.
     """
     def __init__(self,*args,**kwargs):
         ASSOCIATION.__init__(self,*args,**kwargs)
@@ -297,7 +312,7 @@ class ASSOCIATION2(ASSOCIATION):
         return ASSOCIATION2(*args,**kwargs)
     def invisibles(self,partial,y):
         for target in self.targets:
-            if not partial.par_tars.has_key(target.index):
+            if not partial.tar_dict.has_key(target.index):
                 try:
                     child = target.children[-1]
                 except:
@@ -306,71 +321,40 @@ class ASSOCIATION2(ASSOCIATION):
                 partial.targets.append(child)
                 partial.nu += child.R_t
 
-class ASSOCIATION3(ASSOCIATION):
+class ASSOCIATION3(ASSOCIATION2):
+    """ Add the possibility of false alarms.
     """
-    New Methods:
-
-     forward: Create plausible sucessor associations
-    """
-
-    def forward(self,
-                new_perms,   # A dict of associations for the next time step
-                y_t          # A list of hits at the next time step
-                ):
-        """ For each plausible successor S of the ASSOCIATION self,
-        append the following pair of values to S.predecessor: 1. A
-        pointer back to self and 2. The value of u'(self,S,t+1).
-        """
-        # Fetch values for calculating the utility of false alarms
-        Sigma_FA_I=self.targets[0].mod.Sigma_FA_I
-        norm = self.targets[0].mod.log_FA_norm
-        Lambda = self.targets[0].mod.Lambda
-        
-        # For each observation, list the plausible causes
-        causes = []
-        for k in xrange(len(y_t)):
-            # False alarm is plausible
-            causes.append([CAUSE('FA',Sigma_I=Sigma_FA_I,y=y_t[k])])
-            for i in xrange(len(self.targets)):
-                if self.targets[i].children.has_key(k):
-                    # If has_key(k) then child is plausible cause
-                    child = self.targets[i].children[k]
-                    causes[k].append(CAUSE('target',child,i))
-        
-        # Initialize list of partial associations.
-        old_list = [PARTIAL(nu=self.nu)]
-        # Make list of plausible associations.  At level k, each
-        # association explains the source of each y_t[i] for i<k.
-        for k in xrange(len(y_t)):
-            new_list = []
-            for partial in old_list:
-                for cause in causes[k]:
-                    # Don't use same self.targets[index] more than once
-                    if not partial.dup_check.has_key(cause.index):
-                        new_list.append(PARTIAL(partial,cause))
-            old_list = new_list
-
-        # For each plausible association, account for the invisible
-        # targets and the number of false alarms
-        for entry in old_list:
-            N_FA = len(y_t) - len(entry.dup_check)
-            entry.u_prime += N_FA*norm + math.log(
-                Lambda**N_FA/scipy.factorial(N_FA) )
-            for k in xrange(len(self.targets)):
-                if not entry.dup_check.has_key(k):
-                    entry.invisible(self.targets[k])
-
-        # Now each entry in old_list is a PARTIAL and entry.h2c[k]
-        # is a plausible CAUSE for hit y_t[k]
-
-        # Initialize successors if necessary and set their predecessors
-        for entry in old_list:
-            key = tuple(entry.h2c)  # Key for successor
-            if not new_perms.has_key(key):
-                new_perms[key] = ASSOCIATION(self.N_tar,key)
-            successor = new_perms[key]
-            successor.predecessor_perm.append(self)
-            successor.predecessor_u_prime.append(entry.u_prime)
+    def __init__(self,*args,**kwargs):
+        ASSOCIATION2.__init__(self,*args,**kwargs)
+        self.cause_checks.append(self.check_FAs)
+        self.extra_forward.append(self.count_FAs)
+        self.type='ASSOCIATION3'
+        self.N_FA=0              # Count of false alarms
+    def New(self, *args,**kwargs):
+        return ASSOCIATION3(*args,**kwargs)
+    def Fork(self, # Create a child that extends self by cause
+            cause,  # CAUSE of next hit in y_t
+            ):
+        CA = self.New(self.nu + cause.R,self.mod)
+        CA.tar_dict = self.tar_dict.copy()
+        CA.h2c = self.h2c + [cause.index]
+        CA.N_FA = self.N_FA
+        if cause.type is 'target':
+            CA.tar_dict[cause.index] = None # Prevent reuse of target
+            CA.targets = self.targets + [cause.target]
+            return CA
+        if cause.type is 'FA':
+            CA.targets = self.targets
+            CA.N_FA += 1
+            return CA
+        raise RuntimeError,"Cause type %s not known"%cause.type
+    def check_FAs(self,k,causes,y):
+        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I))
+    def count_FAs(self,partial,y_t):
+        N_FA = partial.N_FA
+        if N_FA > 0:
+            partial.nu += N_FA*self.mod.log_FA_norm + math.log(
+            self.mod.Lambda**N_FA/scipy.factorial(N_FA) )
 class MV1:
     """A simple model of observed motion with the following groups of
     methods:
@@ -402,6 +386,8 @@ class MV1:
         self.Sigma_D = scipy.matrix(Sigma_D)
         self.O = scipy.matrix(O)
         self.Sigma_O = scipy.matrix(Sigma_O)
+        self.log_det_Sig_D = scipy.linalg.det(self.Sigma_D)
+        self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
         self.N_perm = int(scipy.factorial(N_tar))
         if mu_init == None:
             self.mu_init = scipy.matrix(scipy.zeros(dim)).T
@@ -463,7 +449,7 @@ class MV1:
         # Initialize by making a target and cause for each of the hits
         # at t=0 and collecting them in a single association.
         target_0 = DTARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0)
-        partial = DASSOCIATION(0.0)
+        partial = DASSOCIATION(0.0,self)
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
             partial = partial.Fork(CAUSE(target_k))
@@ -540,8 +526,6 @@ class MV2(MV1):
     def __init__(self,PV_V=[[.9,.1],[.2,.8]],**kwargs):
         MV1.__init__(self,**kwargs)
         self.PV_V = scipy.matrix(PV_V)
-        self.log_det_Sig_D = scipy.linalg.det(self.Sigma_D)
-        self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
     def decode(self,
                Ys, # Observations. Ys[t][k] is the kth hit at time t
                DTARGET=TARGET2,
@@ -593,14 +577,90 @@ class MV2(MV1):
             xs.append(x_j_new)
             x_j = x_j_new
         return obs,xs
+class MV3(MV2):
+    """ A state consists of: Association; Locations; and Visibilities;
+    (and the derivable N_FA), ie,
+
+    s = (M,X,V,N_FA)
     
+    """
+    def __init__(self,Lambda=0.3,**kwargs):
+        MV2.__init__(self,**kwargs)
+        self.Lambda = Lambda # Average number of false alarms per frame
+        Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
+        self.Sigma_FA = Sigma_FA
+        self.log_FA_norm = - math.log(scipy.linalg.det(Sigma_FA))/2
+        self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
+    
+    def decode(self,
+               Ys, # Observations. Ys[t][k] is the kth hit at time t
+               DASSOCIATION=ASSOCIATION3
+               ):
+        return MV2.decode(self,Ys,DASSOCIATION=DASSOCIATION)
+    
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        #Start with N_tar visible targets
+        x_j = []
+        v_j = []
+        for j in xrange(self.N_tar):
+            x_j.append(util.normalS(self.mu_init,self.Sigma_init))
+            v_j.append(0)
+        i_t = 0   # First association: No shuffle
+        N_FA = 0  # No false alarms for t=0
+
+        # Set up useful parameters
+        x_dim = self.mu_init.shape[1]
+        zero_x = scipy.matrix(scipy.zeros(x_dim))
+        y_dim = self.Sigma_O.shape[0]
+        zero_y = scipy.matrix(scipy.zeros(y_dim))
+
+        # Lists for results
+        obs = []
+        xs = []
+        vs = []
+        for t in xrange(T):
+            xs.append(x_j)        # Save X[t] part of state for return
+            # Generate observations Y[t]
+            obs_t = []
+            permute = util.index_to_permute(i_t,self.N_tar)
+            for k in xrange(N_FA):
+                obs_t.append(util.normalS(zero_y,self.Sigma_FA))
+            for j in xrange(self.N_tar):
+                if v_j[j] is not 0:
+                    continue
+                eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
+                obs_t.append(self.O * x_j[permute[j]] + eta)
+            obs.append(obs_t)     # Save Y[t] for return
+            # Generate next state
+            i_t = random.randint(0,self.N_perm-1)
+            x_j_new = self.N_tar*[None]
+            for j in xrange(self.N_tar):
+                # Make a new x for each target
+                epsilon = util.normalS(zero_x,self.Sigma_D) # Dynamical noise
+                x_j_new[j] = self.A*x_j[j] + epsilon
+                # Make a new visibility for each target
+                pv = self.PV_V[v_j[j],0]
+                if pv > random.random() or t is 0:
+                    v_j[j] = 0
+                else:
+                    v_j[j] = 1
+            x_j = x_j_new
+            # Select N_FA for the next t
+            N_FA = scipy.random.poisson(self.Lambda)
+        return obs,xs
+
 # Test code
 if __name__ == '__main__':
     import time
     random.seed(3)
     ts = time.time()
-    for M in (MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),MV1(N_tar=4)):
-    #for M in (MV1(N_tar=4),MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]])):
+    for M in (
+        MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),
+        MV1(N_tar=4),
+        MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]])
+        ):
 
         print 'before simulate'
         y,s = M.simulate(5)
