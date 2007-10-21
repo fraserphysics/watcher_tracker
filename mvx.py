@@ -132,6 +132,10 @@ class TARGET:
         return s_t
 
 class TARGET2(TARGET):
+    """ Variation on TARGET with visibility transitions.
+    """
+    def __init__(self,*args,**kwargs):
+        TARGET.__init__(self,*args,**kwargs)
     def New(self, *args,**kwargs):
         return TARGET2(*args,**kwargs)
     def make_children(self,y_t,All_children):
@@ -177,7 +181,6 @@ class CAUSE_FA(CAUSE):
         self.type = 'FA'
         self.index = -1
         self.R = -float(y.T*Sigma_I*y/2)
-        #self.R = -10.0
 class SUCCESSOR_DB:
     """
     """
@@ -225,6 +228,7 @@ class ASSOCIATION:
         self.extra_forward = [] # Stub for extra methods to use in forward
         self.cause_checks = [self.check_targets]
         self.type='ASSOCIATION'
+        self.N_FA=0          # Count of false alarms for ASSOCIATION3
     def New(self, *args,**kwargs):
         return ASSOCIATION(*args,**kwargs)
     def Fork(self, # Create a child that extends self by cause
@@ -232,15 +236,39 @@ class ASSOCIATION:
             ):
         CA = self.New(self.nu + cause.R,self.mod)
         CA.tar_dict = self.tar_dict.copy()
-        CA.tar_dict[cause.index] = None # Prevent reuse of target
-        CA.targets = self.targets + [cause.target]
         CA.h2c = self.h2c + [cause.index]
-        return CA
+        CA.N_FA = self.N_FA
+        if cause.type is 'target':
+            CA.tar_dict[cause.index] = None # Prevent reuse of target
+            CA.targets = self.targets + [cause.target]
+            return CA
+        if cause.type is 'FA':
+            CA.targets = self.targets
+            CA.N_FA += 1
+            return CA
+        raise RuntimeError,"Cause type %s not known"%cause.type
     def check_targets(self,k,causes,y):
         for target in self.targets:
             if target.children.has_key(k):
                 # If has_key(k) then child is plausible cause
-                causes.append(CAUSE(target.children[k]))    
+                causes.append(CAUSE(target.children[k]))
+    def invisibles(self,partial,y):
+        for target in self.targets:
+            if not partial.tar_dict.has_key(target.index):
+                try:
+                    child = target.children[-1]
+                except:
+                    raise RuntimeError,\
+        'There is no invisible child.  Perhaps MaxD is too ambitious.'
+                partial.targets.append(child)
+                partial.nu += child.R_t 
+    def check_FAs(self,k,causes,y):
+        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I))
+    def count_FAs(self,partial,y_t):
+        N_FA = partial.N_FA
+        if N_FA > 0:
+            partial.nu += N_FA*self.mod.log_FA_norm + math.log(
+            self.mod.Lambda**N_FA/scipy.factorial(N_FA) )   
     def dump(self):
         print 'dumping an association of type',self.type,':'
         print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
@@ -310,51 +338,17 @@ class ASSOCIATION2(ASSOCIATION):
         self.type='ASSOCIATION2'
     def New(self, *args,**kwargs):
         return ASSOCIATION2(*args,**kwargs)
-    def invisibles(self,partial,y):
-        for target in self.targets:
-            if not partial.tar_dict.has_key(target.index):
-                try:
-                    child = target.children[-1]
-                except:
-                    raise RuntimeError,\
-        'There is no invisible child.  Perhaps MaxD is too ambitious.'
-                partial.targets.append(child)
-                partial.nu += child.R_t
 
-class ASSOCIATION3(ASSOCIATION2):
+class ASSOCIATION3(ASSOCIATION):
     """ Add the possibility of false alarms.
     """
     def __init__(self,*args,**kwargs):
-        ASSOCIATION2.__init__(self,*args,**kwargs)
-        self.cause_checks.append(self.check_FAs)
-        self.extra_forward.append(self.count_FAs)
+        ASSOCIATION.__init__(self,*args,**kwargs)
+        self.cause_checks = [self.check_targets,self.check_FAs]
+        self.extra_forward = [self.invisibles,self.count_FAs]
         self.type='ASSOCIATION3'
-        self.N_FA=0              # Count of false alarms
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
-    def Fork(self, # Create a child that extends self by cause
-            cause,  # CAUSE of next hit in y_t
-            ):
-        CA = self.New(self.nu + cause.R,self.mod)
-        CA.tar_dict = self.tar_dict.copy()
-        CA.h2c = self.h2c + [cause.index]
-        CA.N_FA = self.N_FA
-        if cause.type is 'target':
-            CA.tar_dict[cause.index] = None # Prevent reuse of target
-            CA.targets = self.targets + [cause.target]
-            return CA
-        if cause.type is 'FA':
-            CA.targets = self.targets
-            CA.N_FA += 1
-            return CA
-        raise RuntimeError,"Cause type %s not known"%cause.type
-    def check_FAs(self,k,causes,y):
-        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I))
-    def count_FAs(self,partial,y_t):
-        N_FA = partial.N_FA
-        if N_FA > 0:
-            partial.nu += N_FA*self.mod.log_FA_norm + math.log(
-            self.mod.Lambda**N_FA/scipy.factorial(N_FA) )
 class MV1:
     """A simple model of observed motion with the following groups of
     methods:
