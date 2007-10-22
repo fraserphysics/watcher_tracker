@@ -10,7 +10,7 @@ This file will use maps from observations to causes for all model
 versions.
 """
 import numpy, scipy, scipy.linalg, random, math, util
-
+Invisible_Lifetime = 10
 Target_Counter = 0
 class TARGET:
     """A TARGET is a possible moving target, eg, a car.  Its values
@@ -23,6 +23,7 @@ class TARGET:
                  mu_t,     # History of means
                  Sigma_t,  # History of variances
                  R_t,      # Most recent residual
+                 y,        # Useful in subclasses
                  index=None
                  ):
         if isinstance(index,type(0)): # Check for int
@@ -41,10 +42,10 @@ class TARGET:
     def New(self, *args,**kwargs):
         return TARGET(*args,**kwargs)
     def dump(self):
-        print 'Dump target: m_t=',self.m_t
+        print '\nDump target: m_t=',self.m_t
         print '             index=%d, len(mu_t)=%d'%(self.index,len(self.mu_t))
         if self.children is not None:
-            print'  len(self.children)=%d\n'%len(self.children), self.children
+            print'  len(self.children)=%d'%len(self.children), self.children
     def make_children(self,        # self is a TARGET
                       y_t,         # list of hits at time t
                       All_children # Dict of children of all permutations
@@ -93,7 +94,7 @@ class TARGET:
         Delta_R,mu_new,Sigma_new = self.utility(y)
         Sigma_L = self.Sigma_t + [Sigma_new]
         mu_L = self.mu_t + [mu_new]
-        return self.New(self.mod,m_L,mu_L,Sigma_L,Delta_R,
+        return self.New(self.mod,m_L,mu_L,Sigma_L,Delta_R,y,
                              index=self.index)
     def utility(self,y,R0=0.0):
         """ Calculates Delta_R, mu_new, and Sigma_new for both
@@ -118,7 +119,7 @@ class TARGET:
         self.forecast()
         r = self.update(y,m)
         return self.New(self.mod,[r.m_t[-1]],[r.mu_t[-1]],
-                             [r.Sigma_t[-1]],r.R_t)
+                             [r.Sigma_t[-1]],r.R_t,y)
     def backtrack(self):
         T = len(self.mu_t)
         A = self.mod.A
@@ -136,8 +137,17 @@ class TARGET2(TARGET):
     """
     def __init__(self,*args,**kwargs):
         TARGET.__init__(self,*args,**kwargs)
+        self.invisible_count=0
     def New(self, *args,**kwargs):
-        return TARGET2(*args,**kwargs)
+        if args[-1] is None: # y is None, ie invisible
+            rv = TARGET2(*args,**kwargs)
+            rv.invisible_count = self.invisible_count + 1
+            return rv
+        else:
+            return TARGET2(*args,**kwargs)
+    def dump(self):
+        TARGET.dump(self)
+        print '   invisible_count=%d'%self.invisible_count
     def make_children(self,y_t,All_children):
         """Add a child for invisible y to children from
         TARGET.make_children()."""
@@ -165,6 +175,14 @@ class TARGET2(TARGET):
             return (Delta_R,mu_new,Sigma_new)
         return TARGET.utility(self,y,R0=Delta_R)
 
+class TARGET4(TARGET2):
+    """ Variation on TARGET2 that makes no children if invisible_count too big.
+    """
+    def New(self, *args,**kwargs):
+        return TARGET4(*args,**kwargs)
+    def make_children(self,y_t,All_children):
+        if self.invisible_count < Invisible_Lifetime: #FixMe:
+            TARGET2.make_children(self,y_t,All_children)
 class CAUSE:
     def __init__(self,
                  target  # Child target that caused y
@@ -247,12 +265,28 @@ class ASSOCIATION:
             CA.N_FA += 1
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
-    def check_targets(self,k,causes,y):
+    def check_targets(self,k,causes,y,target_0):
+        """ A check in list of cause_checks called by forward()
+        """
         for target in self.targets:
             if target.children.has_key(k):
                 # If has_key(k) then child is plausible cause
                 causes.append(CAUSE(target.children[k]))
-    def invisibles(self,partial,y):
+    def check_FAs(self,k,causes,y,target_0):
+        """ A check in list of cause_checks called by forward().
+        Propose that cause is false alarm
+        """
+        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I))
+    def check_news(self,k,causes,y,target_0):
+        """ A check in list of cause_checks called by forward().
+        Propose that cause is false alarm or new target
+        """
+        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I)) # False alarm
+        causes.append(CAUSE(target_0.KF(y,k)))  # New target
+    def invisibles(self,partial):
+        """ A method in extra_forward called by forward().  Put
+        invisible targets in new association.
+        """
         for target in self.targets:
             if not partial.tar_dict.has_key(target.index):
                 try:
@@ -262,13 +296,33 @@ class ASSOCIATION:
         'There is no invisible child.  Perhaps MaxD is too ambitious.'
                 partial.targets.append(child)
                 partial.nu += child.R_t 
-    def check_FAs(self,k,causes,y):
-        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I))
-    def count_FAs(self,partial,y_t):
+    def count_FAs(self,partial):
+        """ A method in extra_forward called by forward().  Calculate
+        the utility for the number of false alarms and add that
+        utility to partial.nu.
+        """
         N_FA = partial.N_FA
         if N_FA > 0:
             partial.nu += N_FA*self.mod.log_FA_norm + math.log(
-            self.mod.Lambda**N_FA/scipy.factorial(N_FA) )   
+            self.mod.Lambda_FA**N_FA/scipy.factorial(N_FA) )
+    def extra_news(self,partial):
+        """ A method in extra_forward called by forward().  Put
+        invisible targets in new association, and apply creation
+        penalty to nu for newly created targets.
+        """ 
+        for target in self.targets:
+            if not partial.tar_dict.has_key(target.index) and \
+                   target.children.has_key(-1):
+                child = target.children[-1]
+                partial.targets.append(child)
+                partial.nu += child.R_t
+        N_new = 0
+        for target in partial.targets:
+            if len(target.m_t) is 1:
+                N_new += 1
+        if N_new > 0:
+            partial.nu += N_new*self.mod.log_new_norm + math.log(
+            self.mod.Lambda_new**N_new/scipy.factorial(N_new) )
     def dump(self):
         print 'dumping an association of type',self.type,':'
         print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
@@ -285,7 +339,8 @@ class ASSOCIATION:
             target.make_children(y_t,cousins)
     def forward(self,
                 successors,   # A DB of associations for the next time step
-                y_t
+                y_t,
+                target_0      # Useful for subclasses
                 ):
         """ For each plausible successor S of the ASSOCIATION self
         enter the following into the successors DB 1. A key for the
@@ -298,7 +353,7 @@ class ASSOCIATION:
         for k in xrange(len(y_t)):
             causes.append([])
             for check in self.cause_checks:
-                check(k,causes[k],y_t[k])
+                check(k,causes[k],y_t[k],target_0)
         # Initialize list of partial associations.
         old_list = [self.New(self.nu,self.mod)]
         # Make list of plausible associations.  At level k, each
@@ -316,7 +371,7 @@ class ASSOCIATION:
         # nonstandard hit/target combinations
         for partial in old_list:
             for method in self.extra_forward:
-                method(partial,y_t)
+                method(partial)
         # Now each entry in old_list is a complete association and
         # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
 
@@ -338,7 +393,6 @@ class ASSOCIATION2(ASSOCIATION):
         self.type='ASSOCIATION2'
     def New(self, *args,**kwargs):
         return ASSOCIATION2(*args,**kwargs)
-
 class ASSOCIATION3(ASSOCIATION):
     """ Add the possibility of false alarms.
     """
@@ -349,6 +403,16 @@ class ASSOCIATION3(ASSOCIATION):
         self.type='ASSOCIATION3'
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
+class ASSOCIATION4(ASSOCIATION):
+    """ Add the possibility of new targets and false alarms.
+    """
+    def __init__(self,*args,**kwargs):
+        ASSOCIATION.__init__(self,*args,**kwargs)
+        self.cause_checks = [self.check_targets,self.check_news]
+        self.extra_forward = [self.extra_news,self.count_FAs]
+        self.type='ASSOCIATION4'
+    def New(self, *args,**kwargs):
+        return ASSOCIATION4(*args,**kwargs)
 class MV1:
     """A simple model of observed motion with the following groups of
     methods:
@@ -397,40 +461,69 @@ class MV1:
         self.MaxD = MaxD
         self.MaxD_limit = MaxD
         self.MaxP = MaxP
-
-    def simulate(self, T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        s_j = []
-        for j in xrange(self.N_tar):
-            s_j.append(util.normalS(self.mu_init,self.Sigma_init))
-
+    ############## Begin simulation methods ######################
+    def step_states(self, states_t, zero_s):
+        states_t1 = []
+        for state in states_t:
+            epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
+            states_t1.append(self.A*state + epsilon)
+        return states_t1
+    def observe_states(self, states_t, v_t, zero_y):
+        v_states = []
+        for k in xrange(len(v_t)):
+            if v_t[k] is 0:
+                v_states.append(states_t[k])
+        y_t = []
+        for state in v_states:
+            eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
+            y_t.append(self.O * state + eta)
+        return y_t
+    def shuffle(self, things_i):
+        N = len(things_i)
+        if N is 0:
+            return []
+        things_o = N*[None]
+        permute = util.index_to_permute(random.randint(0,N-1),N)
+        for k in xrange(N):
+            things_o[k] = things_i[permute[k]]
+        return things_o
+    def sim_zeros(self):
+        """ Make two useful zero matrices """
         s_dim = self.mu_init.shape[1]
         zero_s = scipy.matrix(scipy.zeros(s_dim))
         y_dim = self.Sigma_O.shape[0]
         zero_y = scipy.matrix(scipy.zeros(y_dim))
-        
+        return (zero_s,zero_y)
+    def step_vis(self,v_t):
+        N = len(v_t)
+        v_t1 = []
+        for v in v_t:
+            pv = self.PV_V[v,0]
+            if pv > random.random():
+                v_t1.append(0)
+            else:
+                v_t1.append(1)
+        return v_t1 
+    def sim_init(self,N):
+        x_j = []
+        v_j = []
+        for j in xrange(N):
+            x_j.append(util.normalS(self.mu_init,self.Sigma_init))
+            v_j.append(0)
+        return (x_j,v_j,0)
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        s_j,v_j,N_FA = self.sim_init(self.N_tar)
+        zero_s,zero_y = self.sim_zeros()       
         obs = []
         states = []
         for t in xrange(T):
-            if t>0:
-                i = random.randint(0,self.N_perm-1)
-            else:
-                i = 0 # No shuffle for t=0
-            permute = util.index_to_permute(i,self.N_tar)
-            obs_t = range(self.N_tar) # Make list with length N_tar
-            state_t = []
-            for j in xrange(self.N_tar):
-                epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
-                eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
-                s_t = self.A*s_j[j] + epsilon
-                y_t = self.O * s_t + eta
-                s_j[j] = s_t
-                obs_t[permute[j]] = y_t
-                state_t.append(s_t)
-            obs.append(obs_t)
-            states.append(state_t)
+            states.append(s_j)
+            obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
+            s_j = self.step_states(s_j,zero_s)
         return obs,states
+    ############## End simulation methods ######################
 
     def decode(self,
                Ys, # Observations. Ys[t][k] is the kth hit at time t
@@ -442,9 +535,9 @@ class MV1:
 
         # Initialize by making a target and cause for each of the hits
         # at t=0 and collecting them in a single association.
-        target_0 = DTARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0)
+        target_0 = DTARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0,None)
         partial = DASSOCIATION(0.0,self)
-        for k in xrange(self.N_tar):
+        for k in xrange(len(Ys[0])):
             target_k = target_0.KF(Ys[0][k],k)
             partial = partial.Fork(CAUSE(target_k))
         
@@ -464,7 +557,7 @@ class MV1:
                 # predecessors can find same successor
                 successors = SUCCESSOR_DB()
                 for A in old_As:
-                    A.forward(successors,Ys[t])
+                    A.forward(successors,Ys[t],target_0)
                 self.MaxD *= 2
                 if successors.length() is 0 and \
                        (self.MaxD<1e-6 or self.MaxD>1e6):
@@ -528,49 +621,21 @@ class MV2(MV1):
         return MV1.decode(self,Ys,DTARGET=DTARGET, DASSOCIATION=DASSOCIATION)
 
     
+    ############## Begin simulation methods ######################       
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
-        x_j = []
-        v_j = []
-        for j in xrange(self.N_tar):
-            x_j.append(util.normalS(self.mu_init,self.Sigma_init))
-            v_j.append(0) # Start with all trajectories visible
-
-        x_dim = self.mu_init.shape[1]
-        zero_x = scipy.matrix(scipy.zeros(x_dim))
-        y_dim = self.Sigma_O.shape[0]
-        zero_y = scipy.matrix(scipy.zeros(y_dim))
-        
+        x_j,v_j,N_FA = self.sim_init(self.N_tar)
+        zero_x,zero_y = self.sim_zeros()
         obs = []
         xs = []
-        vs = []
         for t in xrange(T):
-            x_j_new = range(self.N_tar)
-            if t>0:
-                i = random.randint(0,self.N_perm-1)
-            else:
-                i = 0 # No shuffle for t=0
-            permute = util.index_to_permute(i,self.N_tar)
-            state_t = []
-            for j in xrange(self.N_tar):
-                pv = self.PV_V[v_j[j],0]
-                if pv > random.random() or t is 0:
-                    v_j[j] = 0
-                else:
-                    v_j[j] = 1
-                epsilon = util.normalS(zero_x,self.Sigma_D) # Dynamical noise
-                x_j_new[j] = self.A*x_j[j] + epsilon
-            obs_t = []
-            for j in xrange(self.N_tar):
-                if v_j[j] is not 0:
-                    continue
-                eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
-                obs_t.append(self.O * x_j[permute[j]] + eta)
-            obs.append(obs_t)
-            xs.append(x_j_new)
-            x_j = x_j_new
+            xs.append(x_j)
+            obs.append(self.shuffle(self.observe_states(x_j,v_j,zero_y)))
+            x_j = self.step_states(x_j,zero_x)
+            v_j = self.step_vis(v_j)
         return obs,xs
+    ############## End simulation methods ######################
 class MV3(MV2):
     """ A state consists of: Association; Locations; and Visibilities;
     (and the derivable N_FA), ie,
@@ -578,9 +643,9 @@ class MV3(MV2):
     s = (M,X,V,N_FA)
     
     """
-    def __init__(self,Lambda=0.3,**kwargs):
+    def __init__(self,Lambda_FA=0.3,**kwargs):
         MV2.__init__(self,**kwargs)
-        self.Lambda = Lambda # Average number of false alarms per frame
+        self.Lambda_FA = Lambda_FA # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
         self.Sigma_FA = Sigma_FA
         self.log_FA_norm = - math.log(scipy.linalg.det(Sigma_FA))/2
@@ -588,61 +653,101 @@ class MV3(MV2):
     
     def decode(self,
                Ys, # Observations. Ys[t][k] is the kth hit at time t
+               DTARGET=TARGET2,
                DASSOCIATION=ASSOCIATION3
                ):
-        return MV2.decode(self,Ys,DASSOCIATION=DASSOCIATION)
+        return MV2.decode(self,Ys,DTARGET=DTARGET, DASSOCIATION=DASSOCIATION)
     
+    ############## Begin simulation methods ######################
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        x_j,v_j,N_FA = self.sim_init(self.N_tar)
+        zero_x,zero_y = self.sim_zeros()
+        # Lists for results
+        xs = []
+        obs = []
+        for t in xrange(T):
+            xs.append(x_j)        # Save X[t] part of state for return
+            # Generate observations Y[t]
+            obs_t = self.observe_states(x_j,v_j,zero_y)
+            for k in xrange(N_FA):
+                obs_t.append(util.normalS(zero_y,self.Sigma_FA))
+            obs.append(self.shuffle(obs_t))
+            # Generate state, visibility, and N_FA for next t
+            x_j = self.step_states(x_j,zero_x)
+            v_j = self.step_vis(v_j)
+            N_FA = scipy.random.poisson(self.Lambda_FA)
+        return obs,xs
+    ############## End simulation methods ######################
+
+class MV4(MV3):
+    """  Like MV3 but new targets are possible
+    """
+    def __init__(self,Lambda_new=0.3,**kwargs):
+        MV3.__init__(self,**kwargs)
+        self.Lambda_new = Lambda_new # Average number of new targets
+                                     # per frame
+        self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
+    
+    def decode(self,
+               Ys, # Observations. Ys[t][k] is the kth hit at time t
+               DASSOCIATION=ASSOCIATION4,
+               DTARGET=TARGET4
+               ):
+        return MV3.decode(self,Ys,DTARGET=DTARGET, DASSOCIATION=DASSOCIATION)
+    def step_mortal(self, x, v, c, zero_x):
+        """ Combine stepping of target vectors x and visibilty v with
+        removal of targets if they are not visible for
+        Invisible_Lifetime steps as recorded in c.
+        """
+        N = len(x)
+        if len(v) is not N:
+            raise RuntimeError,'len(v)=%d != len(x)=%d'%(len(v),N)
+        if len(c) is not N:
+            raise RuntimeError,'len(c)=%d != len(x)=%d'%(len(v),N)
+        x = self.step_states(x,zero_x)
+        v = self.step_vis(v)
+        for k in xrange(N):
+            if v[k] is not 0:
+                c[k] += 1
+        N_new = scipy.random.poisson(self.Lambda_new)
+        x_new,v_new,dumb = self.sim_init(N_new)
+        x += x_new
+        v += v_new
+        c += N_new*[0]
+        x_o = []
+        v_o = []
+        c_o = []
+        for k in xrange(len(x)):
+            if c[k] < Invisible_Lifetime:  #FixMe: built in parameter
+                x_o.append(x[k])
+                v_o.append(v[k])
+                c_o.append(c[k])
+        return (x_o,v_o,c_o)
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
         #Start with N_tar visible targets
-        x_j = []
-        v_j = []
-        for j in xrange(self.N_tar):
-            x_j.append(util.normalS(self.mu_init,self.Sigma_init))
-            v_j.append(0)
-        i_t = 0   # First association: No shuffle
-        N_FA = 0  # No false alarms for t=0
-
-        # Set up useful parameters
-        x_dim = self.mu_init.shape[1]
-        zero_x = scipy.matrix(scipy.zeros(x_dim))
-        y_dim = self.Sigma_O.shape[0]
-        zero_y = scipy.matrix(scipy.zeros(y_dim))
-
+        x,v,N_FA = self.sim_init(self.N_tar)
+        zero_x,zero_y = self.sim_zeros()
+        c = self.N_tar*[0]
+        # Run for 100 steps to relax towards stationary conditions
+        for t in xrange(100):
+            x,v,c = self.step_mortal(x,v,c,zero_x)
         # Lists for results
         obs = []
         xs = []
-        vs = []
         for t in xrange(T):
-            xs.append(x_j)        # Save X[t] part of state for return
+            xs.append(x)
             # Generate observations Y[t]
-            obs_t = []
-            permute = util.index_to_permute(i_t,self.N_tar)
+            obs_t = self.observe_states(x,v,zero_y)
             for k in xrange(N_FA):
                 obs_t.append(util.normalS(zero_y,self.Sigma_FA))
-            for j in xrange(self.N_tar):
-                if v_j[j] is not 0:
-                    continue
-                eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
-                obs_t.append(self.O * x_j[permute[j]] + eta)
-            obs.append(obs_t)     # Save Y[t] for return
-            # Generate next state
-            i_t = random.randint(0,self.N_perm-1)
-            x_j_new = self.N_tar*[None]
-            for j in xrange(self.N_tar):
-                # Make a new x for each target
-                epsilon = util.normalS(zero_x,self.Sigma_D) # Dynamical noise
-                x_j_new[j] = self.A*x_j[j] + epsilon
-                # Make a new visibility for each target
-                pv = self.PV_V[v_j[j],0]
-                if pv > random.random() or t is 0:
-                    v_j[j] = 0
-                else:
-                    v_j[j] = 1
-            x_j = x_j_new
-            # Select N_FA for the next t
-            N_FA = scipy.random.poisson(self.Lambda)
+            obs.append(self.shuffle(obs_t))
+            # Generate for next t
+            x,v,c = self.step_mortal(x,v,c,zero_x)
+            N_FA = scipy.random.poisson(self.Lambda_FA)
         return obs,xs
 
 # Test code
@@ -651,9 +756,10 @@ if __name__ == '__main__':
     random.seed(3)
     ts = time.time()
     for M in (
-        MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),
+        MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),
         MV1(N_tar=4),
-        MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]])
+        MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),
+        MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]])
         ):
 
         print 'before simulate'
