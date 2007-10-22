@@ -476,12 +476,9 @@ class MV1:
         self.MaxD_limit = MaxD
         self.MaxP = MaxP
     ############## Begin simulation methods ######################
-    def step_states(self, states_t, zero_s):
-        states_t1 = []
-        for state in states_t:
-            epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
-            states_t1.append(self.A*state + epsilon)
-        return states_t1
+    def step_state(self, state, zero_s):
+        epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
+        return self.A*state + epsilon
     def observe_states(self, states_t, v_t, zero_y):
         v_states = []
         for k in xrange(len(v_t)):
@@ -508,16 +505,12 @@ class MV1:
         y_dim = self.Sigma_O.shape[0]
         zero_y = scipy.matrix(scipy.zeros(y_dim))
         return (zero_s,zero_y)
-    def step_vis(self,v_t):
-        N = len(v_t)
-        v_t1 = []
-        for v in v_t:
-            pv = self.PV_V[v,0]
-            if pv > random.random():
-                v_t1.append(0)
-            else:
-                v_t1.append(1)
-        return v_t1 
+    def step_vis(self,v):
+        pv = self.PV_V[v,0]
+        if pv > random.random():
+            return 0
+        else:
+            return 1
     def sim_init(self,N):
         x_j = []
         v_j = []
@@ -535,19 +528,21 @@ class MV1:
         for t in xrange(T):
             states.append(s_j)
             obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
-            s_j = self.step_states(s_j,zero_s)
+            s_j = map(lambda x: self.step_state(x,zero_s),s_j)
         return obs,states
     ############## End simulation methods ######################
 
-    def decode(self,
+    def decode_forward(self,
                Ys # Observations. Ys[t][k] is the kth hit at time t
                ):
-        """Return MAP state sequence """
+        """Forward pass for decoding.  Return association at final
+        time with highest utility, nu."""
         T = len(Ys)
 
         # Initialize by making a target and cause for each of the hits
         # at t=0 and collecting them in a single association.
-        target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0,None)
+        target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
+                               0.0,None)
         partial = self.ASSOCIATION(0.0,self)
         for k in xrange(len(Ys[0])):
             target_k = target_0.KF(Ys[0][k],k)
@@ -610,8 +605,11 @@ successors.length()=%d
             R[i] = old_As[i].nu
         A_best = old_As[R.argmax()]
         print 'nu_max=%f'%A_best.nu
-
-        # Backtrack to get trajectories
+        return (A_best,T)
+    def decode_back(self,A_best,T):
+        """ Backtrack from best association at final time to get MAP
+        trajectories.
+        """
         tracks = [] # tracks[k][t] is the x vector for target_k at time t
         y_A = []    # y_A[t] is a dict.  y_A[t][k] gives the index of
                     # y[t] associated with target k.  So y[t][A[t][k]]
@@ -624,7 +622,14 @@ successors.length()=%d
             for t in xrange(T):
                 y_A[t][k] = target.m_t[t]
         return (tracks,y_A)
-                
+
+    def decode(self,
+               Ys # Observations. Ys[t][k] is the kth hit at time t
+               ):
+        """Return MAP state sequence """
+        A_best,T = self.decode_forward(Ys)
+        return self.decode_back(A_best,T)
+    
 class MV2(MV1):
     def __init__(self,PV_V=[[.9,.1],[.2,.8]],**kwargs):
         MV1.__init__(self,**kwargs)
@@ -644,8 +649,8 @@ class MV2(MV1):
         for t in xrange(T):
             xs.append(x_j)
             obs.append(self.shuffle(self.observe_states(x_j,v_j,zero_y)))
-            x_j = self.step_states(x_j,zero_x)
-            v_j = self.step_vis(v_j)
+            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
+            v_j = map(self.step_vis,v_j)
         return obs,xs
     ############## End simulation methods ######################
 class MV3(MV2):
@@ -681,8 +686,8 @@ class MV3(MV2):
                 obs_t.append(util.normalS(zero_y,self.Sigma_FA))
             obs.append(self.shuffle(obs_t))
             # Generate state, visibility, and N_FA for next t
-            x_j = self.step_states(x_j,zero_x)
-            v_j = self.step_vis(v_j)
+            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
+            v_j = map(self.step_vis,v_j)
             N_FA = scipy.random.poisson(self.Lambda_FA)
         return obs,xs
     ############## End simulation methods ######################
@@ -707,49 +712,67 @@ class MV4(MV3):
             raise RuntimeError,'len(v)=%d != len(x)=%d'%(len(v),N)
         if len(c) is not N:
             raise RuntimeError,'len(c)=%d != len(x)=%d'%(len(v),N)
-        x = self.step_states(x,zero_x)
-        v = self.step_vis(v)
+        x = map(lambda s: self.step_state(s,zero_x),x)
+        v = map(self.step_vis,v)
         for k in xrange(N):
-            if v[k] is not 0:
+            if v[k] is 0 and c[k] < Invisible_Lifetime: #FixMe ugly
+                c[k] = 0
+            else:
                 c[k] += 1
         N_new = scipy.random.poisson(self.Lambda_new)
         x_new,v_new,dumb = self.sim_init(N_new)
         x += x_new
         v += v_new
         c += N_new*[0]
-        x_o = []
-        v_o = []
-        c_o = []
-        for k in xrange(len(x)):
-            if c[k] < Invisible_Lifetime:  #FixMe: built in parameter
-                x_o.append(x[k])
-                v_o.append(v[k])
-                c_o.append(c[k])
-        return (x_o,v_o,c_o)
+        return (x,v,c)
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
         #Start with N_tar visible targets
-        x,v,N_FA = self.sim_init(self.N_tar)
+        x_0,v_0,N_FA = self.sim_init(self.N_tar)
         zero_x,zero_y = self.sim_zeros()
         c = self.N_tar*[0]
         # Run for 100 steps to relax towards stationary conditions
-        for t in xrange(100):
+        for t in xrange(1000):
             x,v,c = self.step_mortal(x,v,c,zero_x)
         # Lists for results
+        xr,vr,cr = (x,v,c)
+        x = []
+        v = []
+        c = []
+        # Prune to live targets
+        for k in xrange(len(x)):
+            if cr[k] < Invisible_Lifetime:
+                x.append(xr[k])
+                v.append(vr[k])
+                c.append(cr[k])
         obs = []
         xs = []
+        cs = []
         for t in xrange(T):
             xs.append(x)
+            cs.append(c)
             # Generate observations Y[t]
-            obs_t = self.observe_states(x,v,zero_y)
+            o_p = self.observe_states(x,len(x)*[0],zero_y)
+            obs_t = []
+            for k in xrange(len(c)):
+                if c[k] < Invisible_Lifetime and v[k] is 0:
+                    obs_t.append(o_p[k])
             for k in xrange(N_FA):
                 obs_t.append(util.normalS(zero_y,self.Sigma_FA))
             obs.append(self.shuffle(obs_t))
             # Generate for next t
             x,v,c = self.step_mortal(x,v,c,zero_x)
             N_FA = scipy.random.poisson(self.Lambda_FA)
-        return obs,xs
+        Ns = len(xs[-1])
+        xr = []
+        obr = []
+        for t in xrange(T):
+            xr.append(Ns*[None])
+            for k in xrange(len(xs[t])):
+                if cs[t][k] < Invisible_Lifetime:
+                    xr[t][k] = xs[t][k]
+        return obs,xr
 
 # Test code
 if __name__ == '__main__':

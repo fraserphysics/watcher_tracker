@@ -113,13 +113,16 @@ class PlotPanelB(PlotPanelA):
             x = []
             y = []
             for t in xrange(T):
-                x.append(self.s[t][k][1,0])
-                y.append(self.s[t][k][0,0])
+                if self.s[t][k] is not None:
+                    x.append(self.s[t][k][1,0])
+                    y.append(self.s[t][k][0,0])
             self.subplot.plot(x,y,markerfacecolor=color,marker='o',
                               linewidth=0)
-            self.subplot.plot([x[self.t]],[y[self.t]],markerfacecolor=color,
-                 markeredgecolor=color, marker='x',linewidth=0,
-                 markeredgewidth=2,markersize=25)
+            t = self.t
+            if self.s[t][k] is not None:
+                self.subplot.plot([self.s[t][k][1,0]],[self.s[t][k][0,0]],
+                 markerfacecolor=color, markeredgecolor=color, marker='x',
+                 linewidth=0, markeredgewidth=2, markersize=25)
         if self.d is None:
             return
         # Draw lines for each decoded state trajectory
@@ -127,13 +130,16 @@ class PlotPanelB(PlotPanelA):
             x = []
             y = []
             for t in xrange(T):
-                x.append(self.d[k][t][1,0])
-                y.append(self.d[k][t][0,0])
+                if self.d[k][t] is not None:
+                    x.append(self.d[k][t][1,0])
+                    y.append(self.d[k][t][0,0])
             color = self.colors[k%len(self.colors)]
             self.subplot.plot(x,y, lw=2, color=color, linestyle='-')
-            self.subplot.plot([x[self.t]],[y[self.t]],markerfacecolor=color,
-                 markeredgecolor=color, marker='+',linewidth=0,
-                 markeredgewidth=2,markersize=25)
+            t = self.t
+            if self.d[k][t] is not None:
+                self.subplot.plot([self.d[k][t][1,0]],[self.d[k][t][0,0]],
+                 markerfacecolor=color, markeredgecolor=color, marker='+',
+                 linewidth=0, markeredgewidth=2, markersize=25)
         self.subplot.set_title(self.title, fontsize = 12)
         self.subplot.set_ylabel(self.ylabel, fontsize = 10)
         self.subplot.set_xlabel(self.xlabel, fontsize = 10)
