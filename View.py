@@ -54,7 +54,7 @@ class PlotPanelA(demo.PlotPanel):
         self.subplot.clear()
         # Draw dots for each observation/hit
         for t in xrange(len(self.y)):
-            y_t = self.y[t]
+            y_t = self.y[t]   # y[t] is a list of hits at time t
             if len(y_t) is 0:
                 continue
             x_t = len(y_t)*[t]
@@ -66,7 +66,9 @@ class PlotPanelA(demo.PlotPanel):
                  markeredgewidth=2,markersize=25)
         if self.A is None:
             return
-        # If associations are available, use them to connect dots
+        # If associations are available, use them to connect dots.
+        # A[t] is a dict; keys are targets; y[t][A[t][key]] is an
+        # observation of the target indexed by key at time t
         linesx = {}
         linesy = {}
         for t in xrange(len(self.A)):

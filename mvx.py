@@ -15,7 +15,7 @@ will be easier to read if I make the subclasses simpler.
 
 """
 import numpy, scipy, scipy.linalg, random, math, util
-Invisible_Lifetime = 10
+Invisible_Lifetime = 5
 Target_Counter = 0
 class TARGET:
     """A TARGET is a possible moving target, eg, a car.  Its values
@@ -263,7 +263,8 @@ class ASSOCIATION:
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
     def check_targets(self,k,causes,y,target_0):
-        """ A check in list of cause_checks called by forward()
+        """ A check method for list cause_checks called by forward().
+        This method appends relevant children to plausible causes.
         """
         for target in self.targets:
             if target.children.has_key(k):
@@ -425,6 +426,7 @@ class ASSOCIATION4(ASSOCIATION):
             else:
                 if first:
                     self.dead_targets.append([target,t])
+                    target.children = {}
 class MV1:
     """A simple model of observed motion with the following groups of
     methods:
@@ -695,84 +697,72 @@ class MV3(MV2):
 class MV4(MV3):
     """  Like MV3 but new targets are possible
     """
-    def __init__(self,Lambda_new=0.2,**kwargs):
+    def __init__(self,Lambda_new=0.05,**kwargs):
         MV3.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION4
         self.Lambda_new = Lambda_new # Average number of new targets
                                      # per frame
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
     
-    def step_mortal(self, x, v, c, zero_x):
-        """ Combine stepping of target vectors x and visibilty v with
-        removal of targets if they are not visible for
-        Invisible_Lifetime steps as recorded in c.
+    def step_count(self, x, v, c, zero_x):
+        """ Step target vector x and visibilty v count of number of
+        times that v != 0 (not visible) in c.
         """
-        N = len(x)
-        if len(v) is not N:
-            raise RuntimeError,'len(v)=%d != len(x)=%d'%(len(v),N)
-        if len(c) is not N:
-            raise RuntimeError,'len(c)=%d != len(x)=%d'%(len(v),N)
-        x = map(lambda s: self.step_state(s,zero_x),x)
-        v = map(self.step_vis,v)
-        for k in xrange(N):
-            if v[k] is 0 and c[k] < Invisible_Lifetime: #FixMe ugly
-                c[k] = 0
-            else:
-                c[k] += 1
-        N_new = scipy.random.poisson(self.Lambda_new)
-        x_new,v_new,dumb = self.sim_init(N_new)
-        x += x_new
-        v += v_new
-        c += N_new*[0]
+        x = self.step_state(x,zero_x)
+        v = self.step_vis(v)
+        if v is 0:
+            c = 0
+        else:
+            c += 1
         return (x,v,c)
+    def run_state(self,x,v,zero_x,t_0,T):
+        s_k = T*[None]
+        v_k = T*[None]
+        c = 0
+        for t in xrange(t_0,T):
+            s_k[t] = x
+            v_k[t] = v
+            x,v,c = self.step_count(x,v,c,zero_x)
+            if c > Invisible_Lifetime:
+                s_k[t-Invisible_Lifetime:t] = Invisible_Lifetime*[None]
+                break
+        return (s_k,v_k)
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
         #Start with N_tar visible targets
         x_0,v_0,N_FA = self.sim_init(self.N_tar)
         zero_x,zero_y = self.sim_zeros()
-        c = self.N_tar*[0]
-        # Run for 100 steps to relax towards stationary conditions
-        for t in xrange(1000):
-            x,v,c = self.step_mortal(x,v,c,zero_x)
-        # Lists for results
-        xr,vr,cr = (x,v,c)
-        x = []
-        v = []
-        c = []
-        # Prune to live targets
-        for k in xrange(len(x)):
-            if cr[k] < Invisible_Lifetime:
-                x.append(xr[k])
-                v.append(vr[k])
-                c.append(cr[k])
+        skt = []
+        vkt = []
         obs = []
-        xs = []
-        cs = []
+        for k in xrange(self.N_tar):
+            x,v = self.run_state(x_0[k],v_0[k],zero_x,0,T)
+            skt.append(x)
+            vkt.append(v)
         for t in xrange(T):
-            xs.append(x)
-            cs.append(c)
-            # Generate observations Y[t]
-            o_p = self.observe_states(x,len(x)*[0],zero_y)
-            obs_t = []
-            for k in xrange(len(c)):
-                if c[k] < Invisible_Lifetime and v[k] is 0:
-                    obs_t.append(o_p[k])
-            for k in xrange(N_FA):
-                obs_t.append(util.normalS(zero_y,self.Sigma_FA))
-            obs.append(self.shuffle(obs_t))
-            # Generate for next t
-            x,v,c = self.step_mortal(x,v,c,zero_x)
+            obs.append([])
+            N_new = scipy.random.poisson(self.Lambda_new)
+            x_0,v_0,N_FA = self.sim_init(N_new)
+            for k in xrange(N_new):
+                x,v = self.run_state(x_0[k],v_0[k],zero_x,t,T)
+                skt.append(x)
+                vkt.append(v)
+        stk = []
+        for t in xrange(T):
+            stk.append([])
+            s_vis = []
+            for k in xrange(len(skt)):
+                s = skt[k][t]
+                stk[t].append(s)
+                if s is not None and vkt[k][t] is 0:
+                    s_vis.append(s)
+            y = self.observe_states(s_vis,len(s_vis)*[0],zero_y)
             N_FA = scipy.random.poisson(self.Lambda_FA)
-        Ns = len(xs[-1])
-        xr = []
-        obr = []
-        for t in xrange(T):
-            xr.append(Ns*[None])
-            for k in xrange(len(xs[t])):
-                if cs[t][k] < Invisible_Lifetime:
-                    xr[t][k] = xs[t][k]
-        return obs,xr
+            for k in xrange(N_FA):
+                y.append(util.normalS(zero_y,self.Sigma_FA))
+            obs[t] = self.shuffle(y)
+        return obs,stk
 
 # Test code
 if __name__ == '__main__':
