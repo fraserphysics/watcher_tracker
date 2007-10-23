@@ -15,6 +15,8 @@ will be easier to read if I make the subclasses simpler.
 
 """
 import numpy, scipy, scipy.linalg, random, math, util
+def log_Poisson(Lambda,N):
+    return N*math.log(Lambda) - Lambda - math.log(scipy.factorial(N))
 Invisible_Lifetime = 5
 Target_Counter = 0
 class TARGET:
@@ -247,7 +249,7 @@ class ASSOCIATION:
     def New(self, *args,**kwargs):
         return ASSOCIATION(*args,**kwargs)
     def Fork(self, # Create a child that extends self by cause
-            cause,  # CAUSE of next hit in y_t
+            cause  # CAUSE of next hit in y_t
             ):
         CA = self.New(self.nu + cause.R,self.mod)
         CA.tar_dict = self.tar_dict.copy()
@@ -301,8 +303,8 @@ class ASSOCIATION:
         """
         N_FA = partial.N_FA
         if N_FA > 0:
-            partial.nu += N_FA*self.mod.log_FA_norm + math.log(
-            self.mod.Lambda_FA**N_FA/scipy.factorial(N_FA) )
+            partial.nu += N_FA*self.mod.log_FA_norm + log_Poisson(
+                self.mod.Lambda_FA,N_FA)
     def extra_news(self,partial):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association, and apply creation
@@ -319,8 +321,8 @@ class ASSOCIATION:
             if len(target.m_t) is 1:
                 N_new += 1
         if N_new > 0:
-            partial.nu += N_new*self.mod.log_new_norm + math.log(
-            self.mod.Lambda_new**N_new/scipy.factorial(N_new) )
+            partial.nu += N_new*self.mod.log_new_norm + log_Poisson(
+                self.mod.Lambda_new,N_new)
     def dump(self):
         print 'dumping an association of type',self.type,':'
         print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
@@ -413,7 +415,9 @@ class ASSOCIATION4(ASSOCIATION):
         self.dead_targets = []
         self.type='ASSOCIATION4'
     def New(self, *args,**kwargs):
-        return ASSOCIATION4(*args,**kwargs)
+        NA = ASSOCIATION4(*args,**kwargs)
+        NA.dead_targets = self.dead_targets[:] # Copy
+        return NA
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
                       cousins, # Dict of children of sibling ASSOCIATIONs
@@ -546,13 +550,13 @@ class MV1:
         target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
                                0.0,None)
         partial = self.ASSOCIATION(0.0,self)
-        for k in xrange(len(Ys[0])):
-            target_k = target_0.KF(Ys[0][k],k)
-            partial = partial.Fork(CAUSE(target_k))
+#         for k in xrange(len(Ys[0])):
+#             target_k = target_0.KF(Ys[0][k],k)
+#             partial = partial.Fork(CAUSE(target_k))
         
         # Forward pass through time
         old_As = [partial]
-        for t in xrange(1,T):
+        for t in xrange(0,T):
             child_targets = {}          # Dict of all targets for time t
             successors = SUCCESSOR_DB() # Just to make the while loop start
             first = True
@@ -703,7 +707,34 @@ class MV4(MV3):
         self.Lambda_new = Lambda_new # Average number of new targets
                                      # per frame
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
+    def decode_back(self,A_best,T):
+        targets_times = []
+        for pair in A_best.dead_targets:
+            target = pair[0]
+            t_i = pair[1]-len(target.m_t)
+            t_f = pair[1]-Invisible_Lifetime
+            for List in target.m_t,target.mu_t,target.Sigma_t:
+                del(List[-Invisible_Lifetime:])
+            targets_times.append([target,t_i,t_f])
+        for target in A_best.targets:
+            t_f = T
+            t_i = T-len(target.m_t)
+            targets_times.append([target,t_i,t_f])
+        y_A = []
+        for t in xrange(T):
+            y_A.append({}) # Initialize association dicts
+        N_tar = len(targets_times)
+        d = []
+        for k in xrange(N_tar):
+            d.append(T*[None])# Initialize list of decoded states with Nones
+            target,start,stop = targets_times[k]
+            d[k][start:stop] = target.backtrack()# Set decoded values
+            for t in xrange(start,stop):
+                y_A[t][k] = target.m_t[t-start] # y[t][y_A[t][k]] is
+                                                # associated with target k.
+        return (d,y_A)
     
+    ############## Begin simulation methods ######################
     def step_count(self, x, v, c, zero_x):
         """ Step target vector x and visibilty v count of number of
         times that v != 0 (not visible) in c.
@@ -763,6 +794,7 @@ class MV4(MV3):
                 y.append(util.normalS(zero_y,self.Sigma_FA))
             obs[t] = self.shuffle(y)
         return obs,stk
+    ############## End simulation methods ######################
 
 # Test code
 if __name__ == '__main__':

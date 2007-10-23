@@ -129,12 +129,15 @@ class PlotPanelB(PlotPanelA):
             return
         # Draw lines for each decoded state trajectory
         for k in xrange(N_tar):
+            if self.d[k] is None:
+                continue
             x = []
             y = []
             for t in xrange(T):
-                if self.d[k][t] is not None:
-                    x.append(self.d[k][t][1,0])
-                    y.append(self.d[k][t][0,0])
+                if self.d[k][t] is None:
+                    continue
+                x.append(self.d[k][t][1,0])
+                y.append(self.d[k][t][0,0])
             color = self.colors[k%len(self.colors)]
             self.subplot.plot(x,y, lw=2, color=color, linestyle='-')
             t = self.t
