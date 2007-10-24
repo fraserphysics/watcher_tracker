@@ -400,19 +400,118 @@ class ASSOCIATION3(ASSOCIATION):
         self.type='ASSOCIATION3'
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
-class ASSOCIATION4(ASSOCIATION):
-    """ Add the possibility of new targets and false alarms.
+class ASSOCIATION4:
+    """This is the discrete part of the state.  It gives an
+    explanation for how the collection of observations at time t were
+    made.
+
+    Methods:
+
+     __init__: Called with None or with an existing association and a
+               cause to create a new association with an explanation
+               for an additional observation.
+     
+     forward:  Create plausible sucessor associations
+
+     make_children:  Call target.make_children() for each target
     """
-    def __init__(self,*args,**kwargs):
-        ASSOCIATION.__init__(self,*args,**kwargs)
+    def __init__(self,nu,mod):
+        self.nu = nu        # Utility of best path ending here
+        self.mod = mod      # Model, to convey parameters
+        self.tar_dict = {}  # Dict of targets
+        self.targets = []   # List of child targets
+        self.h2c = []       # Map from hits to causes.  Will become key
         self.cause_checks = [self.check_targets,self.check_news]
         self.extra_forward = [self.extra_news,self.count_FAs]
         self.dead_targets = {}
         self.type='ASSOCIATION4'
+        self.N_FA=0          # Count of false alarms
     def New(self, *args,**kwargs):
         NA = ASSOCIATION4(*args,**kwargs)
         NA.dead_targets = self.dead_targets.copy()
         return NA
+    def Fork(self, # Create a child that extends self by cause
+            cause  # CAUSE of next hit in y_t
+            ):
+        CA = self.New(self.nu + cause.R,self.mod)
+        CA.tar_dict = self.tar_dict.copy()
+        CA.h2c = self.h2c + [cause.index]
+        CA.N_FA = self.N_FA
+        if cause.type is 'target':
+            CA.tar_dict[cause.index] = None # Prevent reuse of target
+            CA.targets = self.targets + [cause.target]
+            return CA
+        if cause.type is 'FA':
+            CA.targets = self.targets
+            CA.N_FA += 1
+            return CA
+        raise RuntimeError,"Cause type %s not known"%cause.type
+    def check_targets(self,k,causes,y,target_0):
+        """ A check method for list cause_checks called by forward().
+        This method appends relevant children to plausible causes.
+        """
+        for target in self.targets:
+            if target.children.has_key(k):
+                # If has_key(k) then child is plausible cause
+                causes.append(CAUSE(target.children[k]))
+    def check_FAs(self,k,causes,y,target_0):
+        """ A check in list of cause_checks called by forward().
+        Propose that cause is false alarm
+        """
+        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I))
+    def check_news(self,k,causes,y,target_0):
+        """ A check in list of cause_checks called by forward().
+        Propose that cause is false alarm or new target
+        """
+        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I)) # False alarm
+        causes.append(CAUSE(target_0.KF(y,k)))  # New target
+    def invisibles(self,partial):
+        """ A method in extra_forward called by forward().  Put
+        invisible targets in new association.
+        """
+        for target in self.targets:
+            if not partial.tar_dict.has_key(target.index):
+                try:
+                    child = target.children[-1]
+                except:
+                    raise RuntimeError,\
+        'There is no invisible child.  Perhaps MaxD is too ambitious.'
+                partial.targets.append(child)
+                partial.nu += child.R_t 
+    def count_FAs(self,partial):
+        """ A method in extra_forward called by forward().  Calculate
+        the utility for the number of false alarms and add that
+        utility to partial.nu.
+        """
+        N_FA = partial.N_FA
+        if N_FA > 0:
+            partial.nu += N_FA*self.mod.log_FA_norm + log_Poisson(
+                self.mod.Lambda_FA,N_FA)
+    def extra_news(self,partial):
+        """ A method in extra_forward called by forward().  Put
+        invisible targets in new association, and apply creation
+        penalty to nu for newly created targets.
+        """ 
+        for target in self.targets:
+            if not partial.tar_dict.has_key(target.index) and \
+                   target.children.has_key(-1):
+                child = target.children[-1]
+                partial.targets.append(child)
+                partial.nu += child.R_t
+        N_new = 0
+        for target in partial.targets:
+            if len(target.m_t) is 1:
+                N_new += 1
+        if N_new > 0:
+            partial.nu += N_new*self.mod.log_new_norm + log_Poisson(
+                self.mod.Lambda_new,N_new)
+    def dump(self):
+        print 'dumping an association of type',self.type,':'
+        print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
+        print 'hits -> causes map=', self.h2c
+        for target in self.targets:
+            target.dump()
+        print '\n'
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
                       cousins, # Dict of children of sibling ASSOCIATIONs
@@ -424,6 +523,49 @@ class ASSOCIATION4(ASSOCIATION):
             else:
                 self.dead_targets.setdefault(target.index,[target,t])
                 target.children = {}
+    def forward(self,
+                successors,   # A DB of associations for the next time step
+                y_t,
+                target_0      # Useful for subclasses
+                ):
+        """ For each plausible successor S of the ASSOCIATION self
+        enter the following into the successors DB 1. A key for the
+        explanatinon that S gives for the observations. 2. The
+        candidate successor association S. 3. The value of
+        u'(self,S,t+1).
+        """
+        # For each observation, make a list of plausible causes
+        causes = []
+        for k in xrange(len(y_t)):
+            causes.append([])
+            for check in self.cause_checks:
+                check(k,causes[k],y_t[k],target_0)
+        # Initialize list of partial associations.
+        old_list = [self.New(self.nu,self.mod)]
+        # Make list of plausible associations.  At level k, each
+        # association explains the source of each y_t[i] for i<k.
+        for k in xrange(len(y_t)):
+            new_list = []
+            for partial in old_list:
+                for cause in causes[k]:
+                    # Don't use same target index more than once
+                    # tar_dict has only targets, not FAs
+                    if not partial.tar_dict.has_key(cause.index):
+                        new_list.append(partial.Fork(cause))
+            old_list = new_list
+        # For each association, do extra work work required for
+        # nonstandard hit/target combinations
+        for partial in old_list:
+            for method in self.extra_forward:
+                method(partial)
+        # Now each entry in old_list is a complete association and
+        # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
+
+        # Map each association in old_list to it's successor key and
+        # propose the present association as the predecessor for that
+        # key.
+        for association in old_list:
+            successors.enter(association)
 class MV1:
     """A simple model of observed motion with the following groups of
     methods:
