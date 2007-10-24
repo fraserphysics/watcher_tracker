@@ -29,7 +29,7 @@ class TARGET:
                  m_t,      # History of hit indices used
                  mu_t,     # History of means
                  Sigma_t,  # History of variances
-                 R_t,      # Most recent residual
+                 R,      # Most recent residual
                  y,        # Useful in subclasses
                  index=None
                  ):
@@ -43,7 +43,7 @@ class TARGET:
         self.m_t = m_t
         self.mu_t = mu_t
         self.Sigma_t = Sigma_t
-        self.R_t = R_t
+        self.R = R
         self.children = None # Dict of targets at t+1 updated with
                              # plausible hits and this target
     def New(self, *args,**kwargs):
@@ -94,7 +94,7 @@ class TARGET:
            y,        # The observation of the target at the current time
            m         # Index of the observation
            ):
-        """ Create a new target with updated m_t, mu_t, Sigma_t and R_t
+        """ Create a new target with updated m_t, mu_t, Sigma_t and R
         for the observation, index pair (y,m)."""
         m_L = self.m_t+[m]
         Delta_R,mu_new,Sigma_new = self.utility(y)
@@ -120,12 +120,12 @@ class TARGET:
            m         # Index of the observation
            ):
         """ Create a new target with unique index, fresh m_t, mu_t,
-        Sigma_t and R_t for the observation.  This is essentially
+        Sigma_t and R for the observation.  This is essentially
         Kalman filtering."""
         self.forecast()
         r = self.update(y,m)
         return self.New(self.mod,[r.m_t[-1]],[r.mu_t[-1]],
-                             [r.Sigma_t[-1]],r.R_t,y)
+                             [r.Sigma_t[-1]],r.R,y)
     def backtrack(self):
         T = len(self.mu_t)
         A = self.mod.A
@@ -185,7 +185,7 @@ class CAUSE:
         self.type = 'target'
         self.index = target.index # Time invariant index of target
         self.target= target
-        self.R = target.R_t
+        self.R = target.R
 class CAUSE_FA(CAUSE):
     def __init__(self,
                  y,        # To calculate R for FA
@@ -194,6 +194,146 @@ class CAUSE_FA(CAUSE):
         self.type = 'FA'
         self.index = -1
         self.R = -float(y.T*Sigma_I*y/2)
+class TARGET4(CAUSE_FA):
+    """A TARGET is a possible moving target, eg, a car.  Its values
+    are determined by initialzation values and a sequence of
+    observations that are "Kalman filtered".
+    """
+    def __init__(self,
+                 mod,      # Parent model
+                 m_t,      # History of hit indices used
+                 mu_t,     # History of means
+                 Sigma_t,  # History of variances
+                 R,      # Most recent residual
+                 y,        # Useful in subclasses
+                 index=None
+                 ):
+        self.type='target'
+        if isinstance(index,type(0)): # Check for int
+            self.index = index
+        else:
+            global Target_Counter
+            self.index = Target_Counter
+            Target_Counter += 1
+        self.mod = mod
+        self.m_t = m_t
+        self.mu_t = mu_t
+        self.Sigma_t = Sigma_t
+        self.R = R
+        self.children = None # Dict of targets at t+1 updated with
+                             # plausible hits and this target
+        self.invisible_count=0
+    def New(self, *args,**kwargs):
+        if args[-1] is None: # y is None, ie invisible
+            rv = TARGET4(*args,**kwargs)
+            rv.invisible_count = self.invisible_count + 1
+            return rv
+        else:
+            return TARGET4(*args,**kwargs)
+    def dump(self):
+        print '\nDump target: m_t=',self.m_t
+        print '             index=%d, len(mu_t)=%d'%(self.index,len(self.mu_t))
+        if self.children is not None:
+            print'  len(self.children)=%d'%len(self.children), self.children
+        print '   invisible_count=%d'%self.invisible_count
+    def make_children(self,        # self is a TARGET
+                      y_t,         # list of hits at time t
+                      All_children # Dict of children of all permutations
+                      ):
+        """ For each of the hits that could plausibly be an
+        observation of self, make a child target.  Collect the
+        children in a dict and attach it to self.
+        """
+        self.forecast()
+        self.children = {}
+        MD = self.mod.MaxD
+        for k in xrange(len(y_t)):
+            if MD < 0.01 or self.distance(y_t[k]) < MD:
+                # If MaxD is near zero, ie, pruning is off or hit is
+                # closer than MaxD
+                key = tuple(self.m_t+[k])
+                self.children[k] = All_children.setdefault(key,
+                                        self.update(y_t[k],k))
+        key = tuple(self.m_t + [-1]) # Child for invisible y
+        self.children[-1] = All_children.setdefault(key,self.update(None,-1))
+    def forecast(self):
+        """ Calculate forecast mean and covariance for both state and
+        observation.  Also calculate K and Sigma_next.  Save all six
+        for use by Update or Distance.
+        """
+        A = self.mod.A
+        O = self.mod.O
+        self.mu_a = A*self.mu_t[-1]
+        self.Sigma_a = A*self.Sigma_t[-1]*A.T + self.mod.Sigma_D
+        self.y_forecast = O*self.mu_a
+        Sig_y = O*self.Sigma_a*O.T + self.mod.Sigma_O
+        self.Sigma_y_forecast_I = scipy.linalg.inv(Sig_y)
+        self.K = self.Sigma_a*self.mod.O.T*self.Sigma_y_forecast_I
+        self.Sigma_next = (self.mod.Id-self.K*self.mod.O)*self.Sigma_a
+    def distance(self,y):
+        """ Rather than the Malhalanobis distance of y from forecast
+        y.  Here I generalize to sqrt(-2 Delta_R)
+        """
+        return float(-2*self.utility(y)[0])**.5
+    def update(self,
+           y,        # The observation of the target at the current time
+           m         # Index of the observation
+           ):
+        """ Create a new target with updated m_t, mu_t, Sigma_t and R
+        for the observation, index pair (y,m)."""
+        m_L = self.m_t+[m]
+        Delta_R,mu_new,Sigma_new = self.utility(y)
+        Sigma_L = self.Sigma_t + [Sigma_new]
+        mu_L = self.mu_t + [mu_new]
+        return self.New(self.mod,m_L,mu_L,Sigma_L,Delta_R,y,
+                             index=self.index)
+    def utility(self,y):
+        """Include log_prob factors for Sig_D and visibility transitions.
+        """
+        if self.m_t[-1] is -1:
+            v_old = 1
+        else:
+            v_old = 0 # Last time target was visible
+        if y is None:
+            v_new = 1 # This time the target is invisible
+        else:
+            v_new = 0
+        Delta_R = math.log(self.mod.PV_V[v_old,v_new])-self.mod.log_det_Sig_D/2
+        if y is None:
+            Sigma_new = self.Sigma_a
+            mu_new = self.mu_a
+            return (Delta_R,mu_new,Sigma_new)
+        Delta_y = y - self.y_forecast    # Error of forecast observation
+        Sigma_new = self.Sigma_next
+        mu_new = self.mu_a + self.K*Delta_y
+        Delta_R += -float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
+                           +self.mod.log_det_Sig_O)/2
+        # Term log_det_Sig_O makes total nu match old mv2.py but not
+        # match for mv1a.py.
+        return (Delta_R,mu_new,Sigma_new)
+    def KF(self,
+           y,        # The observation of the target at the current time
+           m         # Index of the observation
+           ):
+        """ Create a new target with unique index, fresh m_t, mu_t,
+        Sigma_t and R for the observation.  This is essentially
+        Kalman filtering."""
+        self.forecast()
+        r = self.update(y,m)
+        return self.New(self.mod,[r.m_t[-1]],[r.mu_t[-1]],
+                             [r.Sigma_t[-1]],r.R,y)
+    def backtrack(self):
+        T = len(self.mu_t)
+        A = self.mod.A
+        X = A.T * scipy.linalg.inv(self.mod.Sigma_D) # An intermediate
+        s_t = range(T)
+        s_t[T-1] = self.mu_t[T-1]
+        for t in xrange(T-2,-1,-1):
+            Sig_t_I = scipy.linalg.inv(self.Sigma_t[t])
+            mu_t = self.mu_t[t]
+            s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
+        return s_t
+
 class SUCCESSOR_DB:
     """
     """
@@ -291,7 +431,7 @@ class ASSOCIATION:
                     raise RuntimeError,\
         'There is no invisible child.  Perhaps MaxD is too ambitious.'
                 partial.targets.append(child)
-                partial.nu += child.R_t 
+                partial.nu += child.R 
     def count_FAs(self,partial):
         """ A method in extra_forward called by forward().  Calculate
         the utility for the number of false alarms and add that
@@ -311,7 +451,7 @@ class ASSOCIATION:
                    target.children.has_key(-1):
                 child = target.children[-1]
                 partial.targets.append(child)
-                partial.nu += child.R_t
+                partial.nu += child.R
         N_new = 0
         for target in partial.targets:
             if len(target.m_t) is 1:
@@ -439,7 +579,7 @@ class ASSOCIATION4:
         CA.N_FA = self.N_FA
         if cause.type is 'target':
             CA.tar_dict[cause.index] = None # Prevent reuse of target
-            CA.targets = self.targets + [cause.target]
+            CA.targets = self.targets + [cause]
             return CA
         if cause.type is 'FA':
             CA.targets = self.targets
@@ -453,7 +593,7 @@ class ASSOCIATION4:
         for target in self.targets:
             if target.children.has_key(k):
                 # If has_key(k) then child is plausible cause
-                causes.append(CAUSE(target.children[k]))
+                causes.append(target.children[k])
     def check_FAs(self,k,causes,y,target_0):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm
@@ -464,7 +604,7 @@ class ASSOCIATION4:
         Propose that cause is false alarm or new target
         """
         causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I)) # False alarm
-        causes.append(CAUSE(target_0.KF(y,k)))  # New target
+        causes.append(target_0.KF(y,k))  # New target
     def invisibles(self,partial):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association.
@@ -477,7 +617,7 @@ class ASSOCIATION4:
                     raise RuntimeError,\
         'There is no invisible child.  Perhaps MaxD is too ambitious.'
                 partial.targets.append(child)
-                partial.nu += child.R_t 
+                partial.nu += child.R 
     def count_FAs(self,partial):
         """ A method in extra_forward called by forward().  Calculate
         the utility for the number of false alarms and add that
@@ -497,7 +637,7 @@ class ASSOCIATION4:
                    target.children.has_key(-1):
                 child = target.children[-1]
                 partial.targets.append(child)
-                partial.nu += child.R_t
+                partial.nu += child.R
         N_new = 0
         for target in partial.targets:
             if len(target.m_t) is 1:
@@ -847,7 +987,7 @@ class MV4:
                  Lambda_FA=0.3
                  ):
         self.ASSOCIATION = ASSOCIATION4
-        self.TARGET = TARGET2
+        self.TARGET = TARGET4
         self.N_tar = N_tar
         self.A = scipy.matrix(A)
         dim,check = self.A.shape
