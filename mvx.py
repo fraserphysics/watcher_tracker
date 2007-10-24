@@ -69,9 +69,8 @@ class TARGET:
                 # If MaxD is near zero, ie, pruning is off or hit is
                 # closer than MaxD
                 key = tuple(self.m_t+[k])
-                if not All_children.has_key(key):
-                    All_children[key] = self.update(y_t[k],k)
-                self.children[k] = All_children[key]
+                self.children[k] = All_children.setdefault(key,
+                                        self.update(y_t[k],k))
     def forecast(self):
         """ Calculate forecast mean and covariance for both state and
         observation.  Also calculate K and Sigma_next.  Save all six
@@ -160,10 +159,7 @@ class TARGET2(TARGET):
         TARGET.make_children()."""
         TARGET.make_children(self,y_t,All_children)
         key = tuple(self.m_t + [-1])
-        if not All_children.has_key(key):
-            All_children[key] = self.update(None,-1)
-        self.children[-1] = All_children[key]  # Child for invisible y
-
+        self.children[-1] = All_children.setdefault(key,self.update(None,-1))
     def utility(self,y):
         """Include log_prob factors for Sig_D and visibility transitions.
         """
@@ -208,10 +204,10 @@ class SUCCESSOR_DB:
               ):
         key = tuple(association.h2c) # An explanation of each component of y_t
         u_prime = association.nu     # The utility of the candidate
-        if not self.successors.has_key(key):
-            self.successors[key] = {'associations':[],'u_primes':[]}
-        self.successors[key]['associations'].append(association)
-        self.successors[key]['u_primes'].append(u_prime)
+        suc_key = self.successors.setdefault(key,
+                      {'associations':[],'u_primes':[]})
+        suc_key['associations'].append(association)
+        suc_key['u_primes'].append(u_prime)
     def length(self):
         return len(self.successors)
     def maxes(self):
@@ -334,7 +330,6 @@ class ASSOCIATION:
     def make_children(self,    # self is a ASSOCIATION
                       y_t,     # All observations at time t
                       cousins, # Dict of children of sibling ASSOCIATIONs
-                      first,   # Used by ASSOCIATION4
                       t        # Used by ASSOCIATION4
                       ):
         for target in self.targets:
@@ -412,25 +407,23 @@ class ASSOCIATION4(ASSOCIATION):
         ASSOCIATION.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets,self.check_news]
         self.extra_forward = [self.extra_news,self.count_FAs]
-        self.dead_targets = []
+        self.dead_targets = {}
         self.type='ASSOCIATION4'
     def New(self, *args,**kwargs):
         NA = ASSOCIATION4(*args,**kwargs)
-        NA.dead_targets = self.dead_targets[:] # Copy
+        NA.dead_targets = self.dead_targets.copy()
         return NA
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
                       cousins, # Dict of children of sibling ASSOCIATIONs
-                      first,   # If true, save targets in dead_targets
                       t        # Save time too
                       ):
         for target in self.targets:
             if target.invisible_count < Invisible_Lifetime:
                 target.make_children(y_t,cousins)
             else:
-                if first:
-                    self.dead_targets.append([target,t])
-                    target.children = {}
+                self.dead_targets.setdefault(target.index,[target,t])
+                target.children = {}
 class MV1:
     """A simple model of observed motion with the following groups of
     methods:
@@ -559,14 +552,12 @@ class MV1:
         for t in xrange(0,T):
             child_targets = {}          # Dict of all targets for time t
             successors = SUCCESSOR_DB() # Just to make the while loop start
-            first = True
             while successors.length() is 0:
                 # For each old target, collect all plausibly
                 # associated hits and create a corresponding child
                 # target by Kalman filtering
                 for A in old_As:
-                    A.make_children(Ys[t],child_targets,first,t)
-                first=False
+                    A.make_children(Ys[t],child_targets,t)
                 # Build u' lists for all possible successor
                 # associations at time t.  Put new_As in DB so many
                 # predecessors can find same successor
@@ -709,7 +700,7 @@ class MV4(MV3):
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
     def decode_back(self,A_best,T):
         targets_times = []
-        for pair in A_best.dead_targets:
+        for pair in A_best.dead_targets.values():
             target = pair[0]
             t_i = pair[1]-len(target.m_t)
             t_f = pair[1]-Invisible_Lifetime

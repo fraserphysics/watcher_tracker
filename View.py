@@ -25,10 +25,9 @@ class FloatSlider(wx.Slider):
         self.FStep = Step
         self.Fvalue = Value
         self.Call_Back = call_back
-        MV = int((Max-Min)/Step)
         V = int((Value-Min)/Step)
         wx.Slider.__init__(self, parent, id=ID, value=V, minValue=0,
-                           maxValue=MV, **kwargs)
+                           maxValue=int((Max-Min)/Step), **kwargs)
         parent.Bind(wx.EVT_SLIDER, self.scale, self)
     def scale(self,event):
         Ivalue = self.GetValue()
