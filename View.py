@@ -17,7 +17,6 @@ sig_v = 0.2
 sig_O = 0.3
 MaxD   = 4.0   # Maximum Malhabonobis distance from forecast to y
 MaxP = 120     # Number of permutations allowed
-Model_Class = mv1a.MV1a
 
 class FloatSlider(wx.Slider):
     def __init__(self, parent, ID, Min, Max, Step, Value, call_back, **kwargs):
@@ -65,6 +64,10 @@ class PlotPanelA(demo.PlotPanel):
                  markeredgecolor='black', marker='x',linewidth=0,
                  markeredgewidth=2,markersize=25)
         if self.A is None:
+            self.subplot.set_ylim(-80,80)
+            self.subplot.set_title(self.title, fontsize = 12)
+            self.subplot.set_ylabel(self.ylabel, fontsize = 10)
+            self.subplot.set_xlabel(self.xlabel, fontsize = 10)
             return
         # If associations are available, use them to connect dots.
         # A[t] is a dict; keys are targets; y[t][A[t][key]] is an
@@ -86,6 +89,7 @@ class PlotPanelA(demo.PlotPanel):
         self.subplot.set_title(self.title, fontsize = 12)
         self.subplot.set_ylabel(self.ylabel, fontsize = 10)
         self.subplot.set_xlabel(self.xlabel, fontsize = 10)
+        self.subplot.set_ylim(-80,80)
 
     def _forceDraw(self):
         self.draw()
@@ -107,10 +111,9 @@ class PlotPanelB(PlotPanelA):
             return
         self.subplot.hold(True)
         self.subplot.clear()
-        N_tar = len(self.s[0])
         T = len(self.s)
         # Draw dots for each state at each time
-        for k in xrange(N_tar):
+        for k in xrange(len(self.s[0])):
             color = self.colors[k%len(self.colors)]
             x = []
             y = []
@@ -126,18 +129,19 @@ class PlotPanelB(PlotPanelA):
                  markerfacecolor=color, markeredgecolor=color, marker='x',
                  linewidth=0, markeredgewidth=2, markersize=25)
         if self.d is None:
+            self.subplot.set_title(self.title, fontsize = 12)
+            self.subplot.set_ylabel(self.ylabel, fontsize = 10)
+            self.subplot.set_xlabel(self.xlabel, fontsize = 10)
+            self.subplot.set_ylim(-80,80)
             return
         # Draw lines for each decoded state trajectory
-        for k in xrange(N_tar):
-            if self.d[k] is None:
-                continue
+        for k in xrange(len(self.d)):
             x = []
             y = []
             for t in xrange(T):
-                if self.d[k][t] is None:
-                    continue
-                x.append(self.d[k][t][1,0])
-                y.append(self.d[k][t][0,0])
+                if self.d[k][t] is not None:
+                    x.append(self.d[k][t][1,0])
+                    y.append(self.d[k][t][0,0])
             color = self.colors[k%len(self.colors)]
             self.subplot.plot(x,y, lw=2, color=color, linestyle='-')
             t = self.t
@@ -148,6 +152,7 @@ class PlotPanelB(PlotPanelA):
         self.subplot.set_title(self.title, fontsize = 12)
         self.subplot.set_ylabel(self.ylabel, fontsize = 10)
         self.subplot.set_xlabel(self.xlabel, fontsize = 10)
+        self.subplot.set_ylim(-80,80)
 
 def layout(panel, compList, orient=wx.VERTICAL):
     box = wx.BoxSizer(orient)
@@ -340,7 +345,7 @@ class ControlPanel(wx.Panel):
         mv3Button = wx.Button(parent=self, id=-1, label='MV3')
         self.Bind(wx.EVT_BUTTON, parent.Mv3Clicked, mv3Button)
 
-        mvxButton = wx.Button(parent=self, id=-1, label='MVx')
+        mvxButton = wx.Button(parent=self, id=-1, label='MV4')
         self.Bind(wx.EVT_BUTTON, parent.MvxClicked, mvxButton)
 
         sim_frame = wx.Panel(self,-1)

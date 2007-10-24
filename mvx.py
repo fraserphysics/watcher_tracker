@@ -425,7 +425,7 @@ class ASSOCIATION4(ASSOCIATION):
                       t        # Save time too
                       ):
         for target in self.targets:
-            if target.invisible_count < Invisible_Lifetime: #FixMe:
+            if target.invisible_count < Invisible_Lifetime:
                 target.make_children(y_t,cousins)
             else:
                 if first:
