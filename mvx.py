@@ -452,7 +452,8 @@ class MV1:
         self.A = scipy.matrix(A)
         dim,check = self.A.shape
         if dim != check:
-            raise RuntimeError,"A should be square but it's dimensions are (%d,%d)"%(dim,check)
+            raise RuntimeError,\
+         "A should be square but it's dimensions are (%d,%d)"%(dim,check)
         self.Id = scipy.matrix(scipy.identity(dim))
         self.Sigma_D = scipy.matrix(Sigma_D)
         self.O = scipy.matrix(O)
@@ -543,9 +544,6 @@ class MV1:
         target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
                                0.0,None)
         partial = self.ASSOCIATION(0.0,self)
-#         for k in xrange(len(Ys[0])):
-#             target_k = target_0.KF(Ys[0][k],k)
-#             partial = partial.Fork(CAUSE(target_k))
         
         # Forward pass through time
         old_As = [partial]
@@ -689,15 +687,132 @@ class MV3(MV2):
         return obs,xs
     ############## End simulation methods ######################
 
-class MV4(MV3):
-    """  Like MV3 but new targets are possible
+class MV4:
+    """  
     """
-    def __init__(self,Lambda_new=0.05,**kwargs):
-        MV3.__init__(self,**kwargs)
+    def __init__(self,                           # MVa1
+                 N_tar = 3,                      # Number of targets
+                 A = [[0.81,1],[0,.81]],         # Linear state dynamics
+                 Sigma_D = [[0.01,0],[0,0.4]],   # Dynamical noise
+                 O = [[1,0]],                    # Observation porjection
+                 Sigma_O = [[0.25]],             # Observational noise
+                 Sigma_init = None,              # Initial state distribution
+                 mu_init = None,                 # Initial state distribution
+                 MaxD = 0,                       # Threshold for hits
+                 MaxP = 120,
+                 PV_V=[[.9,.1],[.2,.8]],
+                 Lambda_new=0.05,
+                 Lambda_FA=0.3
+                 ):
+        self.ASSOCIATION = ASSOCIATION4
+        self.TARGET = TARGET2
+        self.N_tar = N_tar
+        self.A = scipy.matrix(A)
+        dim,check = self.A.shape
+        if dim != check:
+            raise RuntimeError,\
+         "A should be square but it's dimensions are (%d,%d)"%(dim,check)
+        self.Id = scipy.matrix(scipy.identity(dim))
+        self.Sigma_D = scipy.matrix(Sigma_D)
+        self.O = scipy.matrix(O)
+        self.Sigma_O = scipy.matrix(Sigma_O)
+        self.log_det_Sig_D = scipy.linalg.det(self.Sigma_D)
+        self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
+        self.N_perm = int(scipy.factorial(N_tar))
+        if mu_init == None:
+            self.mu_init = scipy.matrix(scipy.zeros(dim)).T
+        else:
+            self.mu_init = scipy.matrix(mu_init).T
+        if Sigma_init == None:# A clever man would simply solve
+            Sigma_init = scipy.matrix(scipy.identity(dim))
+            for t in xrange(100):
+                Sigma_init = self.A*Sigma_init*self.A.T + self.Sigma_D
+            self.Sigma_init = Sigma_init
+        else:
+            self.Sigma_init = scipy.matrix(Sigma_init)
+        self.MaxD = MaxD
+        self.MaxD_limit = MaxD
+        self.MaxP = MaxP
+        self.PV_V = scipy.matrix(PV_V)
+        self.Lambda_FA = Lambda_FA # Average number of false alarms per frame
+        Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
+        self.Sigma_FA = Sigma_FA
+        self.log_FA_norm = - math.log(scipy.linalg.det(Sigma_FA))/2
+        self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
         self.ASSOCIATION = ASSOCIATION4
         self.Lambda_new = Lambda_new # Average number of new targets
                                      # per frame
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
+
+    def decode_forward(self,
+               Ys # Observations. Ys[t][k] is the kth hit at time t
+               ):
+        """Forward pass for decoding.  Return association at final
+        time with highest utility, nu."""
+        T = len(Ys)
+
+        # Initialize by making a target and cause for each of the hits
+        # at t=0 and collecting them in a single association.
+        target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
+                               0.0,None)
+        partial = self.ASSOCIATION(0.0,self)
+        
+        # Forward pass through time
+        old_As = [partial]
+        for t in xrange(0,T):
+            child_targets = {}          # Dict of all targets for time t
+            successors = SUCCESSOR_DB() # Just to make the while loop start
+            while successors.length() is 0:
+                # For each old target, collect all plausibly
+                # associated hits and create a corresponding child
+                # target by Kalman filtering
+                for A in old_As:
+                    A.make_children(Ys[t],child_targets,t)
+                # Build u' lists for all possible successor
+                # associations at time t.  Put new_As in DB so many
+                # predecessors can find same successor
+                successors = SUCCESSOR_DB()
+                for A in old_As:
+                    A.forward(successors,Ys[t],target_0)
+                self.MaxD *= 2
+                #### Begin debugging check and print ####
+                if successors.length() is 0 and \
+                       (self.MaxD<1e-6 or self.MaxD>1e6):
+                    raise RuntimeError,"""
+No new associations in decode():
+t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
+successors.length()=%d
+"""%(t,len(old_As), len(child_targets),len(Ys[t]),self.MaxD,
+     successors.length())
+                #### End debugging check and print ####
+            # End of while
+            self.MaxD = max(self.MaxD/4,self.MaxD_limit)
+            # For each association at time t, find the best predecessor
+            # and the associated targets and collect them in old_As
+            new_As = successors.maxes()
+
+            # Pass up to MaxP new_As to old_As
+            if len(new_As) > self.MaxP:
+                Rs = []
+                for A in new_As:
+                    Rs.append(A.nu)
+                Rs.sort()
+                limit = Rs[-self.MaxP]
+                old_As = []
+                for A in new_As:
+                    if A.nu >= limit:
+                        old_As.append(A)
+            else:
+                old_As = new_As
+        # End of for loop over t
+        
+        # Find the best last association
+        R = scipy.zeros(len(old_As))
+        for i in xrange(len(old_As)):
+            R[i] = old_As[i].nu
+        A_best = old_As[R.argmax()]
+        print 'nu_max=%f'%A_best.nu
+        return (A_best,T)
     def decode_back(self,A_best,T):
         targets_times = []
         for pair in A_best.dead_targets.values():
@@ -724,8 +839,56 @@ class MV4(MV3):
                 y_A[t][k] = target.m_t[t-start] # y[t][y_A[t][k]] is
                                                 # associated with target k.
         return (d,y_A)
-    
+    def decode(self,
+               Ys # Observations. Ys[t][k] is the kth hit at time t
+               ):
+        """Return MAP state sequence """
+        A_best,T = self.decode_forward(Ys)
+        return self.decode_back(A_best,T)
+        
     ############## Begin simulation methods ######################
+    def step_state(self, state, zero_s):
+        epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
+        return self.A*state + epsilon
+    def observe_states(self, states_t, v_t, zero_y):
+        v_states = []
+        for k in xrange(len(v_t)):
+            if v_t[k] is 0:
+                v_states.append(states_t[k])
+        y_t = []
+        for state in v_states:
+            eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
+            y_t.append(self.O * state + eta)
+        return y_t
+    def shuffle(self, things_i):
+        N = len(things_i)
+        if N is 0:
+            return []
+        things_o = N*[None]
+        permute = util.index_to_permute(random.randint(0,N-1),N)
+        for k in xrange(N):
+            things_o[k] = things_i[permute[k]]
+        return things_o
+    def sim_zeros(self):
+        """ Make two useful zero matrices """
+        s_dim = self.mu_init.shape[1]
+        zero_s = scipy.matrix(scipy.zeros(s_dim))
+        y_dim = self.Sigma_O.shape[0]
+        zero_y = scipy.matrix(scipy.zeros(y_dim))
+        return (zero_s,zero_y)
+    def step_vis(self,v):
+        pv = self.PV_V[v,0]
+        if pv > random.random():
+            return 0
+        else:
+            return 1
+    def sim_init(self,N):
+        x_j = []
+        v_j = []
+        for j in xrange(N):
+            x_j.append(util.normalS(self.mu_init,self.Sigma_init))
+            v_j.append(0)
+        return (x_j,v_j,0)
     def step_count(self, x, v, c, zero_x):
         """ Step target vector x and visibilty v count of number of
         times that v != 0 (not visible) in c.
@@ -749,7 +912,7 @@ class MV4(MV3):
                 s_k[t-Invisible_Lifetime:t] = Invisible_Lifetime*[None]
                 break
         return (s_k,v_k)
-    def simulate(self, T):
+    def simulate(self, T): # for MV4
         """ Return a sequence of T observations and a sequence of T
         states."""
         #Start with N_tar visible targets
