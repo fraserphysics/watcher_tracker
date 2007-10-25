@@ -72,7 +72,7 @@ class TARGET4(CAUSE_FA):
             print'  len(self.children)=%d'%len(self.children)
             for child in self.children.values():
                 child.dump()
-    def make_children(self,        # self is a TARGET
+    def make_children(self,        # self is a TARGET4
                       y_t,         # list of hits at time t
                       All_children # Dict of children of all permutations
                       ):
@@ -172,7 +172,7 @@ class TARGET4(CAUSE_FA):
 class TARGET1(TARGET4):
     def New(self, *args,**kwargs):
         return TARGET1(*args,**kwargs)
-    def make_children(self,        # self is a TARGET
+    def make_children(self,        # self is a TARGET1
                       y_t,         # list of hits at time t
                       All_children # Dict of children of all permutations
                       ):
@@ -453,22 +453,24 @@ class MV4:
                                      # per frame
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
 
+    def decode_init(self,
+                    Ys # Used by subclasses
+                    ):
+        return ([self.ASSOCIATION(0.0,self)],0) # old_As and t_first
+        
     def decode_forward(self,
-               Ys # Observations. Ys[t][k] is the kth hit at time t
-               ):
+                       Ys,     # Observations. Ys[t][k]
+                       old_As, # Initial association or nub
+                       t_first # Starting t for iteration
+                       ):
         """Forward pass for decoding.  Return association at final
         time with highest utility, nu."""
         T = len(Ys)
-
-        # Initialize by making a target and cause for each of the hits
-        # at t=0 and collecting them in a single association.
         target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
-                               0.0,None)
-        partial = self.ASSOCIATION(0.0,self)
-        
+                               0.0,None)        
         # Forward pass through time
-        old_As = [partial]
-        for t in xrange(0,T):
+        for t in xrange(t_first,T):
+            print 't=%d in decode_forward'%t
             child_targets = {}          # Dict of all targets for time t
             successors = SUCCESSOR_DB() # Just to make the while loop start
             while successors.length() is 0:
@@ -525,6 +527,9 @@ successors.length()=%d
         print 'nu_max=%f'%A_best.nu
         return (A_best,T)
     def decode_back(self,A_best,T):
+        """ Backtrack from best association at final time to get MAP
+        trajectories.
+        """
         targets_times = []
         for pair in A_best.dead_targets.values():
             target = pair[0]
@@ -537,12 +542,13 @@ successors.length()=%d
             t_f = T
             t_i = T-len(target.m_t)
             targets_times.append([target,t_i,t_f])
-        y_A = []
+        y_A = [] # y_A[t] is a dict.  y_A[t][k] gives the index of
+                 # y[t] associated with target k.  So y[t][A[t][k]] is
+                 # associated with target k.
         for t in xrange(T):
             y_A.append({}) # Initialize association dicts
-        N_tar = len(targets_times)
-        d = []
-        for k in xrange(N_tar):
+        d = [] #If not None, d[k][t] is the x vector for target_k at time t
+        for k in xrange(len(targets_times)):
             d.append(T*[None])# Initialize list of decoded states with Nones
             target,start,stop = targets_times[k]
             d[k][start:stop] = target.backtrack()# Set decoded values
@@ -554,9 +560,9 @@ successors.length()=%d
                Ys # Observations. Ys[t][k] is the kth hit at time t
                ):
         """Return MAP state sequence """
-        A_best,T = self.decode_forward(Ys)
+        A,t_0 = self.decode_init(Ys)
+        A_best,T = self.decode_forward(Ys,A,t_0)
         return self.decode_back(A_best,T)
-        
     ############## Begin simulation methods ######################
     def step_state(self, state, zero_s):
         epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
@@ -660,7 +666,6 @@ successors.length()=%d
             obs[t] = self.shuffle(y)
         return obs,stk
     ############## End simulation methods ######################
-
 class ASSOCIATION3(ASSOCIATION4):
     """ Number of targets is fixed
     """
@@ -671,34 +676,6 @@ class ASSOCIATION3(ASSOCIATION4):
         self.type='ASSOCIATION3'
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
-class MV3(MV4):
-    """ Number of targets is fixed    
-    """
-    def __init__(self,**kwargs):
-        MV4.__init__(self,**kwargs)
-        self.ASSOCIATION = ASSOCIATION3        
-    ############## Begin simulation methods ######################
-    def simulate(self, T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        x_j,v_j,N_FA = self.sim_init(self.N_tar)
-        zero_x,zero_y = self.sim_zeros()
-        # Lists for results
-        xs = []
-        obs = []
-        for t in xrange(T):
-            xs.append(x_j)        # Save X[t] part of state for return
-            # Generate observations Y[t]
-            obs_t = self.observe_states(x_j,v_j,zero_y)
-            for k in xrange(N_FA):
-                obs_t.append(util.normalS(zero_y,self.Sigma_FA))
-            obs.append(self.shuffle(obs_t))
-            # Generate state, visibility, and N_FA for next t
-            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
-            v_j = map(self.step_vis,v_j)
-            N_FA = scipy.random.poisson(self.Lambda_FA)
-        return obs,xs
-    ############## End simulation methods ######################
 class ASSOCIATION1(ASSOCIATION4):
     """ No extra_forward methods
     """
@@ -730,100 +707,20 @@ class MV1(MV4):
         return obs,states
     ############## End simulation methods ######################
     # Old decode for MV1 from version 77
-    def decode(self,
+    def decode_init(self,
                Ys # Observations. Ys[t][k] is the kth hit at time t
                ):
-        """Return MAP state sequence """
+        """Initialize by making a target for each of the hits at t=0
+        and collecting them in a single association.
+        """
         T = len(Ys)
-
-        # Initialize by making a target and cause for each of the hits
-        # at t=0 and collecting them in a single association.
         target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0,
                                None)
         partial = self.ASSOCIATION(0.0,self)
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
             partial = partial.Fork(target_k)
-        
-        # Forward pass through time
-        old_As = [partial]
-        for t in xrange(1,T):
-            child_targets = {}          # Dict of all targets for time t
-            suc_length = 0
-            while suc_length is 0:
-                for A in old_As:
-                    A.make_children(Ys[t],child_targets,t)
-                successors = SUCCESSOR_DB()
-                for A in old_As:
-                    A.forward(successors,Ys[t],target_0)
-                suc_length = successors.length()
-                self.MaxD *= 2
-                if suc_length is 0 and \
-                       (self.MaxD<1e-6 or self.MaxD>1e6):
-                    raise RuntimeError,"""
-No new associations in decode():
-t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
-successors.length()=%d
-"""%\
-                (t,len(old_As), len(child_targets),len(Ys[t]),self.MaxD,
-                 suc_length)
-                # End of while
-            self.MaxD = max(self.MaxD/4,self.MaxD_limit)
-            # For each association at time t, find the best predecessor
-            # and the associated targets and collect them in old_As
-            new_As = successors.maxes()
-
-            # Pass up to MaxP new_As to old_As
-            if len(new_As) > self.MaxP:
-                Rs = []
-                for A in new_As:
-                    Rs.append(A.nu)
-                Rs.sort()
-                limit = Rs[-self.MaxP]
-                old_As = []
-                for A in new_As:
-                    if A.nu >= limit:
-                        old_As.append(A)
-            else:
-                old_As = new_As
-        
-        # Find the best last association
-        R = scipy.zeros(len(old_As))
-        for i in xrange(len(old_As)):
-            R[i] = old_As[i].nu
-        A_best = old_As[R.argmax()]
-        print 'nu_max=%f'%A_best.nu
-
-        # Backtrack to get trajectories
-        tracks = [] # tracks[k][t] is the x vector for target_k at time t
-        y_A = []    # y_A[t] is a dict.  y_A[t][k] gives the index of
-                    # y[t] associated with target k.  So y[t][A[t][k]]
-                    # is associated with target k.
-        for t in xrange(T):
-            y_A.append({}) # Association dicts
-        for k in xrange(len(A_best.targets)):
-            target = A_best.targets[k]
-            tracks.append(target.backtrack())
-            for t in xrange(T):
-                y_A[t][k] = target.m_t[t]
-        return (tracks,y_A)
-
-    def decode_back(self,A_best,T):
-        """ Backtrack from best association at final time to get MAP
-        trajectories.
-        """
-        tracks = [] # tracks[k][t] is the x vector for target_k at time t
-        y_A = []    # y_A[t] is a dict.  y_A[t][k] gives the index of
-                    # y[t] associated with target k.  So y[t][A[t][k]]
-                    # is associated with target k.
-        for t in xrange(T):
-            y_A.append({}) # Association dicts
-        for k in xrange(len(A_best.targets)):
-            target = A_best.targets[k]
-            tracks.append(target.backtrack())
-            for t in xrange(T):
-                y_A[t][k] = target.m_t[t]
-        return (tracks,y_A)
+        return ([partial],1) # old_As and t_first
 class ASSOCIATION2(ASSOCIATION4):
     """ Only extra_forward method invisibles() allows and
     accounts for targets that move from an association at time t-1 to
@@ -836,11 +733,12 @@ class ASSOCIATION2(ASSOCIATION4):
         self.extra_forward = [self.invisibles]
         self.type='ASSOCIATION2'
     def New(self, *args,**kwargs):
-        return ASSOCIATION4(*args,**kwargs)
+        return ASSOCIATION2(*args,**kwargs)
 class MV2(MV1):
     def __init__(self,**kwargs):
         MV4.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION2
+        self.TARGET = TARGET4
     ############## Begin simulation methods ######################       
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
@@ -856,25 +754,52 @@ class MV2(MV1):
             v_j = map(self.step_vis,v_j)
         return obs,xs
     ############## End simulation methods ######################
+class MV3(MV1):
+    """ Number of targets is fixed    
+    """
+    def __init__(self,**kwargs):
+        MV1.__init__(self,**kwargs)
+        self.ASSOCIATION = ASSOCIATION3   
+        self.TARGET = TARGET4     
+    ############## Begin simulation methods ######################
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        x_j,v_j,N_FA = self.sim_init(self.N_tar)
+        zero_x,zero_y = self.sim_zeros()
+        # Lists for results
+        xs = []
+        obs = []
+        for t in xrange(T):
+            xs.append(x_j)        # Save X[t] part of state for return
+            # Generate observations Y[t]
+            obs_t = self.observe_states(x_j,v_j,zero_y)
+            for k in xrange(N_FA):
+                obs_t.append(util.normalS(zero_y,self.Sigma_FA))
+            obs.append(self.shuffle(obs_t))
+            # Generate state, visibility, and N_FA for next t
+            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
+            v_j = map(self.step_vis,v_j)
+            N_FA = scipy.random.poisson(self.Lambda_FA)
+        return obs,xs
+    ############## End simulation methods ######################
 # Test code
 if __name__ == '__main__':
     import time
     random.seed(3)
     ts = time.time()
     for pair in (
-        [MV1(N_tar=4),'MV1']
-        ,
-        [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2']
-        ,
-        [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4']
-        ,
-        [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3']
+        [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3'],
         ):
+#        [MV1(N_tar=4),'MV1'],
+#         ,
+#         [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2']
+#         ,
+#         [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4']
+#         ):
         M=pair[0]
-        print pair[1]
-
-        print 'before simulate'
-        y,s = M.simulate(5)
+        print '%s: before simulate'%pair[1]
+        y,s = M.simulate(20)
         print 'before decode'
         d,tmp = M.decode(y)
         print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
