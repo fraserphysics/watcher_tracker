@@ -3,16 +3,6 @@ FILE: mvx.py  All model variations in a single file.  I started this
 after writing mv3.py which imported mv2.py and mv1a.py.  I wanted more
 coherence before starting on mv4 which allows a variable number of
 targets.
-
-mv1a.py used a map from targets to observations.  I want to use a map
-from observations to causes for mv4 and I modified mv3 to do that.
-This file will use maps from observations to causes for all model
-versions.
-
-10/22/07: To date, I have made each successive class with more
-features a sub class of a simpler class.  Ultimately, I think the code
-will be easier to read if I make the subclasses simpler.
-
 """
 import numpy, scipy, scipy.linalg, random, math, util
 def log_Poisson(Lambda,N):
@@ -20,11 +10,8 @@ def log_Poisson(Lambda,N):
 Invisible_Lifetime = 5
 Target_Counter = 0
 
-class CAUSE_FA:
-    def __init__(self,
-                 y,        # To calculate R for FA
-                 Sigma_I   # To calculate R for FA
-                 ):
+class CAUSE_FA: # False Alarm
+    def __init__(self, y, Sigma_I ):
         self.type = 'FA'
         self.index = -1
         self.R = -float(y.T*Sigma_I*y/2)
@@ -38,7 +25,7 @@ class TARGET4(CAUSE_FA):
                  m_t,      # History of hit indices used
                  mu_t,     # History of means
                  Sigma_t,  # History of variances
-                 R,      # Most recent residual
+                 R,        # Most recent residual
                  y,        # Useful in subclasses
                  index=None
                  ):
@@ -54,9 +41,9 @@ class TARGET4(CAUSE_FA):
         self.mu_t = mu_t
         self.Sigma_t = Sigma_t
         self.R = R
-        self.children = None # Dict of targets at t+1 updated with
-                             # plausible hits and this target
-        self.invisible_count=0
+        self.children = None  # Will be dict of targets at t+1 updated with
+                              # hits plausibly caused by this target
+        self.invisible_count=0# Number of time steps target has been invisible
     def New(self, *args,**kwargs):
         if args[-1] is None: # y is None, ie invisible
             rv = TARGET4(*args,**kwargs)
@@ -108,7 +95,7 @@ class TARGET4(CAUSE_FA):
         self.Sigma_next = (self.mod.Id-self.K*self.mod.O)*self.Sigma_a
     def distance(self,y):
         """ Rather than the Malhalanobis distance of y from forecast
-        y.  Here I generalize to sqrt(-2 Delta_R)
+        y, I generalize to sqrt(-2 Delta_R)
         """
         return float(-2*self.utility(y)[0])**.5
     def update(self,
@@ -144,16 +131,13 @@ class TARGET4(CAUSE_FA):
         mu_new = self.mu_a + self.K*Delta_y
         Delta_R += -float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
                            +self.mod.log_det_Sig_O)/2
-        # Term log_det_Sig_O makes total nu match old mv2.py but not
-        # match for mv1a.py.
         return (Delta_R,mu_new,Sigma_new)
     def KF(self,
            y,        # The observation of the target at the current time
            m         # Index of the observation
            ):
-        """ Create a new target with unique index, fresh m_t, mu_t,
-        Sigma_t and R for the observation.  This is essentially
-        Kalman filtering."""
+        """ Use a Kalman filter to create a new target with a unique
+        index, fresh m_t, mu_t, Sigma_t and R for the observation y."""
         self.forecast()
         r = self.update(y,m)
         return self.New(self.mod,[r.m_t[-1]],[r.mu_t[-1]],
@@ -169,37 +153,6 @@ class TARGET4(CAUSE_FA):
             mu_t = self.mu_t[t]
             s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
         return s_t
-class TARGET1(TARGET4):
-    def New(self, *args,**kwargs):
-        return TARGET1(*args,**kwargs)
-    def make_children(self,        # self is a TARGET1
-                      y_t,         # list of hits at time t
-                      All_children # Dict of children of all permutations
-                      ):
-        """ Like TARGET4 make_children but no invisible targets
-        """
-        self.forecast()
-        self.children = {}
-        MD = self.mod.MaxD
-        for k in xrange(len(y_t)):
-            if MD < 0.01 or self.distance(y_t[k]) < MD:
-                # If MaxD is near zero, ie, pruning is off or hit is
-                # closer than MaxD
-                key = tuple(self.m_t+[k])
-                if not All_children.has_key(key):
-                    All_children[key] = self.update(y_t[k],k)
-                self.children[k] = All_children[key]
-    def utility(self,y,R0=0.0):
-        """ Like TARGET4.utility but no visibilty probabilities.
-        """
-        Delta_y = y - self.y_forecast    # Error of forecast observation
-        Sigma_new = self.Sigma_next
-        mu_new = self.mu_a + self.K*Delta_y
-        Delta_R = R0-float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
-                           +self.mod.log_det_Sig_O)/2
-        # Term log_det_Sig_O makes total nu match old mv2.py but not
-        # match for mv1a.py.
-        return (Delta_R,mu_new,Sigma_new)
 class SUCCESSOR_DB:
     """For each possible successor key, collect candidate predecessors
     and the associated u_prime.
@@ -235,10 +188,20 @@ class ASSOCIATION4:
      __init__: Called with None or with an existing association and a
                cause to create a new association with an explanation
                for an additional observation.
-     
+
+     New and Fork: Create a child association that explains one more hit
+
      forward:  Create plausible sucessor associations
 
      make_children:  Call target.make_children() for each target
+
+     check_targets, check_FAs and check_news: Checks in list of
+         cause_checks called by forward() that propose causes of hits
+
+    invisibles, count_FAs and extra_news: Entries in list of methods
+         extra_forward that are called by forward().  These methods
+         modify an association to account for invisible targets, false
+         alarms, and new targets.
     """
     def __init__(self,nu,mod):
         self.nu = nu        # Utility of best path ending here
@@ -255,7 +218,7 @@ class ASSOCIATION4:
         NA = ASSOCIATION4(*args,**kwargs)
         NA.dead_targets = self.dead_targets.copy()
         return NA
-    def Fork(self, # Create a child that extends self by cause
+    def Fork(self, # Create a child that extends association by cause
             cause  # CAUSE of next hit in y_t
             ):
         CA = self.New(self.nu + cause.R,self.mod)
@@ -271,9 +234,6 @@ class ASSOCIATION4:
             CA.N_FA += 1
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
-    def dump(self):
-        print 'Dumping %s: nu=%f, N_FA=%d, len(targets)=%d'%(self.type,
-               self.nu,self.N_FA,len(self.targets))
     def check_targets(self,k,causes,y,target_0):
         """ A check method for list cause_checks called by forward().
         This method appends relevant children to plausible causes.
@@ -343,7 +303,7 @@ class ASSOCIATION4:
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
                       cousins, # Dict of children of sibling ASSOCIATIONs
-                      t        # Save time too
+                      t        # Save time for dead targets
                       ):
         for target in self.targets:
             if target.invisible_count < Invisible_Lifetime:
@@ -351,12 +311,12 @@ class ASSOCIATION4:
             else:
                 self.dead_targets.setdefault(target.index,[target,t])
                 target.children = {}
-    def forward(self,
-                successors, # A DB of associations for the next time step
-                y_t,        # The hits at this time
+    def forward(self,       # ASSOCIATION4
+                successors, # DB of associations and u's for the next time step
+                y_t,        # Hits at this time
                 target_0    # For starting new targets
                 ):
-        """ For each plausible successor S of the ASSOCIATION self
+        """ For each plausible successor S of the ASSOCIATION self,
         enter the following into the successors DB 1. A key for the
         explanatinon that S gives for the observations. 2. The
         candidate successor association S. 3. The value of
@@ -376,7 +336,7 @@ class ASSOCIATION4:
             new_list = []
             for partial in old_list:
                 for cause in causes[k]:
-                    # Don't use same target index more than once
+                    # Don't use same target index more than once.
                     # tar_dict has only targets, not FAs
                     if not partial.tar_dict.has_key(cause.index):
                         new_list.append(partial.Fork(cause))
@@ -397,23 +357,21 @@ class ASSOCIATION4:
 class MV4:
     """ A state consists of: Association; Locations; and Visibilities;
     (and the derivable N_FA), ie,
-
     s = (M,X,V,N_FA)
-    
     """
-    def __init__(self,                           # MVa1
-                 N_tar = 3,                      # Number of targets
-                 A = [[0.81,1],[0,.81]],         # Linear state dynamics
-                 Sigma_D = [[0.01,0],[0,0.4]],   # Dynamical noise
-                 O = [[1,0]],                    # Observation porjection
-                 Sigma_O = [[0.25]],             # Observational noise
-                 Sigma_init = None,              # Initial state distribution
-                 mu_init = None,                 # Initial state distribution
-                 MaxD = 0,                       # Threshold for hits
-                 MaxP = 120,
-                 PV_V=[[.9,.1],[.2,.8]],
-                 Lambda_new=0.05,
-                 Lambda_FA=0.3
+    def __init__(self,                         # MVa1
+                 N_tar = 3,                    # Number of targets
+                 A = [[0.81,1],[0,.81]],       # Linear state dynamics
+                 Sigma_D = [[0.01,0],[0,0.4]], # Dynamical noise
+                 O = [[1,0]],                  # Observation porjection
+                 Sigma_O = [[0.25]],           # Observational noise
+                 Sigma_init = None,            # Initial state distribution
+                 mu_init = None,               # Initial state distribution
+                 MaxD = 0,                     # Threshold for hits
+                 MaxP = 120,                   # Max number of associations
+                 PV_V=[[.9,.1],[.2,.8]],       # Visibility transition matrix
+                 Lambda_new=0.05,              # Avg # of new targets per step
+                 Lambda_FA=0.3                 # Avg # of false alarms per step
                  ):
         self.ASSOCIATION = ASSOCIATION4
         self.TARGET = TARGET4
@@ -433,9 +391,9 @@ class MV4:
             self.mu_init = scipy.matrix(scipy.zeros(dim)).T
         else:
             self.mu_init = scipy.matrix(mu_init).T
-        if Sigma_init == None:# A clever man would simply solve
+        if Sigma_init == None:
             Sigma_init = scipy.matrix(scipy.identity(dim))
-            for t in xrange(100):
+            for t in xrange(100):# A clever man would simply solve
                 Sigma_init = self.A*Sigma_init*self.A.T + self.Sigma_D
             self.Sigma_init = Sigma_init
         else:
@@ -449,15 +407,17 @@ class MV4:
         self.Sigma_FA = Sigma_FA
         self.log_FA_norm = - math.log(scipy.linalg.det(Sigma_FA))/2
         self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
-        self.Lambda_new = Lambda_new # Average number of new targets
-                                     # per frame
+        self.Lambda_new = Lambda_new # Average number of new targets per frame
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
 
-    def decode_init(self,
-                    Ys # Used by subclasses
-                    ):
-        return ([self.ASSOCIATION(0.0,self)],0) # old_As and t_first
-        
+    def decode_init(self,Ys): # Ys is used by subclass
+        return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
+    
+    debug_string ="""
+No new associations in decode():
+t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
+successors.length()=%d
+"""  # Keep ugly string out of pretty code
     def decode_forward(self,
                        Ys,     # Observations. Ys[t][k]
                        old_As, # Initial association or nub
@@ -467,10 +427,8 @@ class MV4:
         time with highest utility, nu."""
         T = len(Ys)
         target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
-                               0.0,None)        
-        # Forward pass through time
+                               0.0,None) 
         for t in xrange(t_first,T):
-            print 't=%d in decode_forward'%t
             child_targets = {}          # Dict of all targets for time t
             successors = SUCCESSOR_DB() # Just to make the while loop start
             while successors.length() is 0:
@@ -480,24 +438,21 @@ class MV4:
                 for A in old_As:
                     A.make_children(Ys[t],child_targets,t)
                 # Build u' lists for all possible successor
-                # associations at time t.  Put new_As in DB so many
-                # predecessors can find same successor
+                # associations at time t.  Put new associations in DB
+                # with u' so many predecessors can find same successor
                 successors = SUCCESSOR_DB()
                 for A in old_As:
                     A.forward(successors,Ys[t],target_0)
                 self.MaxD *= 2
-                #### Begin debugging check and print ####
+                # Begin debugging check and print
                 if successors.length() is 0 and \
                        (self.MaxD<1e-6 or self.MaxD>1e6):
                     for A in old_As:
                         A.dump()
-                    raise RuntimeError,"""
-No new associations in decode():
-t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
-successors.length()=%d
-"""%(t,len(old_As), len(child_targets),len(Ys[t]),self.MaxD,
-     successors.length())
-                #### End debugging check and print ####
+                    raise RuntimeError,debug_string%(t, len(old_As),
+                          len(child_targets),len(Ys[t]),self.MaxD,
+                          successors.length())
+                     # End debugging check and print
             # End of while
             self.MaxD = max(self.MaxD/4,self.MaxD_limit)
             # For each association at time t, find the best predecessor
@@ -632,8 +587,7 @@ successors.length()=%d
     def simulate(self, T): # for MV4
         """ Return a sequence of T observations and a sequence of T
         states."""
-        #Start with N_tar visible targets
-        x_0,v_0,N_FA = self.sim_init(self.N_tar)
+        x_0,v_0,N_FA = self.sim_init(self.N_tar) # N_tar visible targets
         zero_x,zero_y = self.sim_zeros()
         skt = []
         vkt = []
@@ -665,9 +619,33 @@ successors.length()=%d
                 y.append(util.normalS(zero_y,self.Sigma_FA))
             obs[t] = self.shuffle(y)
         return obs,stk
-    ############## End simulation methods ######################
+class TARGET1(TARGET4):
+    def New(self, *args,**kwargs):
+        return TARGET1(*args,**kwargs)
+    def make_children(self, y_t,   # list of hits at time t
+       All_children ): # Dict of children of this and other associations
+        """ Like TARGET4 make_children but no invisible targets
+        """
+        self.forecast()
+        self.children = {}
+        MD = self.mod.MaxD
+        for k in xrange(len(y_t)):
+            if MD < 0.01 or self.distance(y_t[k]) < MD:
+                key = tuple(self.m_t+[k])
+                if not All_children.has_key(key):
+                    All_children[key] = self.update(y_t[k],k)
+                self.children[k] = All_children[key]
+    def utility(self,y,R0=0.0):
+        """ Like TARGET4.utility but no visibilty probabilities.
+        """
+        Delta_y = y - self.y_forecast
+        Sigma_new = self.Sigma_next
+        mu_new = self.mu_a + self.K*Delta_y
+        Delta_R = R0-float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
+                           +self.mod.log_det_Sig_O)/2
+        return (Delta_R,mu_new,Sigma_new)
 class ASSOCIATION3(ASSOCIATION4):
-    """ Number of targets is fixed
+    """ Number of targets is fixed.  Allow false alarms and invisibles
     """
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
@@ -676,9 +654,21 @@ class ASSOCIATION3(ASSOCIATION4):
         self.type='ASSOCIATION3'
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
-class ASSOCIATION1(ASSOCIATION4):
-    """ No extra_forward methods
-    """
+    def make_children(self, y_t, cousins, t ):
+        """ No dead targets for ASSOCIATION3. """
+        for target in self.targets:
+            target.make_children(y_t,cousins)
+class ASSOCIATION2(ASSOCIATION3):
+    """ Allow invisibles, ie, targets that fail to generate hits. """
+    def __init__(self,*args,**kwargs):
+        ASSOCIATION4.__init__(self,*args,**kwargs)
+        self.cause_checks = [self.check_targets]
+        self.extra_forward = [self.invisibles]
+        self.type='ASSOCIATION2'
+    def New(self, *args,**kwargs):
+        return ASSOCIATION2(*args,**kwargs)
+class ASSOCIATION1(ASSOCIATION3):
+    """ No extra_forward methods.  Targets and only targets generate hits. """
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.extra_forward = []
@@ -692,7 +682,6 @@ class MV1(MV4):
         MV4.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION1
         self.TARGET = TARGET1
-    ############## Begin simulation methods ######################  
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
@@ -705,13 +694,12 @@ class MV1(MV4):
             obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
             s_j = map(lambda x: self.step_state(x,zero_s),s_j)
         return obs,states
-    ############## End simulation methods ######################
-    # Old decode for MV1 from version 77
-    def decode_init(self,
-               Ys # Observations. Ys[t][k] is the kth hit at time t
-               ):
-        """Initialize by making a target for each of the hits at t=0
-        and collecting them in a single association.
+    def decode_init(self, Ys ):
+        """Since MV4 allows generation of new targets at any time,
+        MV4.decode_init() can return zero initial targets and let
+        decode_forward() create targets for t=0.  This decode_init()
+        must return N_tar initial targets.  It makes a target for each
+        of the hits at t=0 and tells decode_forward() to start at t=1.
         """
         T = len(Ys)
         target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0,
@@ -720,26 +708,12 @@ class MV1(MV4):
         for k in xrange(self.N_tar):
             target_k = target_0.KF(Ys[0][k],k)
             partial = partial.Fork(target_k)
-        return ([partial],1) # old_As and t_first
-class ASSOCIATION2(ASSOCIATION4):
-    """ Only extra_forward method invisibles() allows and
-    accounts for targets that move from an association at time t-1 to
-    an association at time t without being visible at time t.
-    """
-    def __init__(self,*args,**kwargs):
-        ASSOCIATION4.__init__(self,*args,**kwargs)
-        # Extra method to use in forward
-        self.cause_checks = [self.check_targets]
-        self.extra_forward = [self.invisibles]
-        self.type='ASSOCIATION2'
-    def New(self, *args,**kwargs):
-        return ASSOCIATION2(*args,**kwargs)
+        return ([partial],1)
 class MV2(MV1):
     def __init__(self,**kwargs):
         MV4.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION2
-        self.TARGET = TARGET4
-    ############## Begin simulation methods ######################       
+        self.TARGET = TARGET4    
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
@@ -753,15 +727,13 @@ class MV2(MV1):
             x_j = map(lambda x: self.step_state(x,zero_x),x_j)
             v_j = map(self.step_vis,v_j)
         return obs,xs
-    ############## End simulation methods ######################
 class MV3(MV1):
     """ Number of targets is fixed    
     """
     def __init__(self,**kwargs):
         MV1.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION3   
-        self.TARGET = TARGET4     
-    ############## Begin simulation methods ######################
+        self.TARGET = TARGET4 
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
@@ -782,26 +754,22 @@ class MV3(MV1):
             v_j = map(self.step_vis,v_j)
             N_FA = scipy.random.poisson(self.Lambda_FA)
         return obs,xs
-    ############## End simulation methods ######################
-# Test code
-if __name__ == '__main__':
+if __name__ == '__main__':  # Test code
     import time
     random.seed(3)
-    ts = time.time()
     for pair in (
-        [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3'],
-        ):
-#        [MV1(N_tar=4),'MV1'],
-#         ,
-#         [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2']
-#         ,
-#         [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4']
-#         ):
+       [MV1(N_tar=4),'MV1',0.26],
+       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.09],
+       [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.21],
+       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',23.10]
+       ):
         M=pair[0]
-        print '%s: before simulate'%pair[1]
-        y,s = M.simulate(20)
-        print 'before decode'
+        print '%s: Begin simulate'%pair[1]
+        y,s = M.simulate(5)
+        print 'Begin decode; expect %4.2f seconds on AMD Sempron 3000'%pair[2]
+        ts = time.time()
         d,tmp = M.decode(y)
+        print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)
         print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
         for t in xrange(len(s)):
             print 't=%d    y         s           d'%t
@@ -819,10 +787,7 @@ if __name__ == '__main__':
                 except:
                     pass
                 print ' '
-        
         print '\n'
-    print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)+\
-          'Takes 0.30 seconds on my AMD Sempron 3000'
 
 #---------------
 # Local Variables:
