@@ -699,38 +699,6 @@ class MV3(MV4):
             N_FA = scipy.random.poisson(self.Lambda_FA)
         return obs,xs
     ############## End simulation methods ######################
-class ASSOCIATION2(ASSOCIATION4):
-    """ Only extra_forward method invisibles() allows and
-    accounts for targets that move from an association at time t-1 to
-    an association at time t without being visible at time t.
-    """
-    def __init__(self,*args,**kwargs):
-        ASSOCIATION4.__init__(self,*args,**kwargs)
-        # Extra method to use in forward
-        self.extra_forward = [self.invisibles]
-        self.cause_checks = [self.check_targets]
-        self.type='ASSOCIATION2'
-    def New(self, *args,**kwargs):
-        return ASSOCIATION4(*args,**kwargs)
-class MV2(MV4):
-    def __init__(self,**kwargs):
-        MV4.__init__(self,**kwargs)
-        self.ASSOCIATION = ASSOCIATION2
-    ############## Begin simulation methods ######################       
-    def simulate(self, T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        x_j,v_j,N_FA = self.sim_init(self.N_tar)
-        zero_x,zero_y = self.sim_zeros()
-        obs = []
-        xs = []
-        for t in xrange(T):
-            xs.append(x_j)
-            obs.append(self.shuffle(self.observe_states(x_j,v_j,zero_y)))
-            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
-            v_j = map(self.step_vis,v_j)
-        return obs,xs
-    ############## End simulation methods ######################
 class ASSOCIATION1(ASSOCIATION4):
     """ No extra_forward methods
     """
@@ -740,9 +708,6 @@ class ASSOCIATION1(ASSOCIATION4):
         self.cause_checks = [self.check_targets]
         self.type='ASSOCIATION1'
         mod = self.mod
-        for k in xrange(mod.N_tar):
-            self.targets.append(mod.TARGET(mod,[k],[mod.mu_init],
-                 [mod.Sigma_init],0.0,None))
     def New(self, *args,**kwargs):
         return ASSOCIATION1(*args,**kwargs)
 class MV1(MV4):
@@ -764,6 +729,85 @@ class MV1(MV4):
             s_j = map(lambda x: self.step_state(x,zero_s),s_j)
         return obs,states
     ############## End simulation methods ######################
+    # Old decode for MV1 from version 77
+    def decode(self,
+               Ys # Observations. Ys[t][k] is the kth hit at time t
+               ):
+        """Return MAP state sequence """
+        T = len(Ys)
+
+        # Initialize by making a target and cause for each of the hits
+        # at t=0 and collecting them in a single association.
+        target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0,
+                               None)
+        partial = self.ASSOCIATION(0.0,self)
+        for k in xrange(self.N_tar):
+            target_k = target_0.KF(Ys[0][k],k)
+            partial = partial.Fork(target_k)
+        
+        # Forward pass through time
+        old_As = [partial]
+        for t in xrange(1,T):
+            child_targets = {}          # Dict of all targets for time t
+            suc_length = 0
+            while suc_length is 0:
+                for A in old_As:
+                    A.make_children(Ys[t],child_targets,t)
+                successors = SUCCESSOR_DB()
+                for A in old_As:
+                    A.forward(successors,Ys[t],target_0)
+                suc_length = successors.length()
+                self.MaxD *= 2
+                if suc_length is 0 and \
+                       (self.MaxD<1e-6 or self.MaxD>1e6):
+                    raise RuntimeError,"""
+No new associations in decode():
+t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
+successors.length()=%d
+"""%\
+                (t,len(old_As), len(child_targets),len(Ys[t]),self.MaxD,
+                 suc_length)
+                # End of while
+            self.MaxD = max(self.MaxD/4,self.MaxD_limit)
+            # For each association at time t, find the best predecessor
+            # and the associated targets and collect them in old_As
+            new_As = successors.maxes()
+
+            # Pass up to MaxP new_As to old_As
+            if len(new_As) > self.MaxP:
+                Rs = []
+                for A in new_As:
+                    Rs.append(A.nu)
+                Rs.sort()
+                limit = Rs[-self.MaxP]
+                old_As = []
+                for A in new_As:
+                    if A.nu >= limit:
+                        old_As.append(A)
+            else:
+                old_As = new_As
+        
+        # Find the best last association
+        R = scipy.zeros(len(old_As))
+        for i in xrange(len(old_As)):
+            R[i] = old_As[i].nu
+        A_best = old_As[R.argmax()]
+        print 'nu_max=%f'%A_best.nu
+
+        # Backtrack to get trajectories
+        tracks = [] # tracks[k][t] is the x vector for target_k at time t
+        y_A = []    # y_A[t] is a dict.  y_A[t][k] gives the index of
+                    # y[t] associated with target k.  So y[t][A[t][k]]
+                    # is associated with target k.
+        for t in xrange(T):
+            y_A.append({}) # Association dicts
+        for k in xrange(len(A_best.targets)):
+            target = A_best.targets[k]
+            tracks.append(target.backtrack())
+            for t in xrange(T):
+                y_A[t][k] = target.m_t[t]
+        return (tracks,y_A)
+
     def decode_back(self,A_best,T):
         """ Backtrack from best association at final time to get MAP
         trajectories.
@@ -780,6 +824,38 @@ class MV1(MV4):
             for t in xrange(T):
                 y_A[t][k] = target.m_t[t]
         return (tracks,y_A)
+class ASSOCIATION2(ASSOCIATION4):
+    """ Only extra_forward method invisibles() allows and
+    accounts for targets that move from an association at time t-1 to
+    an association at time t without being visible at time t.
+    """
+    def __init__(self,*args,**kwargs):
+        ASSOCIATION4.__init__(self,*args,**kwargs)
+        # Extra method to use in forward
+        self.cause_checks = [self.check_targets]
+        self.extra_forward = [self.invisibles]
+        self.type='ASSOCIATION2'
+    def New(self, *args,**kwargs):
+        return ASSOCIATION4(*args,**kwargs)
+class MV2(MV1):
+    def __init__(self,**kwargs):
+        MV4.__init__(self,**kwargs)
+        self.ASSOCIATION = ASSOCIATION2
+    ############## Begin simulation methods ######################       
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        x_j,v_j,N_FA = self.sim_init(self.N_tar)
+        zero_x,zero_y = self.sim_zeros()
+        obs = []
+        xs = []
+        for t in xrange(T):
+            xs.append(x_j)
+            obs.append(self.shuffle(self.observe_states(x_j,v_j,zero_y)))
+            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
+            v_j = map(self.step_vis,v_j)
+        return obs,xs
+    ############## End simulation methods ######################
 # Test code
 if __name__ == '__main__':
     import time
@@ -788,11 +864,11 @@ if __name__ == '__main__':
     for pair in (
         [MV1(N_tar=4),'MV1']
         ,
+        [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2']
+        ,
         [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4']
         ,
         [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3']
-        ,
-        [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2']
         ):
         M=pair[0]
         print pair[1]
