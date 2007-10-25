@@ -190,9 +190,7 @@ class TARGET1(TARGET4):
                     All_children[key] = self.update(y_t[k],k)
                 self.children[k] = All_children[key]
     def utility(self,y,R0=0.0):
-        """ Calculates Delta_R, mu_new, and Sigma_new for both
-        update() and distance().  This is the second half of Kalman
-        filtering step.
+        """ Like TARGET4.utility but no visibilty probabilities.
         """
         Delta_y = y - self.y_forecast    # Error of forecast observation
         Sigma_new = self.Sigma_next
@@ -203,12 +201,13 @@ class TARGET1(TARGET4):
         # match for mv1a.py.
         return (Delta_R,mu_new,Sigma_new)
 class SUCCESSOR_DB:
-    """
+    """For each possible successor key, collect candidate predecessors
+    and the associated u_prime.
     """
     def __init__(self):
         self.successors = {}
     def enter(self,       
-              association  # A candidate history
+              association  # A candidate predecessor
               ):
         key = tuple(association.h2c) # An explanation of each component of y_t
         u_prime = association.nu     # The utility of the candidate
@@ -219,7 +218,8 @@ class SUCCESSOR_DB:
     def length(self):
         return len(self.successors)
     def maxes(self):
-        """ Return the associations with the largest corresponding u_primes
+        """ For each key, return the association with the largest
+        corresponding u_prime
         """
         rv = []
         for suc in self.successors.values():
