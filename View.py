@@ -205,17 +205,17 @@ class view_mv1_frame(wx.Frame):
 
     def Mv1Clicked(self, event):
         global Model_Class
-        Model_Class = mv1a.MV1a
+        Model_Class = mvx.MV1
         self.statusbar.SetStatusText('Model_Class = mvx.MV1')
         
     def Mv2Clicked(self, event):
         global Model_Class
-        Model_Class = mv2.MV2
+        Model_Class = mvx.MV2
         self.statusbar.SetStatusText('Model_Class = mvx.MV2')
         
     def Mv3Clicked(self, event):
         global Model_Class
-        Model_Class = mv3.MV3
+        Model_Class = mvx.MV3
         self.statusbar.SetStatusText('Model_Class = mvx.MV3')
         
     def MvxClicked(self, event):
