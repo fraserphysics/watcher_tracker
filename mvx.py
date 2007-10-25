@@ -1,8 +1,31 @@
 """
-FILE: mvx.py  All model variations in a single file.  I started this
-after writing mv3.py which imported mv2.py and mv1a.py.  I wanted more
-coherence before starting on mv4 which allows a variable number of
-targets.
+File mvx.py provides four model classes with the following features:
+
+MV1: Fixed number of targets.  At each time there is a one to one map
+     between targets and hits
+
+MV2: Fixed number of targets.  Targets may fail to produce hits
+
+MV3: Fixed number of targets.  Targets may fail to produce hits and
+     hits may be false alarms
+
+MV4: Targets die if invisible for Invisible_Lifetime.  New targets can
+     appear at any time.  Targets may fail to produce hits and hits may
+     be false alarms
+
+Each model class depends on its own association class, eg, MV4 depends
+on ASSOCIATION4.  There are two target classes: TARGET4 (for MV2, MV3
+and MV4) which can be invisible and TARGET1 (for MV1) which is always
+visible.
+
+Here are the family trees most of the classes in this file:
+
+CAUSE_FA -> TARGET4 -> TARGET1
+
+ASSOCIATION4 -> ASSOCIATION3 -> ASSOCIATION2 -> ASSOCIATION1
+
+MV4 -> MV3 -> MV2
+       MV3 -> MV1
 """
 import numpy, scipy, scipy.linalg, random, math, util
 def log_Poisson(Lambda,N):
@@ -17,7 +40,7 @@ class CAUSE_FA: # False Alarm
         self.R = -float(y.T*Sigma_I*y/2)
 class TARGET4(CAUSE_FA):
     """A TARGET is a possible moving target, eg, a car.  Its values
-    are determined by initialzation values and a sequence of
+    are determined by initialization values and a sequence of
     observations that are "Kalman filtered".
     """
     def __init__(self,
@@ -94,7 +117,7 @@ class TARGET4(CAUSE_FA):
         self.K = self.Sigma_a*self.mod.O.T*self.Sigma_y_forecast_I
         self.Sigma_next = (self.mod.Id-self.K*self.mod.O)*self.Sigma_a
     def distance(self,y):
-        """ Rather than the Malhalanobis distance of y from forecast
+        """ Rather than the Mahalanobis distance of y from forecast
         y, I generalize to sqrt(-2 Delta_R)
         """
         return float(-2*self.utility(y)[0])**.5
@@ -191,7 +214,7 @@ class ASSOCIATION4:
 
      New and Fork: Create a child association that explains one more hit
 
-     forward:  Create plausible sucessor associations
+     forward:  Create plausible successor associations
 
      make_children:  Call target.make_children() for each target
 
@@ -302,7 +325,7 @@ class ASSOCIATION4:
         print '\n'
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
-                      cousins, # Dict of children of sibling ASSOCIATIONs
+                      cousins, # Dict of children of sibling associations
                       t        # Save time for dead targets
                       ):
         for target in self.targets:
@@ -318,7 +341,7 @@ class ASSOCIATION4:
                 ):
         """ For each plausible successor S of the ASSOCIATION self,
         enter the following into the successors DB 1. A key for the
-        explanatinon that S gives for the observations. 2. The
+        explanation that S gives for the observations. 2. The
         candidate successor association S. 3. The value of
         u'(self,S,t+1).
         """
@@ -363,7 +386,7 @@ class MV4:
                  N_tar = 3,                    # Number of targets
                  A = [[0.81,1],[0,.81]],       # Linear state dynamics
                  Sigma_D = [[0.01,0],[0,0.4]], # Dynamical noise
-                 O = [[1,0]],                  # Observation porjection
+                 O = [[1,0]],                  # Observation projection
                  Sigma_O = [[0.25]],           # Observational noise
                  Sigma_init = None,            # Initial state distribution
                  mu_init = None,               # Initial state distribution
@@ -562,7 +585,7 @@ successors.length()=%d
             v_j.append(0)
         return (x_j,v_j,0)
     def step_count(self, x, v, c, zero_x):
-        """ Step target vector x and visibilty v count of number of
+        """ Step target vector x and visibility v count of number of
         times that v != 0 (not visible) in c.
         """
         x = self.step_state(x,zero_x)
@@ -636,7 +659,7 @@ class TARGET1(TARGET4):
                     All_children[key] = self.update(y_t[k],k)
                 self.children[k] = All_children[key]
     def utility(self,y,R0=0.0):
-        """ Like TARGET4.utility but no visibilty probabilities.
+        """ Like TARGET4.utility but no visibility probabilities.
         """
         Delta_y = y - self.y_forecast
         Sigma_new = self.Sigma_next
@@ -677,23 +700,13 @@ class ASSOCIATION1(ASSOCIATION3):
         mod = self.mod
     def New(self, *args,**kwargs):
         return ASSOCIATION1(*args,**kwargs)
-class MV1(MV4):
+class MV3(MV4):
+    """ Number of targets is fixed    
+    """
     def __init__(self,**kwargs):
         MV4.__init__(self,**kwargs)
-        self.ASSOCIATION = ASSOCIATION1
-        self.TARGET = TARGET1
-    def simulate(self, T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        s_j,v_j,N_FA = self.sim_init(self.N_tar)
-        zero_s,zero_y = self.sim_zeros()       
-        obs = []
-        states = []
-        for t in xrange(T):
-            states.append(s_j)
-            obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
-            s_j = map(lambda x: self.step_state(x,zero_s),s_j)
-        return obs,states
+        self.ASSOCIATION = ASSOCIATION3   
+        self.TARGET = TARGET4 
     def decode_init(self, Ys ):
         """Since MV4 allows generation of new targets at any time,
         MV4.decode_init() can return zero initial targets and let
@@ -709,31 +722,6 @@ class MV1(MV4):
             target_k = target_0.KF(Ys[0][k],k)
             partial = partial.Fork(target_k)
         return ([partial],1)
-class MV2(MV1):
-    def __init__(self,**kwargs):
-        MV4.__init__(self,**kwargs)
-        self.ASSOCIATION = ASSOCIATION2
-        self.TARGET = TARGET4    
-    def simulate(self, T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        x_j,v_j,N_FA = self.sim_init(self.N_tar)
-        zero_x,zero_y = self.sim_zeros()
-        obs = []
-        xs = []
-        for t in xrange(T):
-            xs.append(x_j)
-            obs.append(self.shuffle(self.observe_states(x_j,v_j,zero_y)))
-            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
-            v_j = map(self.step_vis,v_j)
-        return obs,xs
-class MV3(MV1):
-    """ Number of targets is fixed    
-    """
-    def __init__(self,**kwargs):
-        MV1.__init__(self,**kwargs)
-        self.ASSOCIATION = ASSOCIATION3   
-        self.TARGET = TARGET4 
     def simulate(self, T):
         """ Return a sequence of T observations and a sequence of T
         states."""
@@ -754,6 +742,41 @@ class MV3(MV1):
             v_j = map(self.step_vis,v_j)
             N_FA = scipy.random.poisson(self.Lambda_FA)
         return obs,xs
+class MV2(MV3):
+    def __init__(self,**kwargs):
+        MV4.__init__(self,**kwargs)
+        self.ASSOCIATION = ASSOCIATION2
+        self.TARGET = TARGET4    
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        x_j,v_j,N_FA = self.sim_init(self.N_tar)
+        zero_x,zero_y = self.sim_zeros()
+        obs = []
+        xs = []
+        for t in xrange(T):
+            xs.append(x_j)
+            obs.append(self.shuffle(self.observe_states(x_j,v_j,zero_y)))
+            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
+            v_j = map(self.step_vis,v_j)
+        return obs,xs
+class MV1(MV3):
+    def __init__(self,**kwargs):
+        MV4.__init__(self,**kwargs)
+        self.ASSOCIATION = ASSOCIATION1
+        self.TARGET = TARGET1
+    def simulate(self, T):
+        """ Return a sequence of T observations and a sequence of T
+        states."""
+        s_j,v_j,N_FA = self.sim_init(self.N_tar)
+        zero_s,zero_y = self.sim_zeros()       
+        obs = []
+        states = []
+        for t in xrange(T):
+            states.append(s_j)
+            obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
+            s_j = map(lambda x: self.step_state(x,zero_s),s_j)
+        return obs,states
 if __name__ == '__main__':  # Test code
     import time
     random.seed(3)
