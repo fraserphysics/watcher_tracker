@@ -608,7 +608,7 @@ successors.length()=%d
             s_k[t] = x
             v_k[t] = v
             x,v,c = self.step_count(x,v,c,zero_x)
-            if c > Invisible_Lifetime:
+            if c >= Invisible_Lifetime:
                 s_k[t-Invisible_Lifetime:t] = Invisible_Lifetime*[None]
                 break
         return (s_k,v_k)
