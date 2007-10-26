@@ -84,7 +84,7 @@ class TARGET4(CAUSE_FA):
                 child.dump()
     def make_children(self,        # self is a TARGET4
                       y_t,         # list of hits at time t
-                      All_children # Dict of children of all permutations
+                      All_children # Dict of children of all associations
                       ):
         """ For each of the hits that could plausibly be an
         observation of self, make a child target.  Collect the
@@ -232,7 +232,7 @@ class ASSOCIATION4:
         self.tar_dict = {}  # Dict of targets
         self.targets = []   # List of child targets
         self.h2c = []       # Map from hits to causes.  Will become key
-        self.cause_checks = [self.check_targets,self.check_news]
+        self.cause_checks = [self.check_targets,self.check_FAs,self.check_news]
         self.extra_forward = [self.extra_news,self.count_FAs]
         self.dead_targets = {}
         self.type='ASSOCIATION4'
@@ -269,13 +269,16 @@ class ASSOCIATION4:
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm
         """
-        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I))
+        CC = CAUSE_FA(y,self.mod.Sigma_FA_I)
+        if (-2*CC.R)**.5 < self.mod.MaxD:
+            causes.append(CC) # False alarm
     def check_news(self,k,causes,y,target_0):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm or new target
         """
-        causes.append(CAUSE_FA(y,self.mod.Sigma_FA_I)) # False alarm
-        causes.append(target_0.KF(y,k))  # New target
+        CC = target_0.KF(y,k)
+        if (-2*CC.R)**.5 < self.mod.MaxD:
+            causes.append(CC)  # New target
     def invisibles(self,partial):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association.
@@ -286,7 +289,7 @@ class ASSOCIATION4:
                     child = target.children[-1]
                 except:
                     raise RuntimeError,\
-        'There is no invisible child.  Perhaps MaxD is too ambitious.'
+        'There is no invisible child.'
                 partial.targets.append(child)
                 partial.nu += child.R 
     def count_FAs(self,partial):
@@ -391,7 +394,7 @@ class MV4:
                  Sigma_init = None,            # Initial state distribution
                  mu_init = None,               # Initial state distribution
                  MaxD = 0,                     # Threshold for hits
-                 MaxP = 120,                   # Max number of associations
+                 MaxA = 120,                   # Max number of associations
                  PV_V=[[.9,.1],[.2,.8]],       # Visibility transition matrix
                  Lambda_new=0.05,              # Avg # of new targets per step
                  Lambda_FA=0.3                 # Avg # of false alarms per step
@@ -423,7 +426,7 @@ class MV4:
             self.Sigma_init = scipy.matrix(Sigma_init)
         self.MaxD = MaxD
         self.MaxD_limit = MaxD
-        self.MaxP = MaxP
+        self.MaxA = MaxA
         self.PV_V = scipy.matrix(PV_V)
         self.Lambda_FA = Lambda_FA # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
@@ -453,8 +456,8 @@ successors.length()=%d
                                0.0,None) 
         for t in xrange(t_first,T):
             child_targets = {}          # Dict of all targets for time t
-            successors = SUCCESSOR_DB() # Just to make the while loop start
-            while successors.length() is 0:
+            suc_length = 0 # Just to make the while loop start
+            while suc_length is 0:
                 # For each old target, collect all plausibly
                 # associated hits and create a corresponding child
                 # target by Kalman filtering
@@ -466,29 +469,30 @@ successors.length()=%d
                 successors = SUCCESSOR_DB()
                 for A in old_As:
                     A.forward(successors,Ys[t],target_0)
-                self.MaxD *= 2
+                self.MaxD *= 1.5
+                suc_length = successors.length()
                 # Begin debugging check and print
-                if successors.length() is 0 and \
+                if suc_length is 0 and \
                        (self.MaxD<1e-6 or self.MaxD>1e6):
                     for A in old_As:
                         A.dump()
                     raise RuntimeError,debug_string%(t, len(old_As),
                           len(child_targets),len(Ys[t]),self.MaxD,
-                          successors.length())
+                          suc_length)
                      # End debugging check and print
             # End of while
-            self.MaxD = max(self.MaxD/4,self.MaxD_limit)
+            self.MaxD = max(self.MaxD/2.25,self.MaxD_limit)
             # For each association at time t, find the best predecessor
             # and the associated targets and collect them in old_As
             new_As = successors.maxes()
 
-            # Pass up to MaxP new_As to old_As
-            if len(new_As) > self.MaxP:
+            # Pass up to MaxA new_As to old_As
+            if len(new_As) > self.MaxA:
                 Rs = []
                 for A in new_As:
                     Rs.append(A.nu)
                 Rs.sort()
-                limit = Rs[-self.MaxP]
+                limit = Rs[-self.MaxA]
                 old_As = []
                 for A in new_As:
                     if A.nu >= limit:
