@@ -439,11 +439,6 @@ class MV4:
     def decode_init(self,Ys): # Ys is used by subclass
         return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
     
-    debug_string ="""
-No new associations in decode():
-t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
-successors.length()=%d
-"""  # Keep ugly string out of pretty code
     def decode_forward(self,
                        Ys,     # Observations. Ys[t][k]
                        old_As, # Initial association or nub
@@ -451,6 +446,12 @@ successors.length()=%d
                        ):
         """Forward pass for decoding.  Return association at final
         time with highest utility, nu."""
+    
+        debug_string ="""
+No new associations in decode():
+t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
+successors.length()=%d
+"""
         T = len(Ys)
         target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
                                0.0,None) 
