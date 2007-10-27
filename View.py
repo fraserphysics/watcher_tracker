@@ -5,8 +5,6 @@ matplotlib.interactive(True)
 #Use the WxAgg back end. The Wx one takes too long to render
 matplotlib.use('WXAgg')
 
-random.seed(3)
-
 T = 20
 foo_t = 0
 N_obj = 4
@@ -205,21 +203,29 @@ class view_mv1_frame(wx.Frame):
 
     def Mv1Clicked(self, event):
         global Model_Class
+        random.seed(3)
+        scipy.random.seed(3)
         Model_Class = mvx.MV1
         self.statusbar.SetStatusText('Model_Class = mvx.MV1')
         
     def Mv2Clicked(self, event):
         global Model_Class
+        random.seed(3)
+        scipy.random.seed(3)
         Model_Class = mvx.MV2
         self.statusbar.SetStatusText('Model_Class = mvx.MV2')
         
     def Mv3Clicked(self, event):
         global Model_Class
+        random.seed(3)
+        scipy.random.seed(3)
         Model_Class = mvx.MV3
         self.statusbar.SetStatusText('Model_Class = mvx.MV3')
         
     def MvxClicked(self, event):
         global Model_Class
+        random.seed(3)
+        scipy.random.seed(3)
         Model_Class = mvx.MV4
         self.statusbar.SetStatusText('Model_Class = mvx.MV4')
         

@@ -270,15 +270,19 @@ class ASSOCIATION4:
         Propose that cause is false alarm
         """
         CC = CAUSE_FA(y,self.mod.Sigma_FA_I)
-        if (-2*CC.R)**.5 < self.mod.MaxD:
+        if self.mod.MaxD < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
             causes.append(CC) # False alarm
+        else:
+            print 'test failed, self.mod.MaxD=',self.mod.MaxD
     def check_news(self,k,causes,y,target_0):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm or new target
         """
         CC = target_0.KF(y,k)
-        if (-2*CC.R)**.5 < self.mod.MaxD:
+        if self.mod.MaxD  < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
             causes.append(CC)  # New target
+        else:
+            print 'test failed, self.mod.MaxD=',self.mod.MaxD
     def invisibles(self,partial):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association.
@@ -785,11 +789,12 @@ class MV1(MV3):
 if __name__ == '__main__':  # Test code
     import time
     random.seed(3)
+    scipy.random.seed(3)
     for pair in (
        [MV1(N_tar=4),'MV1',0.26],
        [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.09],
        [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.21],
-       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',23.10]
+       [MV4(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',4.00]
        ):
         M=pair[0]
         print '%s: Begin simulate'%pair[1]
