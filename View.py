@@ -50,10 +50,12 @@ class PlotPanelA(demo.PlotPanel):
         self.subplot.clear()
         # Draw dots for each observation/hit
         for t in xrange(len(self.y)):
-            y_t = self.y[t]   # y[t] is a list of hits at time t
-            if len(y_t) is 0:
+            if len(self.y[t]) is 0:   # y[t] is a list of hits at time t
                 continue
-            x_t = len(y_t)*[t]
+            x_t = len(self.y[t])*[t]
+            y_t = []
+            for i in xrange(len(self.y[t])):
+                y_t.append(float(self.y[t][i]))
             self.subplot.plot(x_t,y_t,markerfacecolor='black',marker='o',
                               linewidth=0)
             if self.t is t:
@@ -79,7 +81,7 @@ class PlotPanelA(demo.PlotPanel):
                     linesx[key] = []
                     linesy[key] = []
                 linesx[key].append(t)
-                linesy[key].append(self.y[t][self.A[t][key]])
+                linesy[key].append(float(self.y[t][self.A[t][key]]))
         for key in linesx.keys():
             self.subplot.plot(linesx[key],linesy[key], lw=2,color='black',
                            linestyle='-')
