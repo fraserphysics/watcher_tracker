@@ -7,15 +7,15 @@ The WXAgg backend is used as it is quicker.
 
 Edward Abraham, Datamine, April, 2006
 (works with wxPython 2.6.1, Matplotlib 0.87 and Python 2.4)
+http://new.scipy.org/Matplotlib_figure_in_a_wx_panel
 """
 
-import matplotlib
+import matplotlib, matplotlib.figure
 matplotlib.interactive(False)
 #matplotlib.interactive(True)
 #Use the WxAgg back end. The Wx one takes too long to render
 matplotlib.use('WXAgg')
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg
-from matplotlib.figure import Figure
 #used in the particular example
 from matplotlib.numerix import arange, sin, cos, pi
 import wx
@@ -50,7 +50,7 @@ class PlotPanel(wx.Panel):
           title='title', dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE,
                  **kwargs):
         wx.Panel.__init__(self, parent, id = id, style = style, **kwargs)
-        self.figure = Figure(None, dpi)
+        self.figure = matplotlib.figure.Figure(None, dpi)
         self.canvas = NoRepaintCanvas(self, -1, self.figure)
         self.SetColor(color)
         self.Bind(wx.EVT_IDLE, self._onIdle)
@@ -90,7 +90,7 @@ class PlotPanel(wx.Panel):
         if not pixels:
             pixels = self.GetClientSize()
         self.canvas.SetSize(pixels)
-        self.figure.set_figsize_inches(pixels[0]/self.figure.get_dpi(),
+        self.figure.set_size_inches(pixels[0]/self.figure.get_dpi(),
         pixels[1]/self.figure.get_dpi())
 
     def draw(self):
