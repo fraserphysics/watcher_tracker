@@ -191,6 +191,12 @@ class SUCCESSOR_DB:
                       {'associations':[],'u_primes':[]})
         suc_key['associations'].append(association)
         suc_key['u_primes'].append(u_prime)
+    def count(self): # A method to report the number of successor keys
+        count_successors = len(self.successors)
+        count_predecessors = 0
+        for value in self.successors.values():
+            count_predecessors += len(value['associations'])
+        return (count_successors,count_predecessors)
     def length(self):
         return len(self.successors)
     def maxes(self):
@@ -446,7 +452,8 @@ class MV4:
     def decode_forward(self,
                        Ys,     # Observations. Ys[t][k]
                        old_As, # Initial association or nub
-                       t_first # Starting t for iteration
+                       t_first,# Starting t for iteration
+                       count = False
                        ):
         """Forward pass for decoding.  Return association at final
         time with highest utility, nu."""
@@ -504,6 +511,8 @@ successors.length()=%d
                         old_As.append(A)
             else:
                 old_As = new_As
+            if count is not False:
+                count.append(t,child_targets,new_As,old_As,successors.count())
         # End of for loop over t
         
         # Find the best last association
