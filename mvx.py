@@ -284,7 +284,9 @@ class ASSOCIATION4:
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm or new target
         """
-        CC = target_0.KF(y,k)
+        CC = target_0.KF(y,k) # FixMe This could create targets that
+                              # are identical except for the values of
+                              # target.index
         if self.mod.MaxD  < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
             causes.append(CC)  # New target
         else:
@@ -453,7 +455,7 @@ class MV4:
                        Ys,     # Observations. Ys[t][k]
                        old_As, # Initial association or nub
                        t_first,# Starting t for iteration
-                       count = False
+                       analysis = False
                        ):
         """Forward pass for decoding.  Return association at final
         time with highest utility, nu."""
@@ -473,7 +475,7 @@ successors.length()=%d
                 # For each old target, collect all plausibly
                 # associated hits and create a corresponding child
                 # target by Kalman filtering
-                for A in old_As:
+                for A in old_As:  # For t=0 this makes no children
                     A.make_children(Ys[t],child_targets,t)
                 # Build u' lists for all possible successor
                 # associations at time t.  Put new associations in DB
@@ -511,8 +513,8 @@ successors.length()=%d
                         old_As.append(A)
             else:
                 old_As = new_As
-            if count is not False:
-                count.append(t,child_targets,new_As,old_As,successors.count())
+            if analysis is not False:
+                analysis.append(t,child_targets,new_As,old_As,successors.count())
         # End of for loop over t
         
         # Find the best last association
@@ -553,11 +555,12 @@ successors.length()=%d
                                                 # associated with target k.
         return (d,y_A)
     def decode(self,
-               Ys # Observations. Ys[t][k] is the kth hit at time t
+               Ys, # Observations. Ys[t][k] is the kth hit at time t
+               analysis = False # A debugging option
                ):
         """Return MAP state sequence """
         A,t_0 = self.decode_init(Ys)
-        A_best,T = self.decode_forward(Ys,A,t_0)
+        A_best,T = self.decode_forward(Ys,A,t_0,analysis=analysis)
         return self.decode_back(A_best,T)
     ############## Begin simulation methods ######################
     def step_state(self, state, zero_s):
@@ -795,6 +798,45 @@ class MV1(MV3):
             obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
             s_j = map(lambda x: self.step_state(x,zero_s),s_j)
         return obs,states
+class analysis:
+    def __init__(self):
+        self.records = {}
+    def append(self,t,child_targets,new_As,old_As,counts):
+        """ From child_targets, I want to know how many different
+        targets and how many different target.index values there are.
+        I might want to know how many targets were invisible.  I want
+        simple counts of new_As and old_As and of the successors and
+        their predecessors.
+        """
+        record = {}
+        index_count = {}
+        for target in child_targets.values():
+            if not index_count.has_key(target.index):
+                index_count[target.index] = 0
+            else:
+                index_count[target.index] += 1
+        for pair in (['index_count',index_count],
+                     ['child_count',len(child_targets)],
+                     ['new_count',len(new_As)],
+                     ['old_count',len(old_As)],
+                     ['succ_count',counts[0]],
+                     ['pred_count',counts[1]]):
+            record[pair[0]] = pair[1]
+        self.records[t] = record
+    def dump(self):
+        ts = self.records.keys()
+        ts.sort()
+        for t in ts:
+            record = self.records[t]
+            if record['new_count'] != record['succ_count']:
+                print 'NOTICE: new_count=%d != succ_count=%d'%(
+                    record['new_count'],record['succ_count'])
+            print '\nt=%2d'%t,
+            for key in ('pred_count','new_count','old_count','child_count'):
+                print '%s=%6d'%(key,record[key]),
+        print '\n'
+        for t in ts:
+            print 't=%2d, index_count='%t,self.records[t]['index_count']
 if __name__ == '__main__':  # Test code
     import time
     random.seed(3)
@@ -805,12 +847,14 @@ if __name__ == '__main__':  # Test code
        [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.21],
        [MV4(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',4.00]
        ):
+        Target_Counter=0
         M=pair[0]
         print '%s: Begin simulate'%pair[1]
         y,s = M.simulate(5)
         print 'Begin decode; expect %4.2f seconds on AMD Sempron 3000'%pair[2]
         ts = time.time()
-        d,tmp = M.decode(y)
+        A = analysis()
+        d,tmp = M.decode(y,analysis=A)
         print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)
         print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
         for t in xrange(len(s)):
@@ -830,6 +874,7 @@ if __name__ == '__main__':  # Test code
                     pass
                 print ' '
         print '\n'
+    A.dump()
 
 #---------------
 # Local Variables:

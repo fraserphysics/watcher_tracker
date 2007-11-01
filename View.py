@@ -1,9 +1,9 @@
 import wx, mv1a, mv2, mv3, mvx, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
-matplotlib.interactive(True)
+#matplotlib.interactive(True)
 #Use the WxAgg back end. The Wx one takes too long to render
-matplotlib.use('WXAgg')
+#matplotlib.use('WXAgg')
 
 T = 20
 foo_t = 0
