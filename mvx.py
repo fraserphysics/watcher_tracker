@@ -30,7 +30,9 @@ MV4 -> MV3 -> MV2
 import numpy, scipy, scipy.linalg, random, math, util
 def log_Poisson(Lambda,N):
     return N*math.log(Lambda) - Lambda - math.log(scipy.factorial(N))
-Invisible_Lifetime = 5
+Invisible_Lifetime = 5 # After being invisible 5 times in a row targets die
+Join_Time = 6          # After 6 identical associations in a row, tragets merge
+close_calls = None     # Will be list of flags of likely errors
 Target_Counter = 0
 
 class CAUSE_FA: # False Alarm
@@ -223,8 +225,8 @@ class ASSOCIATION4:
      forward:  Create plausible successor associations
 
      make_children:  Call target.make_children() for each target
-
-     check_targets, check_FAs and check_news: Checks in list of
+     
+     check_targets, check_FAs and check_newts: Checks in list of
          cause_checks called by forward() that propose causes of hits
 
     invisibles, count_FAs and extra_news: Entries in list of methods
@@ -236,10 +238,11 @@ class ASSOCIATION4:
         self.nu = nu        # Utility of best path ending here
         self.mod = mod      # Model, to convey parameters
         self.tar_dict = {}  # Dict of targets
-        self.targets = []   # List of child targets
+        self.targets = []   # List of targets
         self.h2c = []       # Map from hits to causes.  Will become key
-        self.cause_checks = [self.check_targets,self.check_FAs,self.check_news]
-        self.extra_forward = [self.extra_news,self.count_FAs]
+        self.cause_checks = [self.check_targets,self.check_FAs,
+                             self.check_newts]
+        self.extra_forward = [self.extra_newts,self.count_FAs]
         self.dead_targets = {}
         self.type='ASSOCIATION4'
         self.N_FA=0          # Count of false alarms
@@ -263,7 +266,7 @@ class ASSOCIATION4:
             CA.N_FA += 1
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
-    def check_targets(self,k,causes,y,target_0):
+    def check_targets(self,k,causes,y):
         """ A check method for list cause_checks called by forward().
         This method appends relevant children to plausible causes.
         """
@@ -271,7 +274,7 @@ class ASSOCIATION4:
             if target.children.has_key(k):
                 # If has_key(k) then child is plausible cause
                 causes.append(target.children[k])
-    def check_FAs(self,k,causes,y,target_0):
+    def check_FAs(self,k,causes,y):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm
         """
@@ -280,13 +283,12 @@ class ASSOCIATION4:
             causes.append(CC) # False alarm
         else:
             print 'test failed, self.mod.MaxD=',self.mod.MaxD
-    def check_news(self,k,causes,y,target_0):
+    def check_newts(self, # ASSOCIATION4
+                    k,causes,y):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm or new target
         """
-        CC = target_0.KF(y,k) # FixMe This could create targets that
-                              # are identical except for the values of
-                              # target.index
+        CC = self.mod.newts[k]
         if self.mod.MaxD  < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
             causes.append(CC)  # New target
         else:
@@ -313,14 +315,14 @@ class ASSOCIATION4:
         if N_FA > 0:
             partial.nu += N_FA*self.mod.log_FA_norm + log_Poisson(
                 self.mod.Lambda_FA,N_FA)
-    def extra_news(self,partial):
+    def extra_newts(self,partial):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association, and apply creation
         penalty to nu for newly created targets.
         """ 
         for target in self.targets:
             if not partial.tar_dict.has_key(target.index) and \
-                   target.children.has_key(-1):
+                   target.children.has_key(-1): # Invisible target
                 child = target.children[-1]
                 partial.targets.append(child)
                 partial.nu += child.R
@@ -352,7 +354,6 @@ class ASSOCIATION4:
     def forward(self,       # ASSOCIATION4
                 successors, # DB of associations and u's for the next time step
                 y_t,        # Hits at this time
-                target_0    # For starting new targets
                 ):
         """ For each plausible successor S of the ASSOCIATION self,
         enter the following into the successors DB 1. A key for the
@@ -365,7 +366,7 @@ class ASSOCIATION4:
         for k in xrange(len(y_t)):
             causes.append([])
             for check in self.cause_checks:
-                check(k,causes[k],y_t[k],target_0)
+                check(k,causes[k],y_t[k])
         # Initialize list of partial associations.
         old_list = [self.New(self.nu,self.mod)]
         # Make list of plausible associations.  At level k, each
@@ -447,11 +448,18 @@ class MV4:
         self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
         self.Lambda_new = Lambda_new # Average number of new targets per frame
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
-
+    def make_newts(self, # MV4
+                   Yts   # List of ys for current time
+                   ):
+        self.newts = {}
+        for k in xrange(len(Yts)):
+            self.newts[k] = self.target_0.KF(Yts[k],k)
     def decode_init(self,Ys): # Ys is used by subclass
+        self.target_0 = self.TARGET(self,[0],[self.mu_init],
+                                    [self.Sigma_init],0.0,None)
         return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
     
-    def decode_forward(self,
+    def decode_forward(self,   # MV4
                        Ys,     # Observations. Ys[t][k]
                        old_As, # Initial association or nub
                        t_first,# Starting t for iteration
@@ -465,10 +473,11 @@ No new associations in decode():
 t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
 successors.length()=%d
 """
+        global close_calls
+        close_calls = []
         T = len(Ys)
-        target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],
-                               0.0,None) 
         for t in xrange(t_first,T):
+            self.make_newts(Ys[t])
             child_targets = {}          # Dict of all targets for time t
             suc_length = 0 # Just to make the while loop start
             while suc_length is 0:
@@ -482,7 +491,7 @@ successors.length()=%d
                 # with u' so many predecessors can find same successor
                 successors = SUCCESSOR_DB()
                 for A in old_As:
-                    A.forward(successors,Ys[t],target_0)
+                    A.forward(successors,Ys[t])
                 self.MaxD *= 1.5
                 suc_length = successors.length()
                 # Begin debugging check and print
@@ -499,6 +508,25 @@ successors.length()=%d
             # For each association at time t, find the best predecessor
             # and the associated targets and collect them in old_As
             new_As = successors.maxes()
+            if t > Join_Time:
+                # Find targets that match back to Join_Time
+                shorts = {}
+                for key in child_targets.keys():
+                    target = child_targets[key]
+                    short_key = tuple(target.m_t[-Join_Time:])
+                    if not shorts.has_key(short_key):
+                        shorts[short_key] = [[],[]]
+                    shorts[short_key][0].append(key)
+                    shorts[short_key][1].append(target.R)
+                condemned = {}
+                for short_key in shorts.keys():
+                    if len(shorts[short_key][0]) == 1:
+                        continue
+                    k_max = util.argmax(shorts[short_key][1])
+                    del shorts[short_key][0][k_max]
+                    for key in shorts[short_key][0]:
+                        condemned[key] = True
+                # Delete associations that have condemned targets
 
             # Pass up to MaxA new_As to old_As
             if len(new_As) > self.MaxA:
@@ -702,6 +730,8 @@ class ASSOCIATION3(ASSOCIATION4):
         """ No dead targets for ASSOCIATION3. """
         for target in self.targets:
             target.make_children(y_t,cousins)
+    def make_newts(self,*args,**kwargs): # No new targets for ASSOCIATION3
+        pass
 class ASSOCIATION2(ASSOCIATION3):
     """ Allow invisibles, ie, targets that fail to generate hits. """
     def __init__(self,*args,**kwargs):
@@ -735,12 +765,12 @@ class MV3(MV4):
         must return N_tar initial targets.  It makes a target for each
         of the hits at t=0 and tells decode_forward() to start at t=1.
         """
+        self.target_0 = self.TARGET(self,[0],[self.mu_init],
+                                    [self.Sigma_init],0.0,None)
         T = len(Ys)
-        target_0 = self.TARGET(self,[0],[self.mu_init],[self.Sigma_init],0.0,
-                               None)
         partial = self.ASSOCIATION(0.0,self)
         for k in xrange(self.N_tar):
-            target_k = target_0.KF(Ys[0][k],k)
+            target_k = self.target_0.KF(Ys[0][k],k)
             partial = partial.Fork(target_k)
         return ([partial],1)
     def simulate(self, T):

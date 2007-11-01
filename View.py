@@ -15,6 +15,7 @@ sig_v = 0.2
 sig_O = 0.3
 MaxD   = 4.0   # Maximum Malhabonobis distance from forecast to y
 MaxA = 120     # Number of permutations allowed
+Analyze = False
 
 class FloatSlider(wx.Slider):
     def __init__(self, parent, ID, Min, Max, Step, Value, call_back, **kwargs):
@@ -231,6 +232,15 @@ class view_mv1_frame(wx.Frame):
         Model_Class = mvx.MV4
         self.statusbar.SetStatusText('Model_Class = mvx.MV4')
         
+    def AnalClicked(self, event):
+        global Analyze
+        if Analyze is False:
+            Analyze = mvx.analysis()
+            self.controlPanel.AnalButton.SetLabel('Analyze is on')
+        else:
+            Analyze = False
+            self.controlPanel.AnalButton.SetLabel('Analyze is off')
+        
     def OnSimClicked(self, event):
         global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Model_Class
 
@@ -251,13 +261,16 @@ class view_mv1_frame(wx.Frame):
         print "Save clicked"
         
     def OnTrackClicked(self, event):
-        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxA,Model_Class
+        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxA
+        global Model_Class, Analyze
 
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
             Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxA=MaxA)
         t_start = time.time()
-        d,yd = M.decode(yo)
+        d,yd = M.decode(yo,analysis=Analyze)
         print 'decode time = %f'%(time.time()-t_start)
+        if Analyze:
+            Analyze.dump()
         self.plot_panelA.A=yd
         self.plot_panelA._forceDraw()
         self.plot_panelB.d=d
@@ -355,6 +368,10 @@ class ControlPanel(wx.Panel):
         mvxButton = wx.Button(parent=self, id=-1, label='MV4')
         self.Bind(wx.EVT_BUTTON, parent.MvxClicked, mvxButton)
 
+        AnalButton = wx.Button(parent=self, id=-1, label='Analyze is off')
+        self.Bind(wx.EVT_BUTTON, parent.AnalClicked, AnalButton)
+        self.AnalButton = AnalButton
+
         sim_frame = wx.Panel(self,-1)
         
         simButtonA = wx.Button(parent=sim_frame, id=-1, label='Simulate')
@@ -408,8 +425,8 @@ class ControlPanel(wx.Panel):
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
-        layout(self,[saveButton,mv1Button,mv2Button,mv3Button,mvxButton,sim_frame,
-                     track_frame])
+        layout(self,[saveButton,mv1Button,mv2Button,mv3Button,mvxButton,
+                     AnalButton,sim_frame,track_frame])
 
 class view_mv1_app(wx.App):
     def OnInit(self):
