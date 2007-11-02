@@ -31,7 +31,7 @@ import numpy, scipy, scipy.linalg, random, math, util
 def log_Poisson(Lambda,N):
     return N*math.log(Lambda) - Lambda - math.log(scipy.factorial(N))
 Invisible_Lifetime = 5 # After being invisible 5 times in a row targets die
-Join_Time = 6          # After 6 identical associations in a row, tragets merge
+Join_Time = 4          # After 4 identical associations in a row, tragets merge
 close_calls = None     # Will be list of flags of likely errors
 Target_Counter = 0
 
@@ -508,25 +508,37 @@ successors.length()=%d
             # For each association at time t, find the best predecessor
             # and the associated targets and collect them in old_As
             new_As = successors.maxes()
+            
             if t > Join_Time:
-                # Find targets that match back to Join_Time
+                # Find targets that match for Join_Time steps
                 shorts = {}
-                for key in child_targets.keys():
-                    target = child_targets[key]
-                    short_key = tuple(target.m_t[-Join_Time:])
-                    if not shorts.has_key(short_key):
-                        shorts[short_key] = [[],[]]
-                    shorts[short_key][0].append(key)
-                    shorts[short_key][1].append(target.R)
-                condemned = {}
-                for short_key in shorts.keys():
-                    if len(shorts[short_key][0]) == 1:
-                        continue
-                    k_max = util.argmax(shorts[short_key][1])
-                    del shorts[short_key][0][k_max]
-                    for key in shorts[short_key][0]:
-                        condemned[key] = True
-                # Delete associations that have condemned targets
+                keepers = {}
+                for k in xrange(len(new_As)):
+                    keepers[k] = new_As[k] # copy list to dict
+                    for target in new_As[k].targets:
+                        if len(target.m_t) < Join_Time or \
+                               target.m_t[-1] < 0 or target.m_t[-2] < 0:
+                            continue # Don't kill new or invisible targets
+                        short_key = tuple(target.m_t[-Join_Time:])
+                        if not shorts.has_key(short_key):
+                            shorts[short_key] = [[],[]]
+                        shorts[short_key][0].append(k)
+                        shorts[short_key][1].append(new_As[k].nu)
+                # Remove associations that have inferior matching targets
+                for short in shorts.values():
+                    i = util.argmax(short[1])
+                    nu_max = short[1][i]
+                    del short[0][i]
+                    for k in short[0]:
+                        if keepers.has_key(k):
+                            if nu_max - keepers[k].nu < 0.4:
+                                close_calls.append(
+                                    "At t=%d, drop an association that's only off by %5.3f"%(
+                                    t,nu_max - keepers[k].nu))
+                            del keepers[k]
+                new_As = keepers.values()
+                if len(new_As) < 1:
+                    raise RuntimeError,'Join check killed all As'
 
             # Pass up to MaxA new_As to old_As
             if len(new_As) > self.MaxA:
@@ -551,6 +563,8 @@ successors.length()=%d
             R[i] = old_As[i].nu
         A_best = old_As[R.argmax()]
         print 'nu_max=%f'%A_best.nu
+        for call in close_calls:
+            print call
         return (A_best,T)
     def decode_back(self,A_best,T):
         """ Backtrack from best association at final time to get MAP
@@ -858,12 +872,10 @@ class analysis:
         ts.sort()
         for t in ts:
             record = self.records[t]
-            if record['new_count'] != record['succ_count']:
-                print 'NOTICE: new_count=%d != succ_count=%d'%(
-                    record['new_count'],record['succ_count'])
             print '\nt=%2d'%t,
-            for key in ('pred_count','new_count','old_count','child_count'):
-                print '%s=%6d'%(key,record[key]),
+            for key in ('pred_count','succ_count','new_count','old_count',
+                        'child_count'):
+                print '%s=%-6d'%(key,record[key]),
         print '\n'
         for t in ts:
             print 't=%2d, index_count='%t,self.records[t]['index_count']
@@ -872,15 +884,15 @@ if __name__ == '__main__':  # Test code
     random.seed(3)
     scipy.random.seed(3)
     for pair in (
-       [MV1(N_tar=4),'MV1',0.26],
-       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.09],
-       [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.21],
-       [MV4(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',4.00]
+       [MV1(N_tar=4),'MV1',0.4],
+       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.24],
+       [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.13],
+       [MV4(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',41.61]
        ):
         Target_Counter=0
         M=pair[0]
         print '%s: Begin simulate'%pair[1]
-        y,s = M.simulate(5)
+        y,s = M.simulate(10)
         print 'Begin decode; expect %4.2f seconds on AMD Sempron 3000'%pair[2]
         ts = time.time()
         A = analysis()
