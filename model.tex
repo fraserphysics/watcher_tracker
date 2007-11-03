@@ -2,7 +2,7 @@
 
 \usepackage{amsmath,amsfonts}
 \usepackage{graphicx}
-%\usepackage{showlabels}
+\usepackage{showlabels}
 
 \newcommand{\normal}[2]{{\cal N}(#1,#2)}
 \newcommand{\NormalE}[3]{{\mathcal{N}}\left.\left(#1,#2\right)\right|_{#3}}
@@ -22,6 +22,8 @@
 \newcommand{\argmin}{\operatorname*{argmin}}
 \newcommand{\argmax}{\operatorname*{argmax}}
 \newcommand{\cS}{{\cal S}}
+\newcommand{\cA}{{\cal A}}
+\newcommand{\cC}{{\cal C}}
 \newcommand{\logdet}{\log\left(\left|\Sigma_D\right| \left| \Sigma_O
     \right| \right)}
 
@@ -137,8 +139,8 @@ $P(\ti{s}{t+1,j}|\ti{s}{t,j})$, ie, the dynamics of each object:
     \ti{s}{t+1,j} &= A  \ti{s}{t,j} + \ti{\epsilon}{t,j}, &
     \ti{\epsilon}{t,j} &\sim \normal{0}{\Sigma_{D}} \text{ iid} \\
     A &= \begin{bmatrix}
-      1 & 0 & 1 & 0 \\
-      0 & 1 & 0 & 1 \\
+      1 & 0 & \tau & 0 \\
+      0 & 1 & 0 & \tau \\
       0 & 0 & 1 & 0 \\
       0 & 0 & 0 & 1
     \end{bmatrix} &
@@ -464,8 +466,8 @@ addition it generates noise hits or \emph{false alarms}.  The false
 alarms are drawn from the initial $y$ distribution
 $\normal{\mu_0}{\Sigma_0}$ and the number of hits is drawn from a
 Poisson distribution with expected value $\lambda$.  The number of
-false alarms, $N_{\text{FA}}$, is a characteristic of a state or
-association, ie, $s \equiv (M,\bx,\bv,N_{\text{FA}})$ and
+false alarms, $N_{\text{FA}}$, is a characteristic of a state, ie, $s
+\equiv (M,\bx,\bv,N_{\text{FA}})$ and
 \begin{equation}
   \label{eq:2}
   P(\ti{s}{t+1}|\ti{s}{t},\ti{M}{t+1},\ti{\bx}{t+1}) =
@@ -479,7 +481,7 @@ For decoding, if you attribute the observations $y_1^{N_{\text{FA}}}$
 to false alarms at time $t$, add $\sum_k^{N_{\text{FA}}}
 \log(P(y_k|\text{FA}))$ and $\log \left(
   \frac{e^{-\lambda}\lambda^{N_{\text{FA}}}}{N_{\text{FA}}!}\right)$ to
-the value of $\nu$.
+the value of $\nu$.\marginpar{Are you sure?}
 
 
 \section{Model Version Four: Variable Number of Targets}
@@ -496,7 +498,7 @@ In the decoding algorithm, the cost of attributing the observations
 $y_1^{N_{\text{new}}}$ to new targets at time $t$ is the addition of
 $\sum_k^{N_{\text{new}}} \log(P(y_k|\text{new}))$ and $\log \left(
   \frac{e^{-\lambda}\lambda^{N_{\text{new}}}}{N_{\text{new}}!}\right)$
-to the value of $\nu$.
+to the value of $\nu$.\marginpar{Are you sure?}
 
 While it would be simpler to treat false alarms and new targets with
 the same model mechanism, since new targets will frequently arise at
@@ -515,6 +517,109 @@ Ultimately MVIV will have the following properties:
 \item Old targets removed after being invisible for some number of
   frames
 \end{itemize}
+
+\section{Algorithms and Approximations}
+\label{sec:algorithms}
+
+For MVIV, a state $s \equiv (M, \bx, \bv, N_{\text{FA}},
+N_{\text{targets}})$ has the following components:
+\begin{description}
+\item[$M$:] A map from a subset of the targets to a subset of the observations
+\item[$\bx$:] The positions of the targets
+\item[$\bv$:] The \emph{visibility} of each of the targets
+\item[$N_{\text{FA}}$:] The number of false alarms (derivable from $M$)
+\item[$N_{\text{targets}}$:] The number of targets (derivable from $\bx$)
+\end{description}
+I divide the components in two parts: The \emph{target} part
+$(\bx,\bv)$; and the \emph{association} part, $\cA \equiv (M,
+N_{\text{FA}}, N_{\text{targets}})$.  For each time $t$ in the forward
+pass of the Viterbi algorithm, I need $\nu(s,t)$ and $B(s,t)$.  I keep
+track of the association parts of states, treating them as discrete
+states in the Viterbi algorithm.  At time $t$ each $\cA$ has: An
+explanation for each observation; a pointer to the best predecessor,
+$B(\cA,t)$, which inductively also explains all previous observations;
+and a utility $\nu(\cA,t) = \max_{\bx,\bv} \nu(s,t)$.  To make the $B$
+and $\nu$ functions complete, I keep track of a mean $\mu_k(t)$ and a
+covariance $\Sigma_k(t)$ for each target $(\bx_k,\bv_k)$ used as part
+of an explanation in each $\cA$ or any of the predecessors (See
+Eqns.~\eqref{eq:mu_alg} and \eqref{eq:Sigma_alg}).
+
+\subsection{Clusters}
+\label{sec:clusters}
+
+I believe that if, over an interval of time, the observations are
+clustered into groups that are far apart, I can reduce the number of
+computations in the forward part of the Viterbi algorithm by breaking
+the problem into pieces that match the clusters in the data.
+
+I define a cluster of associations as a set associations each of which
+along with its predecessors explains the same set of observations.
+
+\subsubsection{Merging}
+\label{sec:merging}
+
+To merge two clusters, $\cC_1$ and $\cC_2$, create a new association
+from each pair drawn from the two clusters, ie,
+\begin{align}
+  \text{Merge}(\cC_1,\cC_2) &= \cC_3 \\
+  \forall \cA_{i}, \cA_{j} \text{ such that } \cA_{i} \in \cC_1 &\text{
+    and } \cA_{j} \in \cC_2 ~~ \cA_k = \text{Merge}(\cA_{i}, \cA_{j})
+  \in \cC_3 \\
+  \text{Merge}(\cA_{i}, \cA_{j}): \\
+  M_k &= \text{concatenate } M_i, M_j \\
+  N_{\text{FA},k} &= N_{\text{FA},i} + N_{\text{FA},k} \\
+  N_{\text{targets},k} &= N_{\text{targets},i} + N_{\text{targets},k}
+  \\
+  \nu_k &= \nu_i +\nu_j
+\end{align}
+
+\subsubsection{Branching}
+\label{sec:branching}
+
+Branching, $(\cC_1,\cC_2) = \text{Branch}(\cC_3)$ seems harder.  In
+particular,
+\begin{description}
+\item[Q:] How should $\nu$ be apportioned between the children?
+\item[A:] So that the \emph{Merge} of any pair of children yields a
+  parent.
+\item[Q:] Is that necessary and sufficient?
+\item[A:] I think so.  I want to allow final selection of any child
+  association from $\cC_1$ along with final selection of any child
+  association from $\cC_2$, and this does the trick.
+\end{description}
+First branch the association with the highest score, then discard all
+associations whose branchings are inconsistent with the first.  A
+branching is inconsistent if the targets going into the children do
+not explain the same subsets of observations from the first time to
+the present.
+
+\subsubsection{Forward Step}
+\label{sec:forward_b_m}
+
+\begin{enumerate}
+\item Find clusters of targets joined in that their children explain
+  clusters of observations
+  \begin{description}
+  \item[Q:] What about invisible targets?
+  \item[A:] Cluster membership for invisible targets is determined by
+    children.  If a target has no visible children, then it is in a
+    cluster by itself
+  \end{description}
+\item Reform clusters of associations based on step 1
+\item Propagate the clusters
+\end{enumerate}
+ 
+What's the point of this list?
+\begin{description}
+\newcommand{\range}[2]{\left[#1,\ldots,#2\right]}
+\item[$\{ \cA_k : k \in \range{1}{N} \}$:] Are the discrete parts of $N$ states
+ at time $t$
+\item[$\{ \nu_k(x_j) : (k,j) \in \range{1}{N} \times
+  \range{1}{N_{\text{targets}}}\}$:] The $\nu$ functions for the
+  targets
+\item[$\left\{ \nu_k : k \in \range{1}{N} \right\}$:] The discrete
+  portion of each $\nu(s)$]
+\end{description}
 
 \appendix
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}
