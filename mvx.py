@@ -461,33 +461,42 @@ class Cluster_Flock:
                   ):
         """ On the basis of the clusters of observations and targets
         find_clusters identities, recluster() branches
-        self.old_clusters and merges the parts to form
+        self.old_clusters and merge the parts to form
         self.new_clusters.
         """
-        branches = {}
+        # Break clusters into branches
+        branches = {} # FixMe: Index branches by (NI, OI) pair (New
+                      # index, Old index)
         for cluster in self.old_clusters:
             for i in xrange(len(cluster.associations)):
                 a = cluster.associations[i]
                 d = {} # Dict of target lists from a
                 for target in a.targets:
                     tar_key = tuple(target.m_t)
-                    I = self.tar_key_2_KTI[tar_key]
-                    if d.has_key(I):
-                        d[I][tar_key] = target
+                    NI = self.tar_key_2_KTI[tar_key]
+                    if d.has_key(NI):
+                        d[NI][tar_key] = target
                     else:
-                        d[I] = {tar_key:target}
-                if i is 0: # Initialize the branch clusters
-                    for I,value in d.items():
-                        branches[I] = Cluster(value)
+                        d[NI] = {tar_key:target}
+                if i is 0: # Initialize the branch clusters using
+                           # association with highest utility
+                    for NI,targets_b in d.items():
+                        branches[NI] = Cluster(targets_b,a)
                 else:
+                    # Append branchings of other associations only if
+                    # they are consistent with the first
                     OK = True
-                    for I,value in d.items():
-                        if not branches[I].check(value):
+                    for NI,value in d.items():
+                        if not branches[NI].check(value):
                             OK = False
                     if OK:
-                        for I,value in d.items():
-                            branches[I].append(value)
-
+                        for NI,value in d.items():
+                            branches[NI].append(value,a)
+                    else:
+                        close_calls.append(
+"Dropped branch associations in recluster() that are off by %5.3f"%(
+cluster.associations[0].nu - a.nu))
+        # Merge branches into new clusters
             
                     
 class MV4:
