@@ -393,6 +393,103 @@ class ASSOCIATION4:
         # key.
         for association in old_list:
             successors.enter(association)
+class Cluster:
+    """ A cluster is a set of targets and associations of those targets
+    """
+class Cluster_Flock:
+    """ A cluster flock is a set of clusters that partitions all of
+    the targets and all of the observations at a given time.  The key
+    method, recluster(Yt), implements reorganization from clusters at
+    time t-1 to clusters for time t based on new data Yt.
+    """
+    def __init__(self,               # Cluster_Flock
+                 targets             # Dict of targets
+                 ):
+        self.all_parents = targets
+        self.old_clusters = [Cluster(targets)]
+    def make_children(self,
+                      Yt
+                      ):
+        """ What about the hits that don't match any targets?
+        """
+        self.k2tar = {}
+        self.all_children = {}
+        for target in self.all_parents.values():
+            target.make_children(Yt,self.all_children)
+            tar_key = tuple(target.m_t)
+            for k in target.children.keys():
+                if k < 0:
+                    continue
+                if self.k2tar.has_key(k):
+                    self.k2tar[k][tar_key] = target
+                else:
+                    self.k2tar[k] = {tar_key:target}
+    def find_clusters(self,           # Cluster_Flock
+                      ):
+        """ Use self.k2tar and self.all_parents[*].children to
+        identify new clusters in observation space
+        """
+        Otars = self.all_parents.copy()
+        OKs = dict(map (lambda x: (x,True),range(len(self.k2tar))))
+        self.ks_and_tars = []
+        while len(OKs) > 0:
+            seed = OKs.popitem()[0]
+            cluster_k = {seed:True}
+            cluster_tar = {}
+            length = 0
+            while len(cluster_k) > length:
+                length = len(cluster_k)
+                for k in cluster_k.keys():
+                    for tar_key in self.k2tar[k].keys():
+                        cluster_tar.setdefault(tar_key,self.targets[tar_key])
+                        if Otars.has_key(tar_key):
+                            del Otars[tar_key]
+                for tar_key in cluster_tar.keys():
+                    target = self.targets[tar_key]
+                    for k in target.children.keys():
+                        cluster_k.setdefault(k,True)
+                        if OKs.has_key(k):
+                            del OKs[k]
+        self.ks_and_tars.append({'ks':cluster_k,'tars':cluster_tar})
+        for tar_key,target in Otars.values():
+            self.ks_and_tars.append({'ks':{-1:True},'tars':{tar_key:target}})
+        self.tar_key_2_KTI = {}
+        for I in xrange(len(self.ks_and_tars)):
+            for tar_key in self.ks_and_tars[I]['tars'].keys():
+                self.tar_key_2_KTI[tar_key] = I
+    def recluster(self,   # Cluster_Flock
+                  ):
+        """ On the basis of the clusters of observations and targets
+        find_clusters identities, recluster() branches
+        self.old_clusters and merges the parts to form
+        self.new_clusters.
+        """
+        branches = {}
+        for cluster in self.old_clusters:
+            for i in xrange(len(cluster.associations)):
+                a = cluster.associations[i]
+                d = {} # Dict of target lists from a
+                for target in a.targets:
+                    tar_key = tuple(target.m_t)
+                    I = self.tar_key_2_KTI[tar_key]
+                    if d.has_key(I):
+                        d[I][tar_key] = target
+                    else:
+                        d[I] = {tar_key:target}
+                if i is 0: # Initialize the branch clusters
+                    for I,value in d.items():
+                        branches[I] = Cluster(value)
+                else:
+                    OK = True
+                    for I,value in d.items():
+                        if not branches[I].check(value):
+                            OK = False
+                    if OK:
+                        for I,value in d.items():
+                            branches[I].append(value)
+
+            
+                    
 class MV4:
     """ A state consists of: Association; Locations; and Visibilities;
     (and the derivable N_FA), ie,

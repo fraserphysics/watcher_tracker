@@ -589,21 +589,24 @@ particular,
 \end{description}
 First branch the association with the highest score, then discard all
 associations whose branchings are inconsistent with the first.  A
-branching is inconsistent if the targets going into the children do
+branching is inconsistent if the targets going into the branches do
 not explain the same subsets of observations from the first time to
-the present.
+the present.  By branching one may discard an assocaition that would
+prove to be superior on the basis of future observations.
 
 \subsubsection{Forward Step}
 \label{sec:forward_b_m}
 
+Having processed observations $\ts{y}{\tau}{1}{t-1}$ implement the
+following steps to process the observations $\ti{y}{t}$
 \begin{enumerate}
-\item Find clusters of targets joined in that their children explain
-  clusters of observations
+\item Find clusters of targets $\ti{x}{t-1}$ joined in that their
+  children $\ti{x}{t}$ explain clusters of observations $\ti{y}{t}$
   \begin{description}
   \item[Q:] What about invisible targets?
   \item[A:] Cluster membership for invisible targets is determined by
     children.  If a target has no visible children, then it is in a
-    cluster by itself
+    cluster by itself.
   \end{description}
 \item Reform clusters of associations based on step 1
 \item Propagate the clusters
