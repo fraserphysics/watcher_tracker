@@ -395,34 +395,78 @@ class ASSOCIATION4:
             successors.enter(association)
 class Cluster:
     """ A cluster is a set of targets and associations of those
-    targets.  Methods: __init__, check, append, join
+    targets.  Each association should explain the same history of
+    observations.
+
+    Methods: __init__, check, append, merge
+    
+    Properties: history, As
     """
-    def __init__(self,     # Cluster
-                 targets,  # Dict of targets
-                 a=None    # Association that targets are from
+    def __init__(self,            # Cluster
+                 targets,         # Dict of targets
+                 a,               # Association that targets are from
+                 t,               # Time of last observation in history
+                 dead_targets={}  # 
                  ):
-        return None
+        self.history = self.make_history(targets,t,dead_targets)
+        self.As = []
+        self.append(targets,a,dead_targets)
+    def make_history(self,            # Cluster
+                     targets,         # Dict of targets
+                     t,               # Time of last observation in history
+                     dead_targets={}  # 
+                     ):
+        history = {}
+        target_time = map(lambda x: [x,t],targets) # Make pairs [[tar0,t],...]
+        target_time.extend(dead_targets.values())
+        for target,tf in target_time:
+            ti = tf - len(target.m_t)
+            for k in range(len(target.m_t)):
+                history[(ti+k,target.m_t[k])] = True
+        return(history)
     def check(self,     # Cluster
               targets,  # Dict of targets
               ):
         """ Retrurn True if targets explain same observations as this
         cluster
         """
-        return None
-    def append(self,     # Cluster
-               targets,  # Dict of targets
-               a         # Association that targets are from
+        history = self.make_history(targets)
+        for key in self.history.keys():
+            if not history.has_key(key):
+                return False
+        for key in history.keys():
+            if not self.history.has_key(key):
+                return False
+        return True
+    def append(self,            # Cluster
+               targets,         # Dict of targets
+               a,               # Association that targets are from
+               dead_targets
                ):
         """ Create a new association in this cluster
 
         """
-        return None
+        N_ct = len(targets) + len(dead_targets)
+        N_tt = len(a.targets) + len(a.dead_targets)
+        new_a = a.New((a.nu*N_ct)/N_tt,a.mod)
+        new_a.targets=targets
+        new_a.dead_targets = dead_targets
+        self.As.append(new_a)
     def merge(self,     # Cluster
              other      # Cluster
                ):
-        """ Merge a cluster with self
+        """ Merge a other cluster with self
         """
-        return None
+        self.history.update(other.history)
+        new_As = []
+        for OA in other.As:
+            for SA in self.As:
+                NA = OA.New(OA.nu+SA.nu,SA.mod)
+                NA.targets = OA.targets + SA.targets
+                NA.dead_targets = OA.dead_targets.copy()
+                NA.dead_targets.update(NA.dead_targets)
+                new_As.append[NA]
+        self.As = new_As
               
 class Cluster_Flock:
     """ A cluster flock is a set of clusters that partitions all of
@@ -431,10 +475,11 @@ class Cluster_Flock:
     time t-1 to clusters for time t based on new data Yt.
     """
     def __init__(self,               # Cluster_Flock
-                 targets             # Dict of targets
+                 targets,            # Dict of targets
+                 a,                  # ASSOCIATION4
                  ):
         self.all_parents = targets
-        self.old_clusters = [Cluster(targets)]
+        self.old_clusters = [Cluster(targets,a)]
     def make_children(self,
                       Yt
                       ):

@@ -600,8 +600,8 @@ prove to be superior on the basis of future observations.
 Having processed observations $\ts{y}{\tau}{1}{t-1}$ implement the
 following steps to process the observations $\ti{y}{t}$
 \begin{enumerate}
-\item Find clusters of targets $\ti{x}{t-1}$ joined in that their
-  children $\ti{x}{t}$ explain clusters of observations $\ti{y}{t}$
+\item Find clusters of targets $\ti{x}{t-1}$ defined by their children
+  $\ti{x}{t}$ explaining clusters of observations $\ti{y}{t}$
   \begin{description}
   \item[Q:] What about invisible targets?
   \item[A:] Cluster membership for invisible targets is determined by
@@ -611,18 +611,6 @@ following steps to process the observations $\ti{y}{t}$
 \item Reform clusters of associations based on step 1
 \item Propagate the clusters
 \end{enumerate}
- 
-What's the point of this list?
-\begin{description}
-\newcommand{\range}[2]{\left[#1,\ldots,#2\right]}
-\item[$\{ \cA_k : k \in \range{1}{N} \}$:] Are the discrete parts of $N$ states
- at time $t$
-\item[$\{ \nu_k(x_j) : (k,j) \in \range{1}{N} \times
-  \range{1}{N_{\text{targets}}}\}$:] The $\nu$ functions for the
-  targets
-\item[$\left\{ \nu_k : k \in \range{1}{N} \right\}$:] The discrete
-  portion of each $\nu(s)$]
-\end{description}
 
 \appendix
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}

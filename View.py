@@ -16,6 +16,7 @@ sig_O = 0.3
 MaxD   = 4.0   # Maximum Malhabonobis distance from forecast to y
 MaxA = 120     # Number of permutations allowed
 Analyze = False
+Model_No = 0
 
 class FloatSlider(wx.Slider):
     def __init__(self, parent, ID, Min, Max, Step, Value, call_back, **kwargs):
@@ -204,33 +205,15 @@ class view_mv1_frame(wx.Frame):
     def OnCloseWindow(self, event):
         self.Destroy()
 
-    def Mv1Clicked(self, event):
-        global Model_Class
+    def ModelClicked(self, event):
+        global Model_No, Model_Class
+        Model_Classes = [mvx.MV1,mvx.MV2,mvx.MV3,mvx.MV4]
+        label = ['MV1','MV2','MV3','MV4']
         random.seed(3)
         scipy.random.seed(3)
-        Model_Class = mvx.MV1
-        self.statusbar.SetStatusText('Model_Class = mvx.MV1')
-        
-    def Mv2Clicked(self, event):
-        global Model_Class
-        random.seed(3)
-        scipy.random.seed(3)
-        Model_Class = mvx.MV2
-        self.statusbar.SetStatusText('Model_Class = mvx.MV2')
-        
-    def Mv3Clicked(self, event):
-        global Model_Class
-        random.seed(3)
-        scipy.random.seed(3)
-        Model_Class = mvx.MV3
-        self.statusbar.SetStatusText('Model_Class = mvx.MV3')
-        
-    def MvxClicked(self, event):
-        global Model_Class
-        random.seed(3)
-        scipy.random.seed(3)
-        Model_Class = mvx.MV4
-        self.statusbar.SetStatusText('Model_Class = mvx.MV4')
+        Model_No = (Model_No+1)%4
+        Model_Class = Model_Classes[Model_No]
+        self.controlPanel.ModelButton.SetLabel(label[Model_No])
         
     def AnalClicked(self, event):
         global Analyze
@@ -356,17 +339,9 @@ class ControlPanel(wx.Panel):
         saveButton = wx.Button(parent=self, id=-1, label='Save')
         self.Bind(wx.EVT_BUTTON, parent.SaveClicked, saveButton)
 
-        mv1Button = wx.Button(parent=self, id=-1, label='MV1')
-        self.Bind(wx.EVT_BUTTON, parent.Mv1Clicked, mv1Button)
-
-        mv2Button = wx.Button(parent=self, id=-1, label='MV2')
-        self.Bind(wx.EVT_BUTTON, parent.Mv2Clicked, mv2Button)
-
-        mv3Button = wx.Button(parent=self, id=-1, label='MV3')
-        self.Bind(wx.EVT_BUTTON, parent.Mv3Clicked, mv3Button)
-
-        mvxButton = wx.Button(parent=self, id=-1, label='MV4')
-        self.Bind(wx.EVT_BUTTON, parent.MvxClicked, mvxButton)
+        ModelButton = wx.Button(parent=self, id=-1, label='MV1')
+        self.Bind(wx.EVT_BUTTON, parent.ModelClicked, ModelButton)
+        self.ModelButton = ModelButton
 
         AnalButton = wx.Button(parent=self, id=-1, label='Analyze is off')
         self.Bind(wx.EVT_BUTTON, parent.AnalClicked, AnalButton)
@@ -425,8 +400,7 @@ class ControlPanel(wx.Panel):
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
-        layout(self,[saveButton,mv1Button,mv2Button,mv3Button,mvxButton,
-                     AnalButton,sim_frame,track_frame])
+        layout(self,[saveButton,ModelButton,AnalButton,sim_frame,track_frame])
 
 class view_mv1_app(wx.App):
     def OnInit(self):
