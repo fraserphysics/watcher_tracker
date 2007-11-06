@@ -394,8 +394,36 @@ class ASSOCIATION4:
         for association in old_list:
             successors.enter(association)
 class Cluster:
-    """ A cluster is a set of targets and associations of those targets
+    """ A cluster is a set of targets and associations of those
+    targets.  Methods: __init__, check, append, join
     """
+    def __init__(self,     # Cluster
+                 targets,  # Dict of targets
+                 a=None    # Association that targets are from
+                 ):
+        return None
+    def check(self,     # Cluster
+              targets,  # Dict of targets
+              ):
+        """ Retrurn True if targets explain same observations as this
+        cluster
+        """
+        return None
+    def append(self,     # Cluster
+               targets,  # Dict of targets
+               a         # Association that targets are from
+               ):
+        """ Create a new association in this cluster
+
+        """
+        return None
+    def merge(self,     # Cluster
+             other      # Cluster
+               ):
+        """ Merge a cluster with self
+        """
+        return None
+              
 class Cluster_Flock:
     """ A cluster flock is a set of clusters that partitions all of
     the targets and all of the observations at a given time.  The key
@@ -464,13 +492,15 @@ class Cluster_Flock:
         self.old_clusters and merge the parts to form
         self.new_clusters.
         """
-        # Break clusters into branches
-        branches = {} # FixMe: Index branches by (NI, OI) pair (New
-                      # index, Old index)
-        for cluster in self.old_clusters:
+        # Break clusters into fragments
+        fragmentON = {} # Fragment clusters indexed by (Old index, New index)
+        fragmentNO = {} # Fragment clusters indexed by (New index, Old index)
+        for OI in xrange(len(self.old_clusters)):
+            cluster = self.old_clusters[OI]
+            fragmentON[OI] = {}
             for i in xrange(len(cluster.associations)):
                 a = cluster.associations[i]
-                d = {} # Dict of target lists from a
+                d = {} # Dict of target lists from association a
                 for target in a.targets:
                     tar_key = tuple(target.m_t)
                     NI = self.tar_key_2_KTI[tar_key]
@@ -478,26 +508,31 @@ class Cluster_Flock:
                         d[NI][tar_key] = target
                     else:
                         d[NI] = {tar_key:target}
-                if i is 0: # Initialize the branch clusters using
+                if i is 0: # Initialize the fragment clusters using
                            # association with highest utility
-                    for NI,targets_b in d.items():
-                        branches[NI] = Cluster(targets_b,a)
-                else:
-                    # Append branchings of other associations only if
-                    # they are consistent with the first
+                    for NI,targets_f in d.items():
+                        fragmentsON[OI][NI] = Cluster(targets_f,a)
+                else:   # Append fragmentings of other associations only
+                        # if they are consistent with the first
                     OK = True
-                    for NI,value in d.items():
-                        if not branches[NI].check(value):
+                    for NI,targets_f in d.items():
+                        if not fragmentsON[OI][NI].check(targets_f):
                             OK = False
                     if OK:
-                        for NI,value in d.items():
-                            branches[NI].append(value,a)
+                        for NI,targets_f in d.items():
+                            fragmentsON[OI][NI].append(targets_f,a)
                     else:
                         close_calls.append(
 "Dropped branch associations in recluster() that are off by %5.3f"%(
 cluster.associations[0].nu - a.nu))
-        # Merge branches into new clusters
-            
+        # Merge fragments into new clusters
+        self.new_clusters = {}
+        for OI in fragmentON.keys():
+            for NI in fragementON[OI].keys():
+                if not self.new_clusters.has_key(NI):
+                    self.new_clusters[NI] = fragementON[OI][NI]
+                else:
+                    self.new_clusters[NI].merge(fragementON[OI][NI])
                     
 class MV4:
     """ A state consists of: Association; Locations; and Visibilities;
