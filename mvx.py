@@ -67,7 +67,8 @@ class TARGET4(CAUSE_FA):
         self.Sigma_t = Sigma_t
         self.R = R
         self.children = None  # Will be dict of targets at t+1 updated with
-                              # hits plausibly caused by this target
+                              # hits plausibly caused by this target.
+                              # Keys are hit indices k
         self.invisible_count=0# Number of time steps target has been invisible
     def New(self, *args,**kwargs):
         if args[-1] is None: # y is None, ie invisible
@@ -349,7 +350,8 @@ class ASSOCIATION4:
             if target.invisible_count < Invisible_Lifetime:
                 target.make_children(y_t,cousins)
             else:
-                self.dead_targets.setdefault(target.index,[target,t])
+                #self.dead_targets.setdefault(target.index,[target,t]) FixMe?
+                self.dead_targets[target.index] = [target,t]
                 target.children = {}
     def forward(self,       # ASSOCIATION4
                 successors, # DB of associations and u's for the next time step
@@ -488,18 +490,18 @@ class Cluster_Flock:
     it only changes the clusters and makes child targets.
     
     Variables:
-       k2tar          Dict that maps observation index to dict of targets
-       all_children   Dict of targets; keys are tuple(target.m_t)
-       ks_and_tars    List of clusters each stored as a dict with keys
+       parents        Dict of targets; keys are tuple(target.m_t)
+       children       Dict of targets; keys are tuple(target.m_t)
+       k2par          Dict that maps observation index to dict of targets
+       ks_and_pars    List of clusters each stored as a dict with keys
                         'ks' and 'tars'.  *['ks'] is a dict of the ks
-                        and *['tars'] is a dict of the targets.
-       targets        ?
-       tar_key_2_KTI  Dict that maps targets to index of cluster in ks_and_tars
+                        and *['tars'] is a dict of the parents.
+       par_key_2_KTI  Dict that maps parents to index of cluster in ks_and_pars
        old_clusters   List of Clusters
-       new_clusters   Dict of Clusters  FixMe: Should be a list?
+       new_clusters   List of Clusters
 
     Methods:
-       make_children()
+       make_family()
        find_clusters()
        recluster()
        
@@ -508,67 +510,80 @@ class Cluster_Flock:
                  targets,            # Dict of targets
                  a,                  # ASSOCIATION4
                  ):
-        self.all_parents = targets
         self.old_clusters = [Cluster(targets,a)]
-    def make_children(self,
+    def make_family(self,
                       Yt
                       ):
-        """ What about the hits that don't match any targets?
+        """ Extract self.parents, a dict of all targets at last time,
+        from associations in self.old_clusters, then make
+        self.children from parents.
         """
-        self.k2tar = {}
-        self.all_children = {}
-        for target in self.all_parents.values():
-            target.make_children(Yt,self.all_children)
+        self.parents = {}
+        self.children = {}
+        self.k2par = {}
+        for cluster in self.old_clusters:
+            for a in cluster.As:
+                for target in a.targets:
+                    key = tuple(target.m_t)
+                    self.parents[key] = target
+        for target in self.parents.values():
+            target.make_children(Yt,self.children)
             tar_key = tuple(target.m_t)
             for k in target.children.keys():
                 if k < 0:
                     continue
-                if self.k2tar.has_key(k):
-                    self.k2tar[k][tar_key] = target
+                if self.k2par.has_key(k):
+                    self.k2par[k][tar_key] = target
                 else:
-                    self.k2tar[k] = {tar_key:target}
+                    self.k2par[k] = {tar_key:target}
     def find_clusters(self,           # Cluster_Flock
                       ):
-        """ Use self.k2tar and self.all_parents[*].children to
-        identify new clusters of observations
+        """ Use self.k2par and self.parents[*].children to identify
+        new clusters of observations.  Each observation that is too
+        far from all targets is put in a cluster by itself.
         """
-        Otars = self.all_parents.copy()
-        OKs = dict(map (lambda x: (x,True),range(len(self.k2tar))))
+        Otars = self.parents.copy() # Keep track of unclustered parents
+        OKs = dict(map (lambda x: (x,True),range(len(self.k2par))))
         # Need dicts of "old targets" and "old k values" so that
         # deleting doesn't change keys for remainders
-        self.ks_and_tars = [] # Definitive list of clusters
-        while len(OKs) > 0:
-            seed = OKs.popitem()[0]
-            cluster_k = {seed:True}
+        self.ks_and_pars = [] # Definitive list of clusters
+        while len(Oks) > 0:
+            cluster_k = {Oks.popitem()[0]:True} # Seed with a remaining k
             cluster_tar = {}
+            # Collect all targets linked to ks and all ks linked to
+            # targets.  self.k2par provides k to target links.  Target
+            # to k links come from the target.children each of which
+            # is a dict with k values as keys
             length = 0
-            # Collect all targets linked to ks and all ks linked to targets
             while len(cluster_k) > length:
+                # Stop when iteration doesn't grow cluster
                 length = len(cluster_k)
                 for k in cluster_k.keys():
-                    for tar_key in self.k2tar[k].keys():
-                        cluster_tar.setdefault(tar_key,self.targets[tar_key])
+                    for tar_key in self.k2par[k].keys():
+                        cluster_tar[tar_key] = self.parents[tar_key]
                         if Otars.has_key(tar_key):
                             del Otars[tar_key]
                 for tar_key in cluster_tar.keys():
-                    target = self.targets[tar_key]
+                    target = self.parents[tar_key]
                     for k in target.children.keys():
-                        cluster_k.setdefault(k,True)
-                        if OKs.has_key(k):
-                            del OKs[k]
-        self.ks_and_tars.append({'ks':cluster_k,'tars':cluster_tar})
+                        cluster_k[k] = True
+                        if Oks.has_key(k):
+                            del Oks[k]
+        self.ks_and_pars.append({'ks':cluster_k,'tars':cluster_tar})
         for tar_key,target in Otars.values():
-            self.ks_and_tars.append({'ks':{-1:True},'tars':{tar_key:target}})
-        self.tar_key_2_KTI = {}
-        for I in xrange(len(self.ks_and_tars)):
-            for tar_key in self.ks_and_tars[I]['tars'].keys():
-                self.tar_key_2_KTI[tar_key] = I
+            self.ks_and_pars.append({'ks':{-1:True},'tars':{tar_key:target}})
+        self.par_key_2_KTI = {}
+        for I in xrange(len(self.ks_and_pars)):
+            for tar_key in self.ks_and_pars[I]['tars'].keys():
+                self.par_key_2_KTI[tar_key] = I
     def recluster(self,   # Cluster_Flock
+                  Yt      # Observations at this time
                   ):
         """ On the basis of the clusters of observations and targets
-        find_clusters identities, recluster() branches
-        self.old_clusters and merge the parts to form
-        self.new_clusters.
+        that find_clusters has identitied, recluster() fragments
+        self.old_clusters and merges the parts to form
+        self.new_clusters.  Note that hits that don't match any
+        targets get put in clusters of their own.
         """
         # Break clusters into fragments
         fragmentON = {} # Fragment clusters indexed by (Old index, New index)
@@ -581,7 +596,7 @@ class Cluster_Flock:
                 d = {} # Dict of target lists from association a
                 for target in a.targets:
                     tar_key = tuple(target.m_t)
-                    NI = self.tar_key_2_KTI[tar_key]
+                    NI = self.par_key_2_KTI[tar_key]
                     if d.has_key(NI):
                         d[NI][tar_key] = target
                     else:
@@ -604,14 +619,16 @@ class Cluster_Flock:
 "Dropped branch associations in recluster() that are off by %5.3f"%(
 cluster.associations[0].nu - a.nu))
         # Merge fragments into new clusters
-        self.new_clusters = {}
+        new_clusters = {}
         for OI in fragmentON.keys():
             for NI in fragementON[OI].keys():
-                if not self.new_clusters.has_key(NI):
-                    self.new_clusters[NI] = fragementON[OI][NI]
+                if not new_clusters.has_key(NI):
+                    new_clusters[NI] = fragementON[OI][NI]
                 else:
-                    self.new_clusters[NI].merge(fragementON[OI][NI])
-                    
+                    new_clusters[NI].merge(fragementON[OI][NI])
+        self.old_clusters = new_clusters.values() # Dict to list
+        return [] #FixMe: return clusters and associated observations
+
 class MV4:
     """ A state consists of: Association; Locations; and Visibilities;
     (and the derivable N_FA), ie,
@@ -670,7 +687,7 @@ class MV4:
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
     def make_newts(self, # MV4
                    Yts   # List of ys for current time
-                   ):
+                   ):    # Make new targets
         self.newts = {}
         for k in xrange(len(Yts)):
             self.newts[k] = self.target_0.KF(Yts[k],k)
@@ -924,6 +941,56 @@ t,nu_max - keepers[k].nu))
                 y.append(util.normalS(zero_y,self.Sigma_FA))
             obs[t] = self.shuffle(y)
         return obs,stk
+class MV5(MV4):
+    """ Like MV4 but each global association is composed by selecting
+    one association from each cluster in a cluster flock.
+    """
+    def decode_forward(self,   # MV5
+                       Ys,     # Observations. Ys[t][k]
+                       old_As, # Initial empty association is only element
+                       t_first,# Always 0 for MV5
+                       analysis = False
+                       ):
+        """ Variant on MV4.decode that sets up clusters and cluster
+        flocks.  Arguments are the same as for MV4 to minimize
+        rewriting.
+        """
+        global close_calls
+        close_calls = []
+        T = len(Ys)
+        flock = Cluster_Flock({},old_As[0]) # Start with no targets
+                                            # and blank association
+        for t in xrange(T):
+            flock.make_family(Ys[t]) # Make parent and child targets
+            flock.find_clusters()    # Identify clusters of observations
+            # recluster() makes new clusters of associations and
+            # returns them with their associated observations
+            for cluster,Yc in flock.recluster(Ys[t]):
+                successors = SUCCESSOR_DB()
+                for A in cluster.As:
+                    A.forward(successors,Yc) # FixMe: Need forward for
+                                              # Yc dict.  Use Murty's
+                                              # algorithm here
+                new_As = successors.maxes()
+                # Reduce number of associations by (1) Finding targets
+                # that match for Join_Time steps and remove
+                # associations that have inferior matching targets and
+                # (2) Removing associations that are not within
+                # alpha*MaxD*sqrt(N)
+                cluster.As = new_As
+        # Find the best last associations
+        A_union = old_As[0] # Empty association
+        for cluster in flock.old_clusters:
+            As = cluster.As
+            R = scipy.zeros(len(As))
+            for i in xrange(len(As)):
+                R[i] = As[i].nu
+            A_union.join(As[R.argmax()]) # FixMe: Write ASSOCIATION4.join()
+        print 'nu_max=%f'%A_union.nu
+        for call in close_calls:
+            print call
+        return (A_union,T)
+                
 class TARGET1(TARGET4):
     def New(self, *args,**kwargs):
         return TARGET1(*args,**kwargs)
