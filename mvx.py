@@ -398,7 +398,12 @@ class Cluster:
     targets.  Each association should explain the same history of
     observations.
 
-    Methods: __init__, check, append, merge
+    Methods:
+       __init__()     Make self.history and self.As from arguments
+       make_history() Return dict with keys (t,k)= (time,observation_index)
+       check()        See if history from argument matches self.history
+       append()       
+       merge()
     
     Properties: history, As
     """
@@ -408,6 +413,8 @@ class Cluster:
                  t,               # Time of last observation in history
                  dead_targets={}  # 
                  ):
+        """ Make first association and history and attach them to self
+        """
         self.history = self.make_history(targets,t,dead_targets)
         self.As = []
         self.append(targets,a,dead_targets)
@@ -416,6 +423,8 @@ class Cluster:
                      t,               # Time of last observation in history
                      dead_targets={}  # 
                      ):
+        """ Return a history dict made from arguments
+        """
         history = {}
         target_time = map(lambda x: [x,t],targets) # Make pairs [[tar0,t],...]
         target_time.extend(dead_targets.values())
@@ -443,19 +452,19 @@ class Cluster:
                a,               # Association that targets are from
                dead_targets
                ):
-        """ Create a new association in this cluster
-
+        """ Create a new association in this cluster.  History match
+        should have already been done.
         """
         N_ct = len(targets) + len(dead_targets)
         N_tt = len(a.targets) + len(a.dead_targets)
-        new_a = a.New((a.nu*N_ct)/N_tt,a.mod)
+        new_a = a.New((a.nu*N_ct)/N_tt,a.mod) #FixMe: Is this nu OK?
         new_a.targets=targets
         new_a.dead_targets = dead_targets
         self.As.append(new_a)
     def merge(self,     # Cluster
              other      # Cluster
                ):
-        """ Merge a other cluster with self
+        """ Merge an other cluster with self
         """
         self.history.update(other.history)
         new_As = []
@@ -472,7 +481,23 @@ class Cluster_Flock:
     """ A cluster flock is a set of clusters that partitions all of
     the targets and all of the observations at a given time.  The key
     method, recluster(Yt), implements reorganization from clusters at
-    time t-1 to clusters for time t based on new data Yt.
+    time t-1 to clusters for time t based on new data Yt at time t.
+    Variables:
+       k2tar          Dict that maps observation index to dict of targets
+       all_children   Dict of targets keys are tuple(target.m_t)
+       ks_and_tars    List of clusters stored each stored as a dict with
+                        keys 'ks' and 'tars'.  *['ks'] is a dict of the ks
+                        and *['tars'] is a dict of the targets
+       targets        ?
+       tar_key_2_KTI  Dict that maps targets to index of cluster in ks_and_tars
+       old_clusters   List of Clusters
+       new_clusters   Dict of Clusters  FixMe: Should be a list?
+
+    Methods:
+       make_children()
+       find_clusters()
+       recluster()
+       
     """
     def __init__(self,               # Cluster_Flock
                  targets,            # Dict of targets
@@ -593,7 +618,8 @@ class MV4:
                  Sigma_init = None,            # Initial state distribution
                  mu_init = None,               # Initial state distribution
                  MaxD = 0,                     # Threshold for hits
-                 MaxA = 120,                   # Max number of associations
+                 alpha = 0.5, # Associations that are off max by less than
+                              # alpha*MaxD*sqrt(N_tar) are OK
                  PV_V=[[.9,.1],[.2,.8]],       # Visibility transition matrix
                  Lambda_new=0.05,              # Avg # of new targets per step
                  Lambda_FA=0.3                 # Avg # of false alarms per step
@@ -625,7 +651,7 @@ class MV4:
             self.Sigma_init = scipy.matrix(Sigma_init)
         self.MaxD = MaxD
         self.MaxD_limit = MaxD
-        self.MaxA = MaxA
+        self.alpha = alpha
         self.PV_V = scipy.matrix(PV_V)
         self.Lambda_FA = Lambda_FA # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
@@ -719,28 +745,27 @@ successors.length()=%d
                         if keepers.has_key(k):
                             if nu_max - keepers[k].nu < 0.4:
                                 close_calls.append(
-                                    "At t=%d, drop an association that's only off by %5.3f"%(
-                                    t,nu_max - keepers[k].nu))
+"At t=%d, drop an association that's only off by %5.3f"%(
+t,nu_max - keepers[k].nu))
                             del keepers[k]
                 new_As = keepers.values()
                 if len(new_As) < 1:
                     raise RuntimeError,'Join check killed all As'
-
-            # Pass up to MaxA new_As to old_As
-            if len(new_As) > self.MaxA:
+            if self.alpha < 1e-6 or self.MaxD < 1e-6:
+                old_As = new_As
+            else:
+                # Only pass associations that are within alpha*MaxD*sqrt(N)
                 Rs = []
                 for A in new_As:
                     Rs.append(A.nu)
-                Rs.sort()
-                limit = Rs[-self.MaxA]
+                limit = max(Rs) - (self.alpha*self.MaxD)**2*len(Ys[t])/2
                 old_As = []
                 for A in new_As:
                     if A.nu >= limit:
                         old_As.append(A)
-            else:
-                old_As = new_As
             if analysis is not False:
-                analysis.append(t,child_targets,new_As,old_As,successors.count())
+                analysis.append(t,child_targets,new_As,old_As,
+                                successors.count())
         # End of for loop over t
         
         # Find the best last association

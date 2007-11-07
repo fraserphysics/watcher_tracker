@@ -14,7 +14,7 @@ sig_x = 0.1
 sig_v = 0.2
 sig_O = 0.3
 MaxD   = 4.0   # Maximum Malhabonobis distance from forecast to y
-MaxA = 120     # Number of permutations allowed
+alpha = 0.5    # Cutoff for associations in terms of MaxD
 Analyze = False
 Model_No = 0
 
@@ -228,7 +228,7 @@ class view_mv1_frame(wx.Frame):
         global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Model_Class
 
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxA=MaxA)
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,alpha=alpha)
         yo,s = M.simulate(T)
         self.plot_panelA.A=None
         self.plot_panelA.y=yo
@@ -244,11 +244,11 @@ class view_mv1_frame(wx.Frame):
         print "Save clicked"
         
     def OnTrackClicked(self, event):
-        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,MaxA
+        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,alpha
         global Model_Class, Analyze
 
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,MaxA=MaxA)
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,alpha=alpha)
         t_start = time.time()
         d,yd = M.decode(yo,analysis=Analyze)
         print 'decode time = %f'%(time.time()-t_start)
@@ -293,10 +293,10 @@ class view_mv1_frame(wx.Frame):
             MaxD = 0
         self.statusbar.SetStatusText('MaxD=%5.3f'%MaxD)
 
-    def MaxA_sliderUpdate(self, event):
-        global MaxA
-        MaxA = self.controlPanel.MaxA_Slider.GetValue()
-        self.statusbar.SetStatusText('MaxA=%d'%MaxA)
+    def alpha_sliderUpdate(self, event):
+        global alpha
+        alpha = self.controlPanel.alpha_Slider.Fvalue
+        self.statusbar.SetStatusText('alpha=%f'%alpha)
 
     def t_sliderUpdate(self, event):
         global N_obj,s,yo,foo_t
@@ -331,7 +331,8 @@ class ControlPanel(wx.Panel):
     maxThickness = 16
 
     def __init__(self, parent, ID):
-        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,MaxD,MaxA
+        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,MaxD,alpha
+        global Model_No, Model_Class
         wx.Panel.__init__(self, parent, ID, style=wx.RAISED_BORDER)
         buttonSize = (self.BMP_SIZE + 2 * self.BMP_BORDER,
                       self.BMP_SIZE + 2 * self.BMP_BORDER)
@@ -342,6 +343,8 @@ class ControlPanel(wx.Panel):
         ModelButton = wx.Button(parent=self, id=-1, label='MV1')
         self.Bind(wx.EVT_BUTTON, parent.ModelClicked, ModelButton)
         self.ModelButton = ModelButton
+        Model_Class = mvx.MV1
+        Model_No = 0
 
         AnalButton = wx.Button(parent=self, id=-1, label='Analyze is off')
         self.Bind(wx.EVT_BUTTON, parent.AnalClicked, AnalButton)
@@ -393,10 +396,9 @@ class ControlPanel(wx.Panel):
                     0.005, 0, parent.t_sliderUpdate, size=(-1, 200))
         MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
             0.0, 2.0, 0.002, 1/MaxD, parent.MaxD_sliderUpdate, size=(-1, 200))
-        MaxA_frame,self.MaxA_Slider = Vlab_slider(self, row_C,"MaxA",
-            parent.MaxA_sliderUpdate, value=MaxA, minValue=1, maxValue=120,
-            size=(-1, 200))
-        layout(row_C,[t_frame,MaxD_frame,MaxA_frame],orient=wx.HORIZONTAL)
+        alpha_frame,self.alpha_Slider = VFlab_slider(self, row_C,"alpha",
+            0.0, 5.0, 0.05, alpha, parent.alpha_sliderUpdate, size=(-1, 200))
+        layout(row_C,[t_frame,MaxD_frame,alpha_frame],orient=wx.HORIZONTAL)
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
