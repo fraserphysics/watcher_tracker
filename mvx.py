@@ -408,9 +408,9 @@ class Cluster:
     Properties: history, As
     """
     def __init__(self,            # Cluster
-                 targets,         # Dict of targets
+                 targets,         # Dict of targets with tuple(m_t) keys
                  a,               # Association that targets are from
-                 t,               # Time of last observation in history
+                 t,               # Time of last observation
                  dead_targets={}  # 
                  ):
         """ Make first association and history and attach them to self
@@ -419,14 +419,15 @@ class Cluster:
         self.As = []
         self.append(targets,a,dead_targets)
     def make_history(self,            # Cluster
-                     targets,         # Dict of targets
-                     t,               # Time of last observation in history
+                     targets,         # Dict of targets with tuple(m_t) keys
+                     t,               # Time of last observation
                      dead_targets={}  # 
                      ):
         """ Return a history dict made from arguments
         """
         history = {}
-        target_time = map(lambda x: [x,t],targets) # Make pairs [[tar0,t],...]
+        # Make pairs [[tar0,t],[tar1,t]...]
+        target_time = map(lambda x: [x,t],targets.values())
         target_time.extend(dead_targets.values())
         for target,tf in target_time:
             ti = tf - len(target.m_t)
@@ -471,7 +472,8 @@ class Cluster:
         for OA in other.As:
             for SA in self.As:
                 NA = OA.New(OA.nu+SA.nu,SA.mod)
-                NA.targets = OA.targets + SA.targets
+                NA.targets = OA.targets.copy()
+                NA.targets.update(SA.targets)
                 NA.dead_targets = OA.dead_targets.copy()
                 NA.dead_targets.update(NA.dead_targets)
                 new_As.append[NA]
@@ -482,12 +484,15 @@ class Cluster_Flock:
     the targets and all of the observations at a given time.  The key
     method, recluster(Yt), implements reorganization from clusters at
     time t-1 to clusters for time t based on new data Yt at time t.
+    Note that recluster does not update the associations for time t;
+    it only changes the clusters and makes child targets.
+    
     Variables:
        k2tar          Dict that maps observation index to dict of targets
-       all_children   Dict of targets keys are tuple(target.m_t)
-       ks_and_tars    List of clusters stored each stored as a dict with
-                        keys 'ks' and 'tars'.  *['ks'] is a dict of the ks
-                        and *['tars'] is a dict of the targets
+       all_children   Dict of targets; keys are tuple(target.m_t)
+       ks_and_tars    List of clusters each stored as a dict with keys
+                        'ks' and 'tars'.  *['ks'] is a dict of the ks
+                        and *['tars'] is a dict of the targets.
        targets        ?
        tar_key_2_KTI  Dict that maps targets to index of cluster in ks_and_tars
        old_clusters   List of Clusters
@@ -525,16 +530,19 @@ class Cluster_Flock:
     def find_clusters(self,           # Cluster_Flock
                       ):
         """ Use self.k2tar and self.all_parents[*].children to
-        identify new clusters in observation space
+        identify new clusters of observations
         """
         Otars = self.all_parents.copy()
         OKs = dict(map (lambda x: (x,True),range(len(self.k2tar))))
-        self.ks_and_tars = []
+        # Need dicts of "old targets" and "old k values" so that
+        # deleting doesn't change keys for remainders
+        self.ks_and_tars = [] # Definitive list of clusters
         while len(OKs) > 0:
             seed = OKs.popitem()[0]
             cluster_k = {seed:True}
             cluster_tar = {}
             length = 0
+            # Collect all targets linked to ks and all ks linked to targets
             while len(cluster_k) > length:
                 length = len(cluster_k)
                 for k in cluster_k.keys():
