@@ -356,16 +356,21 @@ class ASSOCIATION4:
     def forward(self,       # ASSOCIATION4
                 successors, # DB of associations and u's for the next time step
                 y_t,        # Hits at this time
+                k_list=None # Option for MV5
                 ):
         """ For each plausible successor S of the ASSOCIATION self,
         enter the following into the successors DB 1. A key for the
         explanation that S gives for the observations. 2. The
         candidate successor association S. 3. The value of
         u'(self,S,t+1).
+
+        FixMe: This is where I could use Murty's algorithm
         """
+        if k_list is None:
+            k_list = range(len(y_t))
         # For each observation, make a list of plausible causes
         causes = []
-        for k in xrange(len(y_t)):
+        for k in k_list:
             causes.append([])
             for check in self.cause_checks:
                 check(k,causes[k],y_t[k])
@@ -373,7 +378,7 @@ class ASSOCIATION4:
         old_list = [self.New(self.nu,self.mod)]
         # Make list of plausible associations.  At level k, each
         # association explains the source of each y_t[i] for i<k.
-        for k in xrange(len(y_t)):
+        for k in k_list:
             new_list = []
             for partial in old_list:
                 for cause in causes[k]:
@@ -642,8 +647,8 @@ class MV4:
                  Sigma_O = [[0.25]],           # Observational noise
                  Sigma_init = None,            # Initial state distribution
                  mu_init = None,               # Initial state distribution
-                 MaxD = 0,                     # Threshold for hits
-                 alpha = 0.5, # Associations that are off max by less than
+                 MaxD = 2.5,                   # Threshold for hits
+                 alpha = 0.3, # Associations that are off max by less than
                               # alpha*MaxD*sqrt(N_tar) are OK
                  PV_V=[[.9,.1],[.2,.8]],       # Visibility transition matrix
                  Lambda_new=0.05,              # Avg # of new targets per step
@@ -691,11 +696,64 @@ class MV4:
         self.newts = {}
         for k in xrange(len(Yts)):
             self.newts[k] = self.target_0.KF(Yts[k],k)
+    def decode_prune(self, #MV4
+                     t,
+                     new_As,
+                     len_Y
+                     ):
+        """ Reduce the number of associations by (1) Finding targets that
+        match for Join_Time steps and remove associations that have
+        inferior matching targets and (2) Removing associations that
+        are not within alpha*MaxD*sqrt(N)
+        """
+        global Join_Time
+        if t > Join_Time:
+            # Find targets that match for Join_Time steps
+            shorts = {}
+            keepers = {}
+            for k in xrange(len(new_As)):
+                keepers[k] = new_As[k] # copy list to dict
+                for target in new_As[k].targets:
+                    if len(target.m_t) < Join_Time or \
+                           target.m_t[-1] < 0 or target.m_t[-2] < 0:
+                        continue # Don't kill new or invisible targets
+                    short_key = tuple(target.m_t[-Join_Time:])
+                    if not shorts.has_key(short_key):
+                        shorts[short_key] = [[],[]]
+                    shorts[short_key][0].append(k)
+                    shorts[short_key][1].append(new_As[k].nu)
+            # Remove associations that have inferior matching targets
+            for short in shorts.values():
+                i = util.argmax(short[1])
+                nu_max = short[1][i]
+                del short[0][i]
+                for k in short[0]:
+                    if keepers.has_key(k):
+                        if nu_max - keepers[k].nu < 0.4:
+                            close_calls.append(
+                 "At t=%d, drop an association that's only off by %5.3f"%(
+                  t,nu_max - keepers[k].nu))
+                        del keepers[k]
+            new_As = keepers.values()
+            if len(new_As) < 1:
+                raise RuntimeError,'Join check killed all As'
+        if self.alpha < 1e-6 or self.MaxD < 1e-6:
+            return new_As
+        else:
+            # Only pass associations that are within alpha*MaxD*sqrt(N)
+            Rs = []
+            for A in new_As:
+                Rs.append(A.nu)
+            limit = max(Rs) - (self.alpha*self.MaxD)**2*len_Y/2
+            old_As = []
+            for A in new_As:
+                if A.nu >= limit:
+                    old_As.append(A)
+        return old_As
     def decode_init(self,Ys): # Ys is used by subclass
         self.target_0 = self.TARGET(self,[0],[self.mu_init],
                                     [self.Sigma_init],0.0,None)
         return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
-    
     def decode_forward(self,   # MV4
                        Ys,     # Observations. Ys[t][k]
                        old_As, # Initial association or nub
@@ -745,49 +803,7 @@ successors.length()=%d
             # For each association at time t, find the best predecessor
             # and the associated targets and collect them in old_As
             new_As = successors.maxes()
-            
-            if t > Join_Time:
-                # Find targets that match for Join_Time steps
-                shorts = {}
-                keepers = {}
-                for k in xrange(len(new_As)):
-                    keepers[k] = new_As[k] # copy list to dict
-                    for target in new_As[k].targets:
-                        if len(target.m_t) < Join_Time or \
-                               target.m_t[-1] < 0 or target.m_t[-2] < 0:
-                            continue # Don't kill new or invisible targets
-                        short_key = tuple(target.m_t[-Join_Time:])
-                        if not shorts.has_key(short_key):
-                            shorts[short_key] = [[],[]]
-                        shorts[short_key][0].append(k)
-                        shorts[short_key][1].append(new_As[k].nu)
-                # Remove associations that have inferior matching targets
-                for short in shorts.values():
-                    i = util.argmax(short[1])
-                    nu_max = short[1][i]
-                    del short[0][i]
-                    for k in short[0]:
-                        if keepers.has_key(k):
-                            if nu_max - keepers[k].nu < 0.4:
-                                close_calls.append(
-"At t=%d, drop an association that's only off by %5.3f"%(
-t,nu_max - keepers[k].nu))
-                            del keepers[k]
-                new_As = keepers.values()
-                if len(new_As) < 1:
-                    raise RuntimeError,'Join check killed all As'
-            if self.alpha < 1e-6 or self.MaxD < 1e-6:
-                old_As = new_As
-            else:
-                # Only pass associations that are within alpha*MaxD*sqrt(N)
-                Rs = []
-                for A in new_As:
-                    Rs.append(A.nu)
-                limit = max(Rs) - (self.alpha*self.MaxD)**2*len(Ys[t])/2
-                old_As = []
-                for A in new_As:
-                    if A.nu >= limit:
-                        old_As.append(A)
+            old_As = self.decode_prune(t,new_As,len(Ys[t]))
             if analysis is not False:
                 analysis.append(t,child_targets,new_As,old_As,
                                 successors.count())
@@ -965,19 +981,11 @@ class MV5(MV4):
             flock.find_clusters()    # Identify clusters of observations
             # recluster() makes new clusters of associations and
             # returns them with their associated observations
-            for cluster,Yc in flock.recluster(Ys[t]):
+            for cluster,k_list in flock.recluster():
                 successors = SUCCESSOR_DB()
                 for A in cluster.As:
-                    A.forward(successors,Yc) # FixMe: Need forward for
-                                              # Yc dict.  Use Murty's
-                                              # algorithm here
-                new_As = successors.maxes()
-                # Reduce number of associations by (1) Finding targets
-                # that match for Join_Time steps and remove
-                # associations that have inferior matching targets and
-                # (2) Removing associations that are not within
-                # alpha*MaxD*sqrt(N)
-                cluster.As = new_As
+                    A.forward(successors,Ys[t],k_list=k_list)
+                new_As = self.decode_prune(t,successors.maxes(),len(k_list))
         # Find the best last associations
         A_union = old_As[0] # Empty association
         for cluster in flock.old_clusters:
@@ -1170,10 +1178,10 @@ if __name__ == '__main__':  # Test code
     random.seed(3)
     scipy.random.seed(3)
     for pair in (
-       [MV1(N_tar=4),'MV1',0.4],
-       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.24],
-       [MV3(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.13],
-       [MV4(N_tar=3,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',41.61]
+       [MV1(N_tar=4),'MV1',0.1],
+       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.09],
+       [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.27],
+       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',0.69]
        ):
         Target_Counter=0
         M=pair[0]
