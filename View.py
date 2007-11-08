@@ -207,11 +207,11 @@ class view_mv1_frame(wx.Frame):
 
     def ModelClicked(self, event):
         global Model_No, Model_Class
-        Model_Classes = [mvx.MV1,mvx.MV2,mvx.MV3,mvx.MV4]
-        label = ['MV1','MV2','MV3','MV4']
+        Model_Classes = [mvx.MV1,mvx.MV2,mvx.MV3,mvx.MV4,mvx.MV5]
+        label = ['MV1','MV2','MV3','MV4','MV5']
         random.seed(3)
         scipy.random.seed(3)
-        Model_No = (Model_No+1)%4
+        Model_No = (Model_No+1)%5
         Model_Class = Model_Classes[Model_No]
         self.controlPanel.ModelButton.SetLabel(label[Model_No])
         

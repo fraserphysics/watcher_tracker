@@ -267,6 +267,16 @@ class ASSOCIATION4:
             CA.N_FA += 1
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
+    def join(self, # ASSOCIATION4
+            other  # ASSOCIATION4
+            ):
+        """ Method for MV5.  Merge two associations into one.  This is
+        incomplete.  It does not handle self.h2c or self.N_FA.  I
+        think it is adequate for the end of MV5.decode_forward.
+        """
+        self.nu += other.nu
+        self.tar_dict.update(other.tar_dict)
+        self.targets += other.targets
     def check_targets(self,k,causes,y):
         """ A check method for list cause_checks called by forward().
         This method appends relevant children to plausible causes.
@@ -465,7 +475,10 @@ class Cluster:
         """
         N_ct = len(targets) + len(dead_targets)
         N_tt = len(a.targets) + len(a.dead_targets)
-        new_a = a.New((a.nu*N_ct)/N_tt,a.mod) #FixMe: Is this nu OK?
+        if N_tt > 0:
+            new_a = a.New((a.nu*N_ct)/N_tt,a.mod) #FixMe: Is this nu OK?
+        else:
+            new_a = a.New(0.0,a.mod) #FixMe: Is this nu OK?
         new_a.targets=targets
         new_a.dead_targets = dead_targets
         self.As.append(new_a)
@@ -489,7 +502,7 @@ class Cluster:
 class Cluster_Flock:
     """ A cluster flock is a set of clusters that partitions all of
     the targets and all of the observations at a given time.  The key
-    method, recluster(Yt), implements reorganization from clusters at
+    method, recluster(t), implements reorganization from clusters at
     time t-1 to clusters for time t based on new data Yt at time t.
     Note that recluster does not update the associations for time t;
     it only changes the clusters and makes child targets.
@@ -514,8 +527,9 @@ class Cluster_Flock:
     def __init__(self,               # Cluster_Flock
                  targets,            # Dict of targets
                  a,                  # ASSOCIATION4
+                 t
                  ):
-        self.old_clusters = [Cluster(targets,a)]
+        self.old_clusters = [Cluster(targets,a,t)]
     def make_family(self,
                       Yt
                       ):
@@ -526,6 +540,8 @@ class Cluster_Flock:
         self.parents = {}
         self.children = {}
         self.k2par = {}
+        for k in xrange(len(Yt)):
+            self.k2par[k] = {}
         for cluster in self.old_clusters:
             for a in cluster.As:
                 for target in a.targets:
@@ -537,18 +553,16 @@ class Cluster_Flock:
             for k in target.children.keys():
                 if k < 0:
                     continue
-                if self.k2par.has_key(k):
-                    self.k2par[k][tar_key] = target
-                else:
-                    self.k2par[k] = {tar_key:target}
+                self.k2par[k][tar_key] = target
     def find_clusters(self,           # Cluster_Flock
+                      len_y
                       ):
         """ Use self.k2par and self.parents[*].children to identify
         new clusters of observations.  Each observation that is too
         far from all targets is put in a cluster by itself.
         """
         Otars = self.parents.copy() # Keep track of unclustered parents
-        OKs = dict(map (lambda x: (x,True),range(len(self.k2par))))
+        Oks = dict(map (lambda x: (x,True),range(len_y)))
         # Need dicts of "old targets" and "old k values" so that
         # deleting doesn't change keys for remainders
         self.ks_and_pars = [] # Definitive list of clusters
@@ -574,7 +588,7 @@ class Cluster_Flock:
                         cluster_k[k] = True
                         if Oks.has_key(k):
                             del Oks[k]
-        self.ks_and_pars.append({'ks':cluster_k,'tars':cluster_tar})
+            self.ks_and_pars.append({'ks':cluster_k,'tars':cluster_tar})
         for tar_key,target in Otars.values():
             self.ks_and_pars.append({'ks':{-1:True},'tars':{tar_key:target}})
         self.par_key_2_KTI = {}
@@ -582,7 +596,7 @@ class Cluster_Flock:
             for tar_key in self.ks_and_pars[I]['tars'].keys():
                 self.par_key_2_KTI[tar_key] = I
     def recluster(self,   # Cluster_Flock
-                  Yt      # Observations at this time
+                  t
                   ):
         """ On the basis of the clusters of observations and targets
         that find_clusters has identitied, recluster() fragments
@@ -592,13 +606,15 @@ class Cluster_Flock:
         """
         # Break clusters into fragments
         fragmentON = {} # Fragment clusters indexed by (Old index, New index)
-        fragmentNO = {} # Fragment clusters indexed by (New index, Old index)
+        print 'len(self.old_clusters)=%d in recluster'%len(self.old_clusters)
         for OI in xrange(len(self.old_clusters)):
             cluster = self.old_clusters[OI]
             fragmentON[OI] = {}
-            for i in xrange(len(cluster.associations)):
-                a = cluster.associations[i]
+            print 'len(cluster.As)=%d in recluster'%len(cluster.As)
+            for i in xrange(len(cluster.As)):
+                a = cluster.As[i] #FixMe: Sorted in order of nu?
                 d = {} # Dict of target lists from association a
+                print 'len(a.targets)=%d in recluster'%len(a.targets)
                 for target in a.targets:
                     tar_key = tuple(target.m_t)
                     NI = self.par_key_2_KTI[tar_key]
@@ -622,17 +638,28 @@ class Cluster_Flock:
                     else:
                         close_calls.append(
 "Dropped branch associations in recluster() that are off by %5.3f"%(
-cluster.associations[0].nu - a.nu))
+cluster.As[0].nu - a.nu))
         # Merge fragments into new clusters
         new_clusters = {}
         for OI in fragmentON.keys():
-            for NI in fragementON[OI].keys():
+            for NI in fragmentON[OI].keys():
                 if not new_clusters.has_key(NI):
-                    new_clusters[NI] = fragementON[OI][NI]
+                    new_clusters[NI] = fragmentON[OI][NI]
                 else:
-                    new_clusters[NI].merge(fragementON[OI][NI])
-        self.old_clusters = new_clusters.values() # Dict to list
-        return [] #FixMe: return clusters and associated observations
+                    new_clusters[NI].merge(fragmentON[OI][NI])
+        # Add clusters for isolated observations
+        for NI in xrange(len(self.ks_and_pars)):
+            if len(self.ks_and_pars[NI]['tars']) == 0:
+                new_clusters[NI] = Cluster({},a,t)
+        rv = [] # Return value is list of lists
+        self.new_clusters = []
+        for NI in new_clusters.keys():
+            k_list = self.ks_and_pars[NI]['ks'].keys()
+            cluster = new_clusters[NI]
+            rv.append((cluster,k_list))
+            self.new_clusters.append(cluster)
+        print 'In recluster, about to return',rv
+        return rv
 
 class MV4:
     """ A state consists of: Association; Locations; and Visibilities;
@@ -974,14 +1001,18 @@ class MV5(MV4):
         global close_calls
         close_calls = []
         T = len(Ys)
-        flock = Cluster_Flock({},old_As[0]) # Start with no targets
-                                            # and blank association
+        flock = Cluster_Flock({},old_As[0],0) # Start with no targets
+                                              # and blank association
         for t in xrange(T):
-            flock.make_family(Ys[t]) # Make parent and child targets
-            flock.find_clusters()    # Identify clusters of observations
+            if t > 1:
+                raise RuntimeError
+            flock.make_family(Ys[t])       # Make parent and child targets
+            flock.find_clusters(len(Ys[t]))# Identify clusters of observations
+            print 'In decode_forward after find_clusters, len(Yt)=%d, len(flock.ks_and_pars)=%d'%(len(Ys[t]),len(flock.ks_and_pars))
             # recluster() makes new clusters of associations and
             # returns them with their associated observations
-            for cluster,k_list in flock.recluster():
+            for cluster,k_list in flock.recluster(t):
+                print 'In decode_forward, t=%d, len(k_list)=%d'%(t,len(k_list))
                 successors = SUCCESSOR_DB()
                 for A in cluster.As:
                     A.forward(successors,Ys[t],k_list=k_list)
@@ -1178,6 +1209,7 @@ if __name__ == '__main__':  # Test code
     random.seed(3)
     scipy.random.seed(3)
     for pair in (
+       [MV5(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV5',0.69],
        [MV1(N_tar=4),'MV1',0.1],
        [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.09],
        [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.27],
