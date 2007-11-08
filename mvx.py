@@ -299,6 +299,8 @@ class ASSOCIATION4:
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm or new target
         """
+        if not self.mod.newts.has_key(k):
+            return
         CC = self.mod.newts[k]
         if self.mod.MaxD  < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
             causes.append(CC)  # New target
@@ -381,17 +383,19 @@ class ASSOCIATION4:
         # For each observation, make a list of plausible causes
         causes = []
         for k in k_list:
-            causes.append([])
+            causes_k = []
             for check in self.cause_checks:
-                check(k,causes[k],y_t[k])
+                check(k,causes_k,y_t[k])
+            causes.append(causes_k)
         # Initialize list of partial associations.
         old_list = [self.New(self.nu,self.mod)]
-        # Make list of plausible associations.  At level k, each
-        # association explains the source of each y_t[i] for i<k.
-        for k in k_list:
+        # Make list of plausible associations.  At level j, each
+        # association explains the source of each y_t[k_list[i]] for
+        # i<j.
+        for j in xrange(len(k_list)):
             new_list = []
             for partial in old_list:
-                for cause in causes[k]:
+                for cause in causes[j]:
                     # Don't use same target index more than once.
                     # tar_dict has only targets, not FAs
                     if not partial.tar_dict.has_key(cause.index):
@@ -516,7 +520,6 @@ class Cluster_Flock:
                         and *['tars'] is a dict of the parents.
        par_key_2_KTI  Dict that maps parents to index of cluster in ks_and_pars
        old_clusters   List of Clusters
-       new_clusters   List of Clusters
 
     Methods:
        make_family()
@@ -568,6 +571,7 @@ class Cluster_Flock:
         self.ks_and_pars = [] # Definitive list of clusters
         while len(Oks) > 0:
             cluster_k = {Oks.popitem()[0]:True} # Seed with a remaining k
+            print 'In find_clusters, new cluster_k=',cluster_k
             cluster_tar = {}
             # Collect all targets linked to ks and all ks linked to
             # targets.  self.k2par provides k to target links.  Target
@@ -578,6 +582,7 @@ class Cluster_Flock:
                 # Stop when iteration doesn't grow cluster
                 length = len(cluster_k)
                 for k in cluster_k.keys():
+                    print 'k=',k
                     for tar_key in self.k2par[k].keys():
                         cluster_tar[tar_key] = self.parents[tar_key]
                         if Otars.has_key(tar_key):
@@ -585,18 +590,21 @@ class Cluster_Flock:
                 for tar_key in cluster_tar.keys():
                     target = self.parents[tar_key]
                     for k in target.children.keys():
+                        if k < 0:
+                            continue
                         cluster_k[k] = True
                         if Oks.has_key(k):
                             del Oks[k]
             self.ks_and_pars.append({'ks':cluster_k,'tars':cluster_tar})
-        for tar_key,target in Otars.values():
+        for tar_key,target in Otars.items():
             self.ks_and_pars.append({'ks':{-1:True},'tars':{tar_key:target}})
         self.par_key_2_KTI = {}
         for I in xrange(len(self.ks_and_pars)):
             for tar_key in self.ks_and_pars[I]['tars'].keys():
                 self.par_key_2_KTI[tar_key] = I
     def recluster(self,   # Cluster_Flock
-                  t
+                  t,
+                  Yt
                   ):
         """ On the basis of the clusters of observations and targets
         that find_clusters has identitied, recluster() fragments
@@ -625,16 +633,22 @@ class Cluster_Flock:
                 if i is 0: # Initialize the fragment clusters using
                            # association with highest utility
                     for NI,targets_f in d.items():
-                        fragmentsON[OI][NI] = Cluster(targets_f,a)
+                        fragmentON[OI][NI] = Cluster(targets_f,a)
                 else:   # Append fragmentings of other associations only
                         # if they are consistent with the first
                     OK = True
                     for NI,targets_f in d.items():
-                        if not fragmentsON[OI][NI].check(targets_f):
-                            OK = False
+                        try:
+                            if not fragmentON[OI][NI].check(targets_f):
+                                OK = False
+                        except:
+                            print 'Checking fragmentON[%d][%d]'%(OI,NI)
+                            print 'fragmentON[%d]='%OI,fragmentON[OI]
+                            if not fragmentON[OI][NI].check(targets_f):
+                                OK = False
                     if OK:
                         for NI,targets_f in d.items():
-                            fragmentsON[OI][NI].append(targets_f,a)
+                            fragmentON[OI][NI].append(targets_f,a)
                     else:
                         close_calls.append(
 "Dropped branch associations in recluster() that are off by %5.3f"%(
@@ -647,18 +661,28 @@ cluster.As[0].nu - a.nu))
                     new_clusters[NI] = fragmentON[OI][NI]
                 else:
                     new_clusters[NI].merge(fragmentON[OI][NI])
-        # Add clusters for isolated observations
+        # Add clusters for isolated observations and make newts
+        k_list = []
         for NI in xrange(len(self.ks_and_pars)):
             if len(self.ks_and_pars[NI]['tars']) == 0:
                 new_clusters[NI] = Cluster({},a,t)
-        rv = [] # Return value is list of lists
-        self.new_clusters = []
+                ks = self.ks_and_pars[NI]['ks']
+                print 'Making cluster for isolated observation in recluster() NI=%d'%NI
+                k_list.append(self.ks_and_pars[NI]['ks'].keys()[0])
+        try:
+            a.mod.make_newts(Yt,k_list) # FixMe: Want to make more newts?
+        except:
+            print 'Dying with k_list=',k_list,'Yt=',Yt
+            a.mod.make_newts(Yt,k_list)
+        rv = [] # Return value is [[cluster,k_list],[cluster,k_list],...]
+        self.old_clusters = []
+        print 'Recluster returning the following k_lists'
         for NI in new_clusters.keys():
             k_list = self.ks_and_pars[NI]['ks'].keys()
+            print '   ',k_list
             cluster = new_clusters[NI]
             rv.append((cluster,k_list))
-            self.new_clusters.append(cluster)
-        print 'In recluster, about to return',rv
+            self.old_clusters.append(cluster)
         return rv
 
 class MV4:
@@ -718,11 +742,19 @@ class MV4:
         self.Lambda_new = Lambda_new # Average number of new targets per frame
         self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
     def make_newts(self, # MV4
-                   Yts   # List of ys for current time
+                   Yts,  # List of ys for current time
+                   k_list=None # Option for MV5
                    ):    # Make new targets
+        if k_list is None:
+            k_list = range(len(Yts))
         self.newts = {}
-        for k in xrange(len(Yts)):
-            self.newts[k] = self.target_0.KF(Yts[k],k)
+        for k in k_list:
+            try:
+                self.newts[k] = self.target_0.KF(Yts[k],k)
+            except:
+                print 'k=%d, Yts='%k,Yts
+                yk = Yts[k]
+                self.newts[k] = self.target_0.KF(yk,k)
     def decode_prune(self, #MV4
                      t,
                      new_As,
@@ -875,8 +907,8 @@ successors.length()=%d
                 y_A[t][k] = target.m_t[t-start] # y[t][y_A[t][k]] is
                                                 # associated with target k.
         return (d,y_A)
-    def decode(self,
-               Ys, # Observations. Ys[t][k] is the kth hit at time t
+    def decode(self, # MV4
+               Ys,   # Observations. Ys[t][k] is the kth hit at time t
                analysis = False # A debugging option
                ):
         """Return MAP state sequence """
@@ -1004,19 +1036,22 @@ class MV5(MV4):
         flock = Cluster_Flock({},old_As[0],0) # Start with no targets
                                               # and blank association
         for t in xrange(T):
-            if t > 1:
-                raise RuntimeError
+            print '\nt=%d, len(Ys[%d]=%d, in decode_forward MV5'%(t,t,len(Ys[t]))
             flock.make_family(Ys[t])       # Make parent and child targets
             flock.find_clusters(len(Ys[t]))# Identify clusters of observations
             print 'In decode_forward after find_clusters, len(Yt)=%d, len(flock.ks_and_pars)=%d'%(len(Ys[t]),len(flock.ks_and_pars))
             # recluster() makes new clusters of associations and
             # returns them with their associated observations
-            for cluster,k_list in flock.recluster(t):
-                print 'In decode_forward, t=%d, len(k_list)=%d'%(t,len(k_list))
+            for cluster,k_list in flock.recluster(t,Ys[t]):
                 successors = SUCCESSOR_DB()
+                print 'Before forward, k_list=',k_list,'cluster has the following %d associations:'%len(cluster.As)
                 for A in cluster.As:
+                    A.dump()
                     A.forward(successors,Ys[t],k_list=k_list)
-                new_As = self.decode_prune(t,successors.maxes(),len(k_list))
+                cluster.As=self.decode_prune(t,successors.maxes(),len(k_list))
+                print 'After forward,cluster has the following %d associations:'%len(cluster.As)
+                for A in cluster.As:
+                    A.dump()
         # Find the best last associations
         A_union = old_As[0] # Empty association
         for cluster in flock.old_clusters:
@@ -1209,7 +1244,7 @@ if __name__ == '__main__':  # Test code
     random.seed(3)
     scipy.random.seed(3)
     for pair in (
-       [MV5(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV5',0.69],
+       [MV5(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]],MaxD=5.0,alpha=2.0),'MV5',0.69],
        [MV1(N_tar=4),'MV1',0.1],
        [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.09],
        [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.27],
