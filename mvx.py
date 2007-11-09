@@ -13,6 +13,8 @@ MV4: Targets die if invisible for Invisible_Lifetime.  New targets can
      appear at any time.  Targets may fail to produce hits and hits may
      be false alarms
 
+MV5: Like MV4, but with clustering of observations and targets.
+
 Each model class depends on its own association class, eg, MV4 depends
 on ASSOCIATION4.  There are two target classes: TARGET4 (for MV2, MV3
 and MV4) which can be invisible and TARGET1 (for MV1) which is always
@@ -26,6 +28,38 @@ ASSOCIATION4 -> ASSOCIATION3 -> ASSOCIATION2 -> ASSOCIATION1
 
 MV4 -> MV3 -> MV2
        MV3 -> MV1
+MV4 -> MV5
+
+FixMe: To do for MV5:
+
+1. What about the Poisson linkage of what should be independent events?
+
+2. How should nu be divided between fragements?
+
+3. Should nu be attributed to individual targets?  What about false
+   alarms, new targets, and dead targets?
+
+4. Use Murty's algorithm and flag big clusters.
+
+5. Flag likely errors correctly, ie, at least look at where I use MaxD
+   and alpha.  Places to think about:
+
+   TARGET4.make_children
+   ASSOCIATION4.join
+   ASSOCIATION4.check_FAs   Should I try false alarms when targets are good? 
+   ASSOCIATION4.check_newts Should I try a newt when targets are good? 
+   ASSOCIATION4.count_FAs   Does this violate independence?
+   ASSOCIATION4.extra_newts Does this violate independence?
+   ASSOCIATION4.forward     Implement Murty's algorithm.  Prune here
+                            with threshold that is independent of MaxD
+   Cluster.__init__         What is the right way to apportion utility
+   Cluster.append           What is the right way to apportion utility
+   Cluster_Flock.recluster  First fragment may not have best utility
+   Cluster_Flock.recluster  Consistency check should include dead_targets
+   Cluster_Flock.recluster  For which observations should I make newts
+   MV4.decode_prune         Associations should (also?) be pruned in forward    
+
+
 """
 import numpy, scipy, scipy.linalg, random, math, util
 def log_Poisson(Lambda,N):
@@ -98,8 +132,8 @@ class TARGET4(CAUSE_FA):
         MD = self.mod.MaxD
         for k in xrange(len(y_t)):
             if MD < 0.01 or self.distance(y_t[k]) < MD:
-                # If MaxD is near zero, ie, pruning is off or hit is
-                # closer than MaxD
+                # Make child if MaxD is near zero, ie, pruning is off
+                # or hit is closer than MaxD
                 key = tuple(self.m_t+[k])
                 self.children[k] = All_children.setdefault(key,
                                         self.update(y_t[k],k))
@@ -362,7 +396,8 @@ class ASSOCIATION4:
             if target.invisible_count < Invisible_Lifetime:
                 target.make_children(y_t,cousins)
             else:
-                #self.dead_targets.setdefault(target.index,[target,t]) FixMe?
+                assert not self.dead_targets.has_index(target.index), \
+                       'Dying target appears twice?'
                 self.dead_targets[target.index] = [target,t]
                 target.children = {}
     def forward(self,       # ASSOCIATION4
@@ -633,6 +668,7 @@ class Cluster_Flock:
                         d[NI][tar_key] = target
                     else:
                         d[NI] = {tar_key:target}
+                # FixMe: First fragment my not have best utility
                 if i is 0: # Initialize the fragment clusters using
                            # association with highest utility
                     for NI,targets_f in d.items():
@@ -642,7 +678,8 @@ class Cluster_Flock:
                     OK = True
                     for NI,targets_f in d.items():
                         if not fragmentON[OI].has_key(NI):
-                            OK = False
+                            OK = False # FixMe: Q: Is this an
+                                       # error/bug?  A: I think not
                             print 'fragment[%d] does not have key %d'%(OI,NI)
                             break
                         if not fragmentON[OI][NI].check(targets_f,t):
@@ -670,11 +707,7 @@ cluster.As[0].nu - a.nu))
                 new_clusters[NI] = Cluster({},a,t)
                 ks = self.ks_and_pars[NI]['ks']
                 k_list.append(self.ks_and_pars[NI]['ks'].keys()[0])
-        try:
-            a.mod.make_newts(Yt,k_list) # FixMe: Want to make more newts?
-        except:
-            print 'Dying with k_list=',k_list,'Yt=',Yt
-            a.mod.make_newts(Yt,k_list)
+        a.mod.make_newts(Yt,k_list) # FixMe: Want to make more newts?
         rv = [] # Return value is [[cluster,k_list],[cluster,k_list],...]
         self.old_clusters = []
         for NI in new_clusters.keys():
@@ -1021,7 +1054,7 @@ class MV5(MV4):
     """
     def decode_forward(self,   # MV5
                        Ys,     # Observations. Ys[t][k]
-                       old_As, # Initial empty association is only element
+                       empty,  # Initial empty association is only element
                        t_first,# Always 0 for MV5
                        analysis = False
                        ):
@@ -1029,29 +1062,32 @@ class MV5(MV4):
         flocks.  Arguments are the same as for MV4 to minimize
         rewriting.
         """
+        # Start with no targets and blank association
+        assert len(empty) == 1, 'len(empty)=%d, should be 1'%len(empty)
+        assert len(empty[0].targets) == 0, \
+               'empty has %d targets, should have none'%len(empty[0].targets)
+        assert t_first == 0, 't_first=%d, should be 0 for MV5'%t_first
         global close_calls
         close_calls = []
         T = len(Ys)
-        flock = Cluster_Flock({},old_As[0],0) # Start with no targets
-                                              # and blank association
+        flock = Cluster_Flock({},empty[0],0)
         for t in xrange(T):
             flock.make_family(Ys[t])       # Make parent and child targets
             flock.find_clusters(len(Ys[t]))# Identify clusters of observations
-            # recluster() makes new clusters of associations and
-            # returns them with their associated observations
             for cluster,k_list in flock.recluster(t,Ys[t]):
+                # k_list lists the observations that cluster explains
                 successors = SUCCESSOR_DB()
                 for A in cluster.As:
                     A.forward(successors,Ys[t],k_list=k_list)
                 cluster.As=self.decode_prune(t,successors.maxes(),len(k_list))
         # Find the best last associations
-        A_union = old_As[0] # Empty association
+        A_union = empty[0]
         for cluster in flock.old_clusters:
             As = cluster.As
             R = scipy.zeros(len(As))
             for i in xrange(len(As)):
                 R[i] = As[i].nu
-            A_union.join(As[R.argmax()]) # FixMe: Write ASSOCIATION4.join()
+            A_union.join(As[R.argmax()])
         print 'nu_max=%f'%A_union.nu
         for call in close_calls:
             print call
