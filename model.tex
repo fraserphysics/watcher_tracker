@@ -478,10 +478,10 @@ And the probability density of $y$ given that it is a false alarm is
   P(y|\text{FA}) = \NormalE{\mu_0}{\Sigma_0}{y}.
 \end{equation*}
 For decoding, if you attribute the observations $y_1^{N_{\text{FA}}}$
-to false alarms at time $t$, add $\sum_k^{N_{\text{FA}}}
-\log(P(y_k|\text{FA}))$ and $\log \left(
-  \frac{e^{-\lambda}\lambda^{N_{\text{FA}}}}{N_{\text{FA}}!}\right)$ to
-the value of $\nu$.\marginpar{Are you sure?}
+to false alarms at time $t$, add\footnote{See Appendix
+  \ref{sec:counting}} $\sum_k^{N_{\text{FA}}} \log(P(y_k|\text{FA}))$
+and $\log \left( e^{-\lambda} \lambda^{N_{\text{FA}}} \right)$ to the
+value of $\nu$.\marginpar{Are you sure?}
 
 
 \section{Model Version Four: Variable Number of Targets}
@@ -495,10 +495,11 @@ that new states are visible when they arise to avoid carrying many
 invisible states for decoding.
 
 In the decoding algorithm, the cost of attributing the observations
-$y_1^{N_{\text{new}}}$ to new targets at time $t$ is the addition of
+$y_1^{N_{\text{new}}}$ to new targets at time $t$ is the
+addition\footnote{See Appendix \ref{sec:counting}} of
 $\sum_k^{N_{\text{new}}} \log(P(y_k|\text{new}))$ and $\log \left(
-  \frac{e^{-\lambda}\lambda^{N_{\text{new}}}}{N_{\text{new}}!}\right)$
-to the value of $\nu$.\marginpar{Are you sure?}
+  e^{-\lambda} \lambda^{N_{\text{new}}}\right)$ to the value of
+$\nu$.\marginpar{Are you sure?}
 
 While it would be simpler to treat false alarms and new targets with
 the same model mechanism, since new targets will frequently arise at
@@ -613,6 +614,39 @@ following steps to process the observations $\ti{y}{t}$
 \end{enumerate}
 
 \appendix
+\section{Counting}
+\label{sec:counting}
+
+I am confused by counting problems in the models.
+\begin{description}
+\item[Q:] Why in Section \ref{sec:model4} do I add the term $\log
+  \left( e^{-\lambda} \lambda^{N_{\text{new}}} \right)$ instead of
+  $\log \left(
+    \frac{e^{-\lambda}\lambda^{N_{\text{new}}}}{N_{\text{new}}!}\right)$?
+  (There is a similar term in Section \ref{sec:model3} for
+  $N_{\text{FA}}$.)
+\item[A:] There are $N_{\text{new}}!$ different, but operationally
+  equivelent, ways to assign $N_{\text{new}}$ targets to
+  $N_{\text{new}}$ locations.
+\item[Q:] Suppose that at time $t=0$ targets sit at locations
+  $\ti{x_a}{0}$ and $\ti{x_b}{0}$ and that at time $t=1$ targets sit
+  at locations $\ti{x_c}{0}$ and $\ti{x_d}{0}$.  If I say that
+  $\ti{s}{0}\equiv \left(x_a,x_b \right)$ and $\ti{s}{1}\equiv
+  \left(x_c,x_d \right)$, should I write
+  \begin{equation}
+    \label{eq:3}
+    P(\ti{s}{1}|\ti{s}{0}) =  P(x_c|x_a) \,  P(x_d|x_b) +  P(x_c|x_b)
+    \,  P(x_d|x_a)
+  \end{equation}
+  or simply
+  \begin{equation}
+    \label{eq:4}
+    P(\ti{s}{1}|\ti{s}{0}) =  P(x_c|x_a) \,  P(x_d|x_b)
+  \end{equation}
+\item[A:] Use \eqref{eq:4}.  The second term in \eqref{eq:3} is part
+  of a different sequence of state transisitons.
+\end{description}
+
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}
 \label{app:decode}
 

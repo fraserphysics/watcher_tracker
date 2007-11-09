@@ -32,7 +32,9 @@ MV4 -> MV5
 
 FixMe: To do for MV5:
 
-1. What about the Poisson linkage of what should be independent events?
+1. Q: What about the Poisson linkage of what should be independent
+   events?
+   A: It doesn't exist.
 
 2. How should nu be divided between fragements?
 
@@ -48,8 +50,6 @@ FixMe: To do for MV5:
    ASSOCIATION4.join
    ASSOCIATION4.check_FAs   Should I try false alarms when targets are good? 
    ASSOCIATION4.check_newts Should I try a newt when targets are good? 
-   ASSOCIATION4.count_FAs   Does this violate independence?
-   ASSOCIATION4.extra_newts Does this violate independence?
    ASSOCIATION4.forward     Implement Murty's algorithm.  Prune here
                             with threshold that is independent of MaxD
    Cluster.__init__         What is the right way to apportion utility
@@ -62,18 +62,16 @@ FixMe: To do for MV5:
 
 """
 import numpy, scipy, scipy.linalg, random, math, util
-def log_Poisson(Lambda,N):
-    return N*math.log(Lambda) - Lambda - math.log(scipy.factorial(N))
 Invisible_Lifetime = 5 # After being invisible 5 times in a row targets die
 Join_Time = 4          # After 4 identical associations in a row, tragets merge
 close_calls = None     # Will be list of flags of likely errors
 Target_Counter = 0
 
 class CAUSE_FA: # False Alarm
-    def __init__(self, y, Sigma_I ):
+    def __init__(self, y, Sigma_I, norm ):
         self.type = 'FA'
         self.index = -1
-        self.R = -float(y.T*Sigma_I*y/2)
+        self.R = norm - float(y.T*Sigma_I*y/2)
 class TARGET4(CAUSE_FA):
     """A TARGET is a possible moving target, eg, a car.  Its values
     are determined by initialization values and a sequence of
@@ -264,7 +262,7 @@ class ASSOCIATION4:
      check_targets, check_FAs and check_newts: Checks in list of
          cause_checks called by forward() that propose causes of hits
 
-    invisibles, count_FAs and extra_news: Entries in list of methods
+    invisibles and extra_invisible: Entries in list of methods
          extra_forward that are called by forward().  These methods
          modify an association to account for invisible targets, false
          alarms, and new targets.
@@ -277,7 +275,7 @@ class ASSOCIATION4:
         self.h2c = []       # Map from hits to causes.  Will become key
         self.cause_checks = [self.check_targets,self.check_FAs,
                              self.check_newts]
-        self.extra_forward = [self.extra_newts,self.count_FAs]
+        self.extra_forward = [self.extra_invisible]
         self.dead_targets = {}
         self.type='ASSOCIATION4'
         self.N_FA=0          # Count of false alarms
@@ -323,7 +321,7 @@ class ASSOCIATION4:
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm
         """
-        CC = CAUSE_FA(y,self.mod.Sigma_FA_I)
+        CC = CAUSE_FA(y,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
         if self.mod.MaxD < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
             causes.append(CC) # False alarm
         else:
@@ -353,19 +351,9 @@ class ASSOCIATION4:
         'There is no invisible child.'
                 partial.targets.append(child)
                 partial.nu += child.R 
-    def count_FAs(self,partial):
-        """ A method in extra_forward called by forward().  Calculate
-        the utility for the number of false alarms and add that
-        utility to partial.nu.
-        """
-        N_FA = partial.N_FA
-        if N_FA > 0:
-            partial.nu += N_FA*self.mod.log_FA_norm + log_Poisson(
-                self.mod.Lambda_FA,N_FA)
-    def extra_newts(self,partial):
+    def extra_invisible(self,partial):
         """ A method in extra_forward called by forward().  Put
-        invisible targets in new association, and apply creation
-        penalty to nu for newly created targets.
+        invisible targets in new association.
         """ 
         for target in self.targets:
             if not partial.tar_dict.has_key(target.index) and \
@@ -373,13 +361,6 @@ class ASSOCIATION4:
                 child = target.children[-1]
                 partial.targets.append(child)
                 partial.nu += child.R
-        N_new = 0
-        for target in partial.targets:
-            if len(target.m_t) is 1:
-                N_new += 1
-        if N_new > 0:
-            partial.nu += N_new*self.mod.log_new_norm + log_Poisson(
-                self.mod.Lambda_new,N_new)
     def dump(self):
         print 'dumping an association of type',self.type,':'
         print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
@@ -396,7 +377,7 @@ class ASSOCIATION4:
             if target.invisible_count < Invisible_Lifetime:
                 target.make_children(y_t,cousins)
             else:
-                assert not self.dead_targets.has_index(target.index), \
+                assert not self.dead_targets.has_key(target.index), \
                        'Dying target appears twice?'
                 self.dead_targets[target.index] = [target,t]
                 target.children = {}
@@ -769,10 +750,12 @@ class MV4:
         self.Lambda_FA = Lambda_FA # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
         self.Sigma_FA = Sigma_FA
-        self.log_FA_norm = - math.log(scipy.linalg.det(Sigma_FA))/2
+        self.log_FA_norm = math.log(Lambda_FA)\
+                           - math.log(scipy.linalg.det(Sigma_FA))/2
         self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
         self.Lambda_new = Lambda_new # Average number of new targets per frame
-        self.log_new_norm = 0.0 # FixMe: Is this included in target creation?
+        self.log_new_norm = math.log(Lambda_new)
+        # - math.log(scipy.linalg.det(Sigma_init))/2 Part of target creation
     def make_newts(self, # MV4
                    Yts,  # List of ys for current time
                    k_list=None # Option for MV5
@@ -781,12 +764,8 @@ class MV4:
             k_list = range(len(Yts))
         self.newts = {}
         for k in k_list:
-            try:
-                self.newts[k] = self.target_0.KF(Yts[k],k)
-            except:
-                print 'k=%d, Yts='%k,Yts
-                yk = Yts[k]
-                self.newts[k] = self.target_0.KF(yk,k)
+            self.newts[k] = self.target_0.KF(Yts[k],k)
+            self.newts[k].R += self.log_new_norm
     def decode_prune(self, #MV4
                      t,
                      new_As,
@@ -1124,7 +1103,7 @@ class ASSOCIATION3(ASSOCIATION4):
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets,self.check_FAs]
-        self.extra_forward = [self.invisibles,self.count_FAs]
+        self.extra_forward = [self.invisibles]
         self.type='ASSOCIATION3'
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
