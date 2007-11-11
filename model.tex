@@ -562,7 +562,7 @@ along with its predecessors explains the same set of observations.
 To merge two clusters, $\cC_1$ and $\cC_2$, create a new association
 from each pair drawn from the two clusters, ie,
 \begin{align}
-  \text{Merge}(\cC_1,\cC_2) &= \cC_3 \\
+   \cC_3 &= \text{Merge}(\cC_1,\cC_2) \\
   \forall \cA_{i}, \cA_{j} \text{ such that } \cA_{i} \in \cC_1 &\text{
     and } \cA_{j} \in \cC_2 ~~ \cA_k = \text{Merge}(\cA_{i}, \cA_{j})
   \in \cC_3 \\
@@ -580,20 +580,38 @@ from each pair drawn from the two clusters, ie,
 Branching, $(\cC_1,\cC_2) = \text{Branch}(\cC_3)$ seems harder.  In
 particular,
 \begin{description}
-\item[Q:] How should $\nu$ be apportioned between the children?
-\item[A:] So that the \emph{Merge} of any pair of children yields a
-  parent.
-\item[Q:] Is that necessary and sufficient?
-\item[A:] I think so.  I want to allow final selection of any child
-  association from $\cC_1$ along with final selection of any child
-  association from $\cC_2$, and this does the trick.
+\item[Q:] Can one break each association in a parent
+  cluster into fragments and then group those association fragments to
+  form child clusters?
+\item[A:] No.  All of the fragments that get joined to make a new
+  cluster must explain the same present and past observation
+  components, but of the fragments that explain a particular subset of
+  the present observations, some pairs will explain different subsets
+  of past observations.
+\item[Q:] How should I deal with inconsistent fragments?
+\item[A:] Find the parent association with the highest utility and use
+  its fragments to seed the child clusters.  For parent associations
+  with lower utility, keep only those fragments that are consistent
+  with (explain the same past observation components) as the seed
+  fragments.
+\item[Q:] How should $\nu$ be apportioned between the fragments?
+\item[A:] $\nu$ should be tied to the explanation of past observation
+  components.  While it clear how to handle targets, there is more
+  than one way to handle false alarms.  I could build a variant of the
+  association class that remembers each false alarm and its associated
+  utility.  Instead, I will discard false alarms as identified by the
+  parent association with the highest utility.  Along with the false
+  alarms, I will subtract their utilities.  Thus, I will discard any
+  parent association that disagrees with the best association about
+  which past observations were false alarms.
 \end{description}
 First branch the association with the highest score, then discard all
 associations whose branchings are inconsistent with the first.  A
 branching is inconsistent if the targets going into the branches do
 not explain the same subsets of observations from the first time to
-the present.  By branching one may discard an assocaition that would
-prove to be superior on the basis of future observations.
+the present.  Since branching might discard an association that would
+prove to be superior on the basis of future observations, one should
+flag for review such discardings as possible errors.
 
 \subsubsection{Forward Step}
 \label{sec:forward_b_m}
@@ -626,7 +644,7 @@ I am confused by counting problems in the models.
   (There is a similar term in Section \ref{sec:model3} for
   $N_{\text{FA}}$.)
 \item[A:] There are $N_{\text{new}}!$ different, but operationally
-  equivelent, ways to assign $N_{\text{new}}$ targets to
+  equivalent, ways to assign $N_{\text{new}}$ targets to
   $N_{\text{new}}$ locations.
 \item[Q:] Suppose that at time $t=0$ targets sit at locations
   $\ti{x_a}{0}$ and $\ti{x_b}{0}$ and that at time $t=1$ targets sit
@@ -644,7 +662,7 @@ I am confused by counting problems in the models.
     P(\ti{s}{1}|\ti{s}{0}) =  P(x_c|x_a) \,  P(x_d|x_b)
   \end{equation}
 \item[A:] Use \eqref{eq:4}.  The second term in \eqref{eq:3} is part
-  of a different sequence of state transisitons.
+  of a different sequence of state transitions.
 \end{description}
 
 \section{Derivation of Formulas for Decoding the Trajectory of a Single Object}

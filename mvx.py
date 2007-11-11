@@ -53,7 +53,7 @@ FixMe: To do for MV5:
    ASSOCIATION4.forward     Implement Murty's algorithm.  Prune here
                             with threshold that is independent of MaxD
    Cluster.__init__         What is the right way to apportion utility
-   Cluster.append           What is the right way to apportion utility
+   Cluster.Append           What is the right way to apportion utility
    Cluster_Flock.recluster  First fragment may not have best utility
    Cluster_Flock.recluster  Consistency check should include dead_targets
    Cluster_Flock.recluster  For which observations should I make newts
@@ -78,13 +78,14 @@ class TARGET4(CAUSE_FA):
     observations that are "Kalman filtered".
     """
     def __init__(self,
-                 mod,      # Parent model
-                 m_t,      # History of hit indices used
-                 mu_t,     # History of means
-                 Sigma_t,  # History of variances
-                 R,        # Most recent residual
-                 y,        # Useful in subclasses
-                 index=None
+                 mod,       # Parent model
+                 m_t,       # History of hit indices used
+                 mu_t,      # History of means
+                 Sigma_t,   # History of variances
+                 R,         # Most recent residual
+                 y,         # Useful in subclasses
+                 index=None,# Unique ID 
+                 R_sum=None # Accumulation of past R values
                  ):
         global Target_Counter
         self.type='target'
@@ -102,6 +103,10 @@ class TARGET4(CAUSE_FA):
                               # hits plausibly caused by this target.
                               # Keys are hit indices k
         self.invisible_count=0# Number of time steps target has been invisible
+        if R_sum is None:
+            self.R_sum = R
+        else:
+            self.R_sum = R_sum            
     def New(self, *args,**kwargs):
         if args[-1] is None: # y is None, ie invisible
             rv = TARGET4(*args,**kwargs)
@@ -160,14 +165,14 @@ class TARGET4(CAUSE_FA):
            y,        # The observation of the target at the current time
            m         # Index of the observation
            ):
-        """ Create a new target with updated m_t, mu_t, Sigma_t and R
-        for the observation, index pair (y,m)."""
+        """ Create a new target with updated m_t, mu_t, Sigma_t, R and
+        R_sum for the observation, index pair (y,m)."""
         m_L = self.m_t+[m]
         Delta_R,mu_new,Sigma_new = self.utility(y)
         Sigma_L = self.Sigma_t + [Sigma_new]
         mu_L = self.mu_t + [mu_new]
         return self.New(self.mod,m_L,mu_L,Sigma_L,Delta_R,y,
-                             index=self.index)
+                             index=self.index,R_sum=self.R_sum+Delta_R)
     def utility(self,y):
         """Include log_prob factors for Sig_D and visibility transitions.
         """
@@ -421,6 +426,9 @@ class ASSOCIATION4:
                     if not partial.tar_dict.has_key(cause.index):
                         new_list.append(partial.Fork(cause))
             old_list = new_list
+        if len(old_list) == 0:
+            print 'forward returning with out any new associations'
+            return
         # For each association, do extra work work required for
         # nonstandard hit/target combinations
         for partial in old_list:
@@ -432,11 +440,20 @@ class ASSOCIATION4:
         # Map each association in old_list to it's successor key and
         # propose the present association as the predecessor for that
         # key.
+        sortlist = []
         for association in old_list:
-            successors.enter(association)
+            sortlist.append([-association.nu,association])
+        sortlist.sort()
+        limit = sortlist[0][0] + (self.mod.alpha*self.mod.MaxD)**2*len(y_t)/2
+        length = min(len(sortlist),10) #FixMe: hard coded 10
+        for k in xrange(length):
+            neg_nu,a = sortlist[k]
+            if neg_nu > limit:
+                break
+            successors.enter(a)
 class Cluster:
     """ A cluster is a set of targets and associations of those
-    targets.  Each association should explain the same history of
+    targets.  Each association should explain the same past
     observations.
 
     Methods:
@@ -458,8 +475,8 @@ class Cluster:
         """
         self.history = self.make_history(targets,t,dead_targets)
         self.As = []
-        self.append(targets,a,dead_targets)
-    def append(self,            # Cluster
+        self.Append(targets,a,dead_targets)
+    def Append(self,            # Cluster
                targets,         # Dict of targets
                a,               # Association that targets are from
                dead_targets={}
@@ -467,12 +484,10 @@ class Cluster:
         """ Create a new association in this cluster.  History match
         should have already been done.
         """
-        N_ct = len(targets) + len(dead_targets)
-        N_tt = len(a.targets) + len(a.dead_targets)
-        if N_tt > 0:
-            new_a = a.New((a.nu*N_ct)/N_tt,a.mod) #FixMe: Is this nu OK?
-        else:
-            new_a = a.New(0.0,a.mod) #FixMe: Is this nu OK?
+        nu = 0.0
+        for target in targets.values() + dead_targets.values():
+            nu += target.R_sum
+        new_a = a.New(nu,a.mod)
         new_a.targets=targets.values()
         new_a.dead_targets = dead_targets
         self.As.append(new_a)
@@ -487,8 +502,8 @@ class Cluster:
                      ):
         """ Return a history dict made from arguments
         """
-        history = {}
-        # Make pairs [[tar0,t],[tar1,t]...]
+        history = {} # Dict with keys (t,k) where k is index of observation
+        # Make pairs [[tar0,tf],[tar1,tf]...] where each is a final time
         target_time = map(lambda x: [x,t],targets.values())
         target_time.extend(dead_targets.values())
         for target,tf in target_time:
@@ -498,12 +513,13 @@ class Cluster:
         return(history)
     def check(self,     # Cluster
               targets,  # Dict of targets
+              dead_targets,
               t
               ):
         """ Retrurn True if targets explain same observations as this
         cluster
         """
-        history = self.make_history(targets,t)
+        history = self.make_history(targets,t,dead_targets)
         for key in self.history.keys():
             if not history.has_key(key):
                 return False
@@ -564,9 +580,9 @@ class Cluster_Flock:
         from associations in self.old_clusters, then make
         self.children from parents.
         """
-        self.parents = {}
-        self.children = {}
-        self.k2par = {}
+        self.parents = {}   # Dict of targets last time indexed by (m_t)
+        self.children = {}  # Dict of targets this time indexed by Yt index
+        self.k2par = {}     # Dict that maps Yt index to dict of parents
         for k in xrange(len(Yt)):
             self.k2par[k] = {}
         for cluster in self.old_clusters:
@@ -584,11 +600,13 @@ class Cluster_Flock:
     def find_clusters(self,           # Cluster_Flock
                       len_y
                       ):
-        """ Use self.k2par and self.parents[*].children to identify
-        new clusters of observations.  Each observation that is too
-        far from all targets is put in a cluster by itself.
+        """ Find clusters of new observations using self.k2par and
+        self.parents[*].children (map from Yt indices to parent
+        targets and map backwards respectively).  Each observation
+        that is too far from all targets is put in a cluster by
+        itself.
         """
-        Otars = self.parents.copy() # Keep track of unclustered parents
+        Opars = self.parents.copy() # Keep track of unclustered parents
         Oks = dict(map (lambda x: (x,True),range(len_y)))
         # Need dicts of "old targets" and "old k values" so that
         # deleting doesn't change keys for remainders
@@ -607,8 +625,8 @@ class Cluster_Flock:
                 for k in cluster_k.keys():
                     for tar_key in self.k2par[k].keys():
                         cluster_tar[tar_key] = self.parents[tar_key]
-                        if Otars.has_key(tar_key):
-                            del Otars[tar_key]
+                        if Opars.has_key(tar_key):
+                            del Opars[tar_key]
                 for tar_key in cluster_tar.keys():
                     target = self.parents[tar_key]
                     for k in target.children.keys():
@@ -617,31 +635,38 @@ class Cluster_Flock:
                         cluster_k[k] = True
                         if Oks.has_key(k):
                             del Oks[k]
-            self.ks_and_pars.append({'ks':cluster_k,'tars':cluster_tar})
-        for tar_key,target in Otars.items():
-            self.ks_and_pars.append({'ks':{-1:True},'tars':{tar_key:target}})
+            self.ks_and_pars.append({'ks':cluster_k,'pars':cluster_tar})
+        for tar_key,target in Opars.items():
+            self.ks_and_pars.append({'ks':{-1:True},'pars':{tar_key:target}})
         self.par_key_2_KTI = {}
         for I in xrange(len(self.ks_and_pars)):
-            for tar_key in self.ks_and_pars[I]['tars'].keys():
+            for tar_key in self.ks_and_pars[I]['pars'].keys():
                 self.par_key_2_KTI[tar_key] = I
     def recluster(self,   # Cluster_Flock
                   t,
                   Yt
                   ):
         """ On the basis of the clusters of observations and targets
-        that find_clusters has identitied, recluster() fragments
+        that find_clusters() has identitied, recluster() fragments
         self.old_clusters and merges the parts to form
         self.new_clusters.  Note that hits that don't match any
         targets get put in clusters of their own.
         """
-        # Break clusters into fragments
         fragmentON = {} # Fragment clusters indexed by (Old index, New index)
         for OI in xrange(len(self.old_clusters)):
             cluster = self.old_clusters[OI]
-            fragmentON[OI] = {}
+            # Sort the associations by utility
+            sortkeys = []
             for i in xrange(len(cluster.As)):
-                a = cluster.As[i] #FixMe: Sorted in order of nu?
-                d = {} # Dict of target lists from association a
+                sortkeys.append([-cluster.As[i].nu,i,cluster.As[i]])
+            sortkeys.sort()
+            fragmentON[OI] = {}
+            # Put compatible fragments of each association in new
+            # fragment clusters
+            first = None
+            for neg_nu,i,a in sortkeys:
+                d = {} # Keys are new cluster indices NI; values are
+                       # dicts of targets for pair (OI,NI)
                 for target in a.targets:
                     tar_key = tuple(target.m_t)
                     NI = self.par_key_2_KTI[tar_key]
@@ -649,30 +674,39 @@ class Cluster_Flock:
                         d[NI][tar_key] = target
                     else:
                         d[NI] = {tar_key:target}
-                # FixMe: First fragment my not have best utility
                 if i is 0: # Initialize the fragment clusters using
                            # association with highest utility
                     for NI,targets_f in d.items():
-                        fragmentON[OI][NI] = Cluster(targets_f,a,t)
+                        if first is None:
+                            first = (OI,NI) # dead targets here
+                            fragmentON[OI][NI] = Cluster(targets_f,a,t,
+                                          dead_targets=a.dead_targets)
+                        else:
+                            fragmentON[OI][NI] = Cluster(targets_f,a,t)
                 else:   # Append fragmentings of other associations only
                         # if they are consistent with the first
                     OK = True
+                    if (OI,NI) == first:
+                        DT = a.dead_targets
+                    else:
+                        DT = {}
                     for NI,targets_f in d.items():
                         if not fragmentON[OI].has_key(NI):
-                            OK = False # FixMe: Q: Is this an
-                                       # error/bug?  A: I think not
-                            print 'fragment[%d] does not have key %d'%(OI,NI)
+                            OK = False
                             break
-                        if not fragmentON[OI][NI].check(targets_f,t):
-                            OK = False # FixMe: Should also check dead_targets
+                        if not fragmentON[OI][NI].check(targets_f,DT,t):
+                            OK = False
                             break
                     if OK:
                         for NI,targets_f in d.items():
-                            fragmentON[OI][NI].append(targets_f,a)
+                            fragmentON[OI][NI].Append(targets_f,a,
+                                                        dead_targets=DT)
                     else:
-                        close_calls.append(
-"Dropped branch associations in recluster() that are off by %5.3f"%(
-cluster.As[0].nu - a.nu))
+                        delta = cluster.As[0].nu - a.nu
+                        if delta < 0:
+                            close_calls.append(
+"At t=%d in recluster(), dropped branch association that is better by %5.3f"%(
+                                t,-delta))
         # Merge fragments into new clusters
         new_clusters = {}
         for OI in fragmentON.keys():
@@ -684,7 +718,7 @@ cluster.As[0].nu - a.nu))
         # Add clusters for isolated observations and make newts
         k_list = []
         for NI in xrange(len(self.ks_and_pars)):
-            if len(self.ks_and_pars[NI]['tars']) == 0:
+            if len(self.ks_and_pars[NI]['pars']) == 0:
                 new_clusters[NI] = Cluster({},a,t)
                 ks = self.ks_and_pars[NI]['ks']
                 k_list.append(self.ks_and_pars[NI]['ks'].keys()[0])
