@@ -32,15 +32,6 @@ MV4 -> MV5
 
 FixMe: To do for MV5:
 
-1. Q: What about the Poisson linkage of what should be independent
-   events?
-   A: It doesn't exist.
-
-2. How should nu be divided between fragements?
-
-3. Should nu be attributed to individual targets?  What about false
-   alarms, new targets, and dead targets?
-
 4. Use Murty's algorithm and flag big clusters.
 
 5. Flag likely errors correctly, ie, at least look at where I use MaxD
@@ -57,8 +48,7 @@ FixMe: To do for MV5:
    Cluster_Flock.recluster  First fragment may not have best utility
    Cluster_Flock.recluster  Consistency check should include dead_targets
    Cluster_Flock.recluster  For which observations should I make newts
-   MV4.decode_prune         Associations should (also?) be pruned in forward    
-
+   MV4.decode_prune         Associations should (also?) be pruned in forward
 
 """
 import numpy, scipy, scipy.linalg, random, math, util
@@ -272,10 +262,11 @@ class ASSOCIATION4:
          modify an association to account for invisible targets, false
          alarms, and new targets.
     """
-    def __init__(self,nu,mod):
+    def __init__(self,      # ASSOCIATION4
+                 nu,mod):
         self.nu = nu        # Utility of best path ending here
         self.mod = mod      # Model, to convey parameters
-        self.tar_dict = {}  # Dict of targets
+        self.tar_dict = {}  # Dict of targets keys are unique target indices
         self.targets = []   # List of targets
         self.h2c = []       # Map from hits to causes.  Will become key
         self.cause_checks = [self.check_targets,self.check_FAs,
@@ -291,7 +282,7 @@ class ASSOCIATION4:
     def Fork(self, # Create a child that extends association by cause
             cause  # CAUSE of next hit in y_t
             ):
-        CA = self.New(self.nu + cause.R,self.mod)
+        CA = self.New(self.nu + cause.R,self.mod) #Child Association
         CA.tar_dict = self.tar_dict.copy()
         CA.h2c = self.h2c + [cause.index]
         CA.N_FA = self.N_FA
@@ -304,16 +295,6 @@ class ASSOCIATION4:
             CA.N_FA += 1
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
-    def join(self, # ASSOCIATION4
-            other  # ASSOCIATION4
-            ):
-        """ Method for MV5.  Merge two associations into one.  This is
-        incomplete.  It does not handle self.h2c or self.N_FA.  I
-        think it is adequate for the end of MV5.decode_forward.
-        """
-        self.nu += other.nu
-        self.tar_dict.update(other.tar_dict)
-        self.targets += other.targets
     def check_targets(self,k,causes,y):
         """ A check method for list cause_checks called by forward().
         This method appends relevant children to plausible causes.
@@ -322,7 +303,8 @@ class ASSOCIATION4:
             if target.children.has_key(k):
                 # If has_key(k) then child is plausible cause
                 causes.append(target.children[k])
-    def check_FAs(self,k,causes,y):
+    def check_FAs(self, # ASSOCIATION4
+                  k,causes,y):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm
         """
@@ -477,7 +459,7 @@ class Cluster:
         self.As = []
         self.Append(targets,a,dead_targets)
     def Append(self,            # Cluster
-               targets,         # Dict of targets
+               targets,         # Dict of targets with tuple(m_t) keys
                a,               # Association that targets are from
                dead_targets={}
                ):
@@ -485,8 +467,9 @@ class Cluster:
         should have already been done.
         """
         nu = 0.0
-        for target in targets.values() + dead_targets.values():
-            nu += target.R_sum
+        for target in targets.values() + \
+                map(lambda x: x[0], dead_targets.values()):
+            nu += target.R_sum  # FixMe: Add utility of FAs here
         new_a = a.New(nu,a.mod)
         new_a.targets=targets.values()
         new_a.dead_targets = dead_targets
@@ -542,7 +525,27 @@ class Cluster:
                 NA.dead_targets.update(NA.dead_targets)
                 new_As.append(NA)
         self.As = new_As
-              
+class ASSOCIATION5(ASSOCIATION4):
+    def extra_FAs(self, # ASSOCIATION5
+                  partial # ASSOCIATION5
+                  ):
+        """ For each false alarm in partial set partial.FAs[(t,k) = utility
+        """
+        CC = CAUSE_FA(y,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
+        if self.mod.MaxD < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
+            causes.append(CC) # False alarm
+        else:
+            print 'test failed, self.mod.MaxD=',self.mod.MaxD 
+    def join(self, # ASSOCIATION5
+            other  # ASSOCIATION5
+            ):
+        """ Method for MV5.  Merge two associations into one.  This is
+        incomplete.  It does not handle self.h2c or self.N_FA.  I
+        think it is adequate for the end of MV5.decode_forward.
+        """
+        self.nu += other.nu
+        self.tar_dict.update(other.tar_dict)
+        self.targets += other.targets   
 class Cluster_Flock:
     """ A cluster flock is a set of clusters that partitions all of
     the targets and all of the observations at a given time.  The key
@@ -573,12 +576,15 @@ class Cluster_Flock:
                  t
                  ):
         self.old_clusters = [Cluster(targets,a,t)]
-    def make_family(self,
-                      Yt
-                      ):
-        """ Extract self.parents, a dict of all targets at last time,
-        from associations in self.old_clusters, then make
-        self.children from parents.
+        self.mod = a.mod
+    def make_family(self,  # Cluster_Flock
+                    Yt,
+                    t
+                    ):
+        """ Make each of the following:
+        self.children
+        self.parents
+        self.k2par
         """
         self.parents = {}   # Dict of targets last time indexed by (m_t)
         self.children = {}  # Dict of targets this time indexed by Yt index
@@ -587,16 +593,14 @@ class Cluster_Flock:
             self.k2par[k] = {}
         for cluster in self.old_clusters:
             for a in cluster.As:
+                a.make_children(Yt,self.children,t)
                 for target in a.targets:
                     key = tuple(target.m_t)
                     self.parents[key] = target
-        for target in self.parents.values():
-            target.make_children(Yt,self.children)
-            tar_key = tuple(target.m_t)
-            for k in target.children.keys():
-                if k < 0:
-                    continue
-                self.k2par[k][tar_key] = target
+                    for k in target.children.keys():
+                        if k < 0:
+                            continue
+                        self.k2par[k][key] = target
     def find_clusters(self,           # Cluster_Flock
                       len_y
                       ):
@@ -649,7 +653,9 @@ class Cluster_Flock:
         """ On the basis of the clusters of observations and targets
         that find_clusters() has identitied, recluster() fragments
         self.old_clusters and merges the parts to form
-        self.new_clusters.  Note that hits that don't match any
+        self.new_clusters.  The targets in the associations in the new
+        clusters are _parent targets_, ie, they have not incorporated
+        observations at time t.  Note that hits that don't match any
         targets get put in clusters of their own.
         """
         fragmentON = {} # Fragment clusters indexed by (Old index, New index)
@@ -715,14 +721,21 @@ class Cluster_Flock:
                     new_clusters[NI] = fragmentON[OI][NI]
                 else:
                     new_clusters[NI].merge(fragmentON[OI][NI])
-        # Add clusters for isolated observations and make newts
+        # Add clusters for observations that no target could have caused
         k_list = []
+        NI_dict = {}
         for NI in xrange(len(self.ks_and_pars)):
             if len(self.ks_and_pars[NI]['pars']) == 0:
-                new_clusters[NI] = Cluster({},a,t)
-                ks = self.ks_and_pars[NI]['ks']
-                k_list.append(self.ks_and_pars[NI]['ks'].keys()[0])
-        a.mod.make_newts(Yt,k_list) # FixMe: Want to make more newts?
+                assert len(self.ks_and_pars[NI]['ks']) == 1,\
+           'len(self.ks_and_pars[NI]["ks"])=%d'%len(self.ks_and_pars[NI]['ks'])
+                k = self.ks_and_pars[NI]['ks'].keys()[0]
+                k_list.append(k)
+                NI_dict[k] = NI
+        self.mod.make_newts(Yt,k_list) # FixMe: Need newts for ys near
+                                       # targets too?
+        for k in k_list: # The new cluster will find the newt via the k_list
+            a = self.mod.ASSOCIATION(0.0,self.mod)
+            new_clusters[NI_dict[k]] = Cluster({},a,t)
         rv = [] # Return value is [[cluster,k_list],[cluster,k_list],...]
         self.old_clusters = []
         for NI in new_clusters.keys():
@@ -1065,6 +1078,9 @@ class MV5(MV4):
     """ Like MV4 but each global association is composed by selecting
     one association from each cluster in a cluster flock.
     """
+    def __init__(self,**kwargs):
+        MV4.__init__(self,**kwargs)
+        self.ASSOCIATION = ASSOCIATION5
     def decode_forward(self,   # MV5
                        Ys,     # Observations. Ys[t][k]
                        empty,  # Initial empty association is only element
@@ -1082,10 +1098,9 @@ class MV5(MV4):
         assert t_first == 0, 't_first=%d, should be 0 for MV5'%t_first
         global close_calls
         close_calls = []
-        T = len(Ys)
         flock = Cluster_Flock({},empty[0],0)
-        for t in xrange(T):
-            flock.make_family(Ys[t])       # Make parent and child targets
+        for t in xrange(len(Ys)):
+            flock.make_family(Ys[t],t)       # Make parent and child targets
             flock.find_clusters(len(Ys[t]))# Identify clusters of observations
             for cluster,k_list in flock.recluster(t,Ys[t]):
                 # k_list lists the observations that cluster explains
@@ -1104,7 +1119,7 @@ class MV5(MV4):
         print 'nu_max=%f'%A_union.nu
         for call in close_calls:
             print call
-        return (A_union,T)
+        return (A_union,len(Ys))
                 
 class TARGET1(TARGET4):
     def New(self, *args,**kwargs):
@@ -1141,7 +1156,8 @@ class ASSOCIATION3(ASSOCIATION4):
         self.type='ASSOCIATION3'
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
-    def make_children(self, y_t, cousins, t ):
+    def make_children(self, # ASSOCIATION3
+                      y_t, cousins, t ):
         """ No dead targets for ASSOCIATION3. """
         for target in self.targets:
             target.make_children(y_t,cousins)
