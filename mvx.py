@@ -58,10 +58,13 @@ close_calls = None     # Will be list of flags of likely errors
 Target_Counter = 0
 
 class CAUSE_FA: # False Alarm
-    def __init__(self, y, Sigma_I, norm ):
+    def __init__(self, y, t, k, Sigma_I, norm ):
         self.type = 'FA'
         self.index = -1
         self.R = norm - float(y.T*Sigma_I*y/2)
+        self.t = t
+        self.k = k
+        print 'Try false alarm (t,k)=(%d,%d) R=%5.3f'%(t,k,self.R)
 class TARGET4(CAUSE_FA):
     """A TARGET is a possible moving target, eg, a car.  Its values
     are determined by initialization values and a sequence of
@@ -104,10 +107,12 @@ class TARGET4(CAUSE_FA):
             return rv
         else:
             return TARGET4(*args,**kwargs)
-    def dump(self):
-        print '\nDump target: m_t=',self.m_t
+    def dump(self #TARGET4
+             ):
+        print '\n Dump target: m_t=',self.m_t,
         print '             index=%d, len(mu_t)=%d'%(self.index,len(self.mu_t))
-        print '   invisible_count=%d'%self.invisible_count
+        print '   invisible_count=%d, R_sum=%5.3f'%(self.invisible_count,
+                                                    self.R_sum)
         if self.children is not None:
             print'  len(self.children)=%d'%len(self.children)
             for child in self.children.values():
@@ -257,10 +262,9 @@ class ASSOCIATION4:
      check_targets, check_FAs and check_newts: Checks in list of
          cause_checks called by forward() that propose causes of hits
 
-    invisibles and extra_invisible: Entries in list of methods
-         extra_forward that are called by forward().  These methods
-         modify an association to account for invisible targets, false
-         alarms, and new targets.
+    extra_invisible: Entry in list of methods extra_forward that is
+         called by forward().  This methods modifies an association to
+         account for invisible targets.
     """
     def __init__(self,      # ASSOCIATION4
                  nu,mod):
@@ -274,7 +278,6 @@ class ASSOCIATION4:
         self.extra_forward = [self.extra_invisible]
         self.dead_targets = {}
         self.type='ASSOCIATION4'
-        self.N_FA=0          # Count of false alarms
     def New(self, *args,**kwargs):
         NA = ASSOCIATION4(*args,**kwargs)
         NA.dead_targets = self.dead_targets.copy()
@@ -285,17 +288,15 @@ class ASSOCIATION4:
         CA = self.New(self.nu + cause.R,self.mod) #Child Association
         CA.tar_dict = self.tar_dict.copy()
         CA.h2c = self.h2c + [cause.index]
-        CA.N_FA = self.N_FA
         if cause.type is 'target':
             CA.tar_dict[cause.index] = None # Prevent reuse of target
             CA.targets = self.targets + [cause]
             return CA
         if cause.type is 'FA':
             CA.targets = self.targets
-            CA.N_FA += 1
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
-    def check_targets(self,k,causes,y):
+    def check_targets(self,k,causes,y,t):
         """ A check method for list cause_checks called by forward().
         This method appends relevant children to plausible causes.
         """
@@ -304,17 +305,17 @@ class ASSOCIATION4:
                 # If has_key(k) then child is plausible cause
                 causes.append(target.children[k])
     def check_FAs(self, # ASSOCIATION4
-                  k,causes,y):
+                  k,causes,y,t):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm
         """
-        CC = CAUSE_FA(y,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
+        CC = CAUSE_FA(y,t,k,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
         if self.mod.MaxD < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
             causes.append(CC) # False alarm
         else:
             print 'test failed, self.mod.MaxD=',self.mod.MaxD
     def check_newts(self, # ASSOCIATION4
-                    k,causes,y):
+                    k,causes,y,t):
         """ A check in list of cause_checks called by forward().
         Propose that cause is false alarm or new target
         """
@@ -325,19 +326,6 @@ class ASSOCIATION4:
             causes.append(CC)  # New target
         else:
             print 'test failed, self.mod.MaxD=',self.mod.MaxD
-    def invisibles(self,partial):
-        """ A method in extra_forward called by forward().  Put
-        invisible targets in new association.
-        """
-        for target in self.targets:
-            if not partial.tar_dict.has_key(target.index):
-                try:
-                    child = target.children[-1]
-                except:
-                    raise RuntimeError,\
-        'There is no invisible child.'
-                partial.targets.append(child)
-                partial.nu += child.R 
     def extra_invisible(self,partial):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association.
@@ -348,13 +336,13 @@ class ASSOCIATION4:
                 child = target.children[-1]
                 partial.targets.append(child)
                 partial.nu += child.R
-    def dump(self):
+    def dump(self # ASSOCIATION4
+             ):
         print 'dumping an association of type',self.type,':'
         print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
         print 'hits -> causes map=', self.h2c
         for target in self.targets:
             target.dump()
-        print '\n'
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
                       cousins, # Dict of children of sibling associations
@@ -371,6 +359,7 @@ class ASSOCIATION4:
     def forward(self,       # ASSOCIATION4
                 successors, # DB of associations and u's for the next time step
                 y_t,        # Hits at this time
+                t,
                 k_list=None # Option for MV5
                 ):
         """ For each plausible successor S of the ASSOCIATION self,
@@ -390,7 +379,7 @@ class ASSOCIATION4:
                 continue
             causes_k = []
             for check in self.cause_checks:
-                check(k,causes_k,y_t[k])
+                check(k,causes_k,y_t[k],t)
             causes.append(causes_k)
         # Initialize list of partial associations.
         old_list = [self.New(self.nu,self.mod)]
@@ -451,37 +440,46 @@ class Cluster:
                  targets,         # Dict of targets with tuple(m_t) keys
                  a,               # Association that targets are from
                  t,               # Time of last observation
-                 dead_targets={}  # 
+                 dead_targets={}, #
+                 FAs={}
                  ):
         """ Make first association and history and attach them to self
         """
-        self.history = self.make_history(targets,t,dead_targets)
+        self.history = self.make_history(targets,t,dead_targets,FAs)
         self.As = []
-        self.Append(targets,a,dead_targets)
+        self.Append(targets,a,dead_targets,FAs)
     def Append(self,            # Cluster
                targets,         # Dict of targets with tuple(m_t) keys
                a,               # Association that targets are from
-               dead_targets={}
+               dead_targets={},
+               FAs={}
                ):
         """ Create a new association in this cluster.  History match
         should have already been done.
         """
         nu = 0.0
+        if len(FAs) > 0:
+            print 'FAs=',FAs
         for target in targets.values() + \
                 map(lambda x: x[0], dead_targets.values()):
             nu += target.R_sum  # FixMe: Add utility of FAs here
+        for R in FAs.values():
+            nu += R
         new_a = a.New(nu,a.mod)
         new_a.targets=targets.values()
         new_a.dead_targets = dead_targets
+        new_a.FAs = FAs
         self.As.append(new_a)
-    def dump(self):
+    def dump(self #Cluster
+             ):
         print 'Dumping a cluster with %d associations:'%len(self.As)
         for A in self.As:
             A.dump()
     def make_history(self,            # Cluster
                      targets,         # Dict of targets with tuple(m_t) keys
                      t,               # Time of last observation
-                     dead_targets={}  # 
+                     dead_targets={}, #
+                     FAs={}
                      ):
         """ Return a history dict made from arguments
         """
@@ -493,16 +491,20 @@ class Cluster:
             ti = tf - len(target.m_t)
             for k in range(len(target.m_t)):
                 history[(ti+k,target.m_t[k])] = True
+        for key in FAs.keys():
+            history[key] = True
+            print 'make_history, t=%d key='%t,key
         return(history)
     def check(self,     # Cluster
               targets,  # Dict of targets
               dead_targets,
+              FAs,
               t
               ):
         """ Retrurn True if targets explain same observations as this
         cluster
         """
-        history = self.make_history(targets,t,dead_targets)
+        history = self.make_history(targets,t,dead_targets,FAs)
         for key in self.history.keys():
             if not history.has_key(key):
                 return False
@@ -526,26 +528,59 @@ class Cluster:
                 new_As.append(NA)
         self.As = new_As
 class ASSOCIATION5(ASSOCIATION4):
-    def extra_FAs(self, # ASSOCIATION5
-                  partial # ASSOCIATION5
-                  ):
-        """ For each false alarm in partial set partial.FAs[(t,k) = utility
-        """
-        CC = CAUSE_FA(y,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
-        if self.mod.MaxD < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
-            causes.append(CC) # False alarm
-        else:
-            print 'test failed, self.mod.MaxD=',self.mod.MaxD 
+    """ Number of targets is fixed.  Allow false alarms and invisibles
+    """
+    def __init__(self,*args,**kwargs):
+        ASSOCIATION4.__init__(self,*args,**kwargs)
+        self.type='ASSOCIATION5'
+        self.FAs = {}
+        self.extra_forward = [self.extra_invisible]
+        #self.extra_forward = [self.extra_invisible,self.extra_FAs] FixMe
+    def New(self, *args,**kwargs):
+        return ASSOCIATION5(*args,**kwargs)
+    def Fork(self, # Create a child that extends association by cause
+            cause  # CAUSE of next hit in y_t
+            ):
+        CA = self.New(self.nu + cause.R,self.mod) #Child Association
+        CA.tar_dict = self.tar_dict.copy()
+        CA.FAs = self.FAs.copy()
+        CA.h2c = self.h2c + [cause.index]
+        if cause.type is 'target':
+            CA.tar_dict[cause.index] = None # Prevent reuse of target
+            CA.targets = self.targets + [cause]
+            return CA
+        if cause.type is 'FA':
+            CA.targets = self.targets
+            CA.FAs[(cause.t,cause.k)] = cause.R
+            CA
+            return CA
+        raise RuntimeError,"Cause type %s not known"%cause.type
     def join(self, # ASSOCIATION5
             other  # ASSOCIATION5
             ):
         """ Method for MV5.  Merge two associations into one.  This is
-        incomplete.  It does not handle self.h2c or self.N_FA.  I
-        think it is adequate for the end of MV5.decode_forward.
+        incomplete.  It does not handle self.h2c.  think it is
+        adequate for the end of MV5.decode_forward.
         """
         self.nu += other.nu
+        print 'in join self.nu=%5.3f'%self.nu
         self.tar_dict.update(other.tar_dict)
-        self.targets += other.targets   
+        self.FAs.update(other.FAs)
+        self.dead_targets.update(other.dead_targets)
+        self.targets += other.targets 
+    def extra_FAs(self,partial):
+        """ A method in extra_forward called by forward().  Put old
+        FAs in new association.
+        """
+        partial.FAs = self.FAs
+    def dump(self # ASSOCIATION5
+             ):
+        print 'Begin dumping an association of type',self.type,':'
+        print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
+        print 'hits -> causes map=', self.h2c, 'FAs=',self.FAs
+        for target in self.targets:
+            target.dump()
+        print 'End of association dump\n'
 class Cluster_Flock:
     """ A cluster flock is a set of clusters that partitions all of
     the targets and all of the observations at a given time.  The key
@@ -658,6 +693,11 @@ class Cluster_Flock:
         observations at time t.  Note that hits that don't match any
         targets get put in clusters of their own.
         """
+        print 't=%d Begin recluster with these %d clusters:'%(t,
+                                          len(self.old_clusters))
+        for cluster in self.old_clusters:
+            cluster.dump()
+        print 't=%d Begin loop over OI'%t
         fragmentON = {} # Fragment clusters indexed by (Old index, New index)
         for OI in xrange(len(self.old_clusters)):
             cluster = self.old_clusters[OI]
@@ -669,10 +709,9 @@ class Cluster_Flock:
             fragmentON[OI] = {}
             # Put compatible fragments of each association in new
             # fragment clusters
-            first = None
             for neg_nu,i,a in sortkeys:
-                d = {} # Keys are new cluster indices NI; values are
-                       # dicts of targets for pair (OI,NI)
+                d = {-1:{}} # Keys are new cluster indices NI; values are
+                # dicts of targets for pair (OI,NI).  Seed for dead_targets
                 for target in a.targets:
                     tar_key = tuple(target.m_t)
                     NI = self.par_key_2_KTI[tar_key]
@@ -683,44 +722,63 @@ class Cluster_Flock:
                 if i is 0: # Initialize the fragment clusters using
                            # association with highest utility
                     for NI,targets_f in d.items():
-                        if first is None:
-                            first = (OI,NI) # dead targets here
-                            fragmentON[OI][NI] = Cluster(targets_f,a,t,
-                                          dead_targets=a.dead_targets)
+                        if NI == -1:
+                            if len(a.dead_targets) == 0 and len(a.FAs) == 0:
+                                print 'Declining to make fragmentON[%d][%d]'%(
+                                    OI,NI)
+                                a.dump()
+                                continue
+                            fragmentON[OI][NI] = Cluster({},a,t,
+                                  dead_targets=a.dead_targets,FAs=a.FAs)
+                            print 'fragment[%d][%d].As[0].nu=%5.3f'%(
+                                OI,NI,fragmentON[OI][NI].As[0].nu)
                         else:
                             fragmentON[OI][NI] = Cluster(targets_f,a,t)
+                        print 'Initialized fragment cluster with utility=%5.3f'%fragmentON[OI][NI].As[0].nu
                 else:   # Append fragmentings of other associations only
                         # if they are consistent with the first
                     OK = True
-                    if (OI,NI) == first:
-                        DT = a.dead_targets
-                    else:
-                        DT = {}
                     for NI,targets_f in d.items():
                         if not fragmentON[OI].has_key(NI):
                             OK = False
                             break
-                        if not fragmentON[OI][NI].check(targets_f,DT,t):
+                        if NI == -1:
+                            DT = a.dead_targets
+                            FAs = a.FAs
+                        else:
+                            DT = {}
+                            FAs = {}
+                        if not fragmentON[OI][NI].check(targets_f,DT,FAs,t):
                             OK = False
                             break
                     if OK:
                         for NI,targets_f in d.items():
+                            if NI == -1:
+                                DT = a.dead_targets
+                                FAs = a.FAs
+                            else:
+                                DT = {}
+                                FAs = {}
                             fragmentON[OI][NI].Append(targets_f,a,
-                                                        dead_targets=DT)
+                                                  dead_targets=DT,FAs=FAs)
                     else:
                         delta = cluster.As[0].nu - a.nu
                         if delta < 0:
                             close_calls.append(
 "At t=%d in recluster(), dropped branch association that is better by %5.3f"%(
                                 t,-delta))
+        print 'In recluster total number of fragements=%d'%len(fragmentON)
         # Merge fragments into new clusters
         new_clusters = {}
         for OI in fragmentON.keys():
+            print 'fragmentON[%d]='%OI, fragmentON[OI]
             for NI in fragmentON[OI].keys():
+                print '(OI,NI)=(%d,%d)'%(OI,NI)
                 if not new_clusters.has_key(NI):
                     new_clusters[NI] = fragmentON[OI][NI]
                 else:
                     new_clusters[NI].merge(fragmentON[OI][NI])
+        print 'After merging fragements, len(new_clusters)=%d'%len(new_clusters)
         # Add clusters for observations that no target could have caused
         k_list = []
         NI_dict = {}
@@ -739,10 +797,17 @@ class Cluster_Flock:
         rv = [] # Return value is [[cluster,k_list],[cluster,k_list],...]
         self.old_clusters = []
         for NI in new_clusters.keys():
-            k_list = self.ks_and_pars[NI]['ks'].keys()
+            if NI == -1:
+                k_list = []
+            else:
+                k_list = self.ks_and_pars[NI]['ks'].keys()
             cluster = new_clusters[NI]
             rv.append((cluster,k_list))
             self.old_clusters.append(cluster)
+        print 't=%d, returning %d new clusters from recluster\n'%(t,len(rv))
+        for cluster in self.old_clusters:
+            cluster.dump()
+        print 't=%d, end of recluster\n'%(t,)
         return rv
 
 class MV4:
@@ -813,6 +878,7 @@ class MV4:
         for k in k_list:
             self.newts[k] = self.target_0.KF(Yts[k],k)
             self.newts[k].R += self.log_new_norm
+            print 'self.newts[%d].R=%5.3f'%(k,self.newts[k].R)
     def decode_prune(self, #MV4
                      t,
                      new_As,
@@ -903,7 +969,7 @@ successors.length()=%d
                 # with u' so many predecessors can find same successor
                 successors = SUCCESSOR_DB()
                 for A in old_As:
-                    A.forward(successors,Ys[t])
+                    A.forward(successors,Ys[t],t)
                 self.MaxD *= 1.5
                 suc_length = successors.length()
                 # Begin debugging check and print
@@ -1106,7 +1172,7 @@ class MV5(MV4):
                 # k_list lists the observations that cluster explains
                 successors = SUCCESSOR_DB()
                 for A in cluster.As:
-                    A.forward(successors,Ys[t],k_list=k_list)
+                    A.forward(successors,Ys[t],t,k_list=k_list)
                 cluster.As=self.decode_prune(t,successors.maxes(),len(k_list))
         # Find the best last associations
         A_union = empty[0]
@@ -1152,7 +1218,6 @@ class ASSOCIATION3(ASSOCIATION4):
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets,self.check_FAs]
-        self.extra_forward = [self.invisibles]
         self.type='ASSOCIATION3'
     def New(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
@@ -1168,7 +1233,6 @@ class ASSOCIATION2(ASSOCIATION3):
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets]
-        self.extra_forward = [self.invisibles]
         self.type='ASSOCIATION2'
     def New(self, *args,**kwargs):
         return ASSOCIATION2(*args,**kwargs)
