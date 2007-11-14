@@ -110,8 +110,8 @@ class TARGET4(CAUSE_FA):
              ):
         print '\n Dump target: m_t=',self.m_t,
         print '             index=%d, len(mu_t)=%d'%(self.index,len(self.mu_t))
-        print '   invisible_count=%d, R_sum=%5.3f'%(self.invisible_count,
-                                                    self.R_sum)
+        print '   invisible_count=%d, R=%5.3f, R_sum=%5.3f'%(
+            self.invisible_count, self.R,self.R_sum)
         if self.children is not None:
             print'  len(self.children)=%d'%len(self.children)
             for child in self.children.values():
@@ -187,7 +187,7 @@ class TARGET4(CAUSE_FA):
         Sigma_new = self.Sigma_next
         mu_new = self.mu_a + self.K*Delta_y
         Delta_R += -float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
-                           +self.mod.log_det_Sig_O)/2
+                           -self.mod.log_det_Sig_O)/2
         return (Delta_R,mu_new,Sigma_new)
     def KF(self,
            y,        # The observation of the target at the current time
@@ -369,7 +369,6 @@ class ASSOCIATION4:
 
         FixMe: This is where I could use Murty's algorithm
         """
-        print 'Begin forward, self.FAs=',self.FAs
         if k_list is None:
             k_list = range(len(y_t))
         # For each observation, make a list of plausible causes
@@ -402,15 +401,9 @@ class ASSOCIATION4:
             return
         # For each association, do extra work work required for
         # nonstandard hit/target combinations
-        print 'In forward, before extra_forward, here is self'
-        self.dump()
         for partial in old_list:
-            print 'In forward, before extra_forward, here is partial'
-            partial.dump()
             for method in self.extra_forward:
                 method(partial,t)
-            print 'In forward, after extra_forward, here is partial'
-            partial.dump()
         # Now each entry in old_list is a complete association and
         # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
 
@@ -427,8 +420,6 @@ class ASSOCIATION4:
             neg_nu,a = sortlist[k]
             if neg_nu > limit:
                 break
-            print 'in forward() entering the following successor with h2c=',a.h2c
-            a.dump()
             successors.enter(a)
 def make_history(targets,         # Dict of targets with tuple(m_t) keys
                  t,               # Time of last observation
@@ -534,8 +525,10 @@ class Cluster:
             for SA in self.As:
                 NA = OA.New(OA.nu+SA.nu,SA.mod)
                 NA.targets = OA.targets + SA.targets
-                NA.dead_targets = OA.dead_targets.copy()
-                NA.dead_targets.update(NA.dead_targets)
+                NA.dead_targets = OA.dead_targets.copy() # FixMe: OK?
+                NA.dead_targets.update(SA.dead_targets)
+                NA.FAs = OA.FAs.copy()
+                NA.FAs.update(SA.FAs)
                 new_As.append(NA)
         self.As = new_As
 class ASSOCIATION5(ASSOCIATION4):
@@ -608,7 +601,7 @@ class ASSOCIATION5(ASSOCIATION4):
              ):
         print 'Begin dumping an association of type',self.type,':'
         print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
-        print 'hits -> causes map=', self.h2c, 'FAs=',self.FAs
+        print 'h2c=', self.h2c, 'FAs=',self.FAs
         for target in self.targets:
             target.dump()
         print 'End of association dump\n'
@@ -766,7 +759,8 @@ class Cluster_Flock:
                     for NI,targets_f in d.items():
                         print 'First.  Using new fragment index NI=%d'%NI
                         if NI == -1:
-                            if len(a.dead_targets)+len(a.FAs)+len(targets_f) == 0:
+                            if len(a.dead_targets)+len(a.FAs)+\
+                                   len(targets_f) == 0:
                                 print 'Declining to make fragmentON[%d][%d]'%(
                                     OI,NI)
                                 a.dump()
@@ -923,6 +917,7 @@ class MV4:
         for k in k_list:
             self.newts[k] = self.target_0.KF(Yts[k],k)
             self.newts[k].R += self.log_new_norm
+            self.newts[k].R_sum = self.newts[k].R
     def decode_prune(self, #MV4
                      t,
                      new_As,
@@ -1221,9 +1216,6 @@ class MV5(MV4):
                 print 't=%d decode_forward.  Call forward on %d associations.  Dump each:'%(
                     t,len(cluster.As))
                 for A in cluster.As:
-                    if len(A.FAs) > 0:
-                        print 'dump before forward:'
-                        A.dump()
                     A.forward(successors,Ys[t],t,k_list=k_list)
                 suc_max = successors.maxes()
                 print '   After forward, %d associations'%len(suc_max)

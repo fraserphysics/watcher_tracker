@@ -16,3 +16,8 @@ for key in ts:
     counts.append(len(hits[key]))
 counts.sort()
 print counts
+  
+#---------------
+# Local Variables:
+# eval: (python-mode)
+# End:
