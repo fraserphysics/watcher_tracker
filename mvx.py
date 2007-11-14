@@ -275,7 +275,7 @@ class ASSOCIATION4:
         self.cause_checks = [self.check_targets,self.check_FAs,
                              self.check_newts]
         self.extra_forward = [self.extra_invisible]
-        self.dead_targets = {}
+        self.dead_targets = {} # Key is target.index value is [target,t_last]
         self.type='ASSOCIATION4'
     def New(self, *args,**kwargs):
         NA = ASSOCIATION4(*args,**kwargs)
@@ -342,6 +342,9 @@ class ASSOCIATION4:
         print 'hits -> causes map=', self.h2c
         for target in self.targets:
             target.dump()
+        for key,value in self.dead_targets.items():
+            print 'Dump dead target with index=%d, t_last=%d:'%(key,value[1])
+            value[0].dump()
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
                       cousins, # Dict of children of sibling associations
@@ -604,6 +607,9 @@ class ASSOCIATION5(ASSOCIATION4):
         print 'h2c=', self.h2c, 'FAs=',self.FAs
         for target in self.targets:
             target.dump()
+        for key,value in self.dead_targets.items():
+            print 'Dump dead target with index=%d, t_last=%d:'%(key,value[1])
+            value[0].dump()
         print 'End of association dump\n'
 class Cluster_Flock:
     """ A cluster flock is a set of clusters that partitions all of
