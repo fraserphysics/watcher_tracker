@@ -64,7 +64,6 @@ class CAUSE_FA: # False Alarm
         self.R = norm - float(y.T*Sigma_I*y/2)
         self.t = t
         self.k = k
-        print 'Try false alarm (t,k)=(%d,%d) R=%5.3f'%(t,k,self.R)
 class TARGET4(CAUSE_FA):
     """A TARGET is a possible moving target, eg, a car.  Its values
     are determined by initialization values and a sequence of
@@ -326,7 +325,7 @@ class ASSOCIATION4:
             causes.append(CC)  # New target
         else:
             print 'test failed, self.mod.MaxD=',self.mod.MaxD
-    def extra_invisible(self,partial):
+    def extra_invisible(self,partial,t):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association.
         """ 
@@ -370,6 +369,7 @@ class ASSOCIATION4:
 
         FixMe: This is where I could use Murty's algorithm
         """
+        print 'Begin forward, self.FAs=',self.FAs
         if k_list is None:
             k_list = range(len(y_t))
         # For each observation, make a list of plausible causes
@@ -402,9 +402,15 @@ class ASSOCIATION4:
             return
         # For each association, do extra work work required for
         # nonstandard hit/target combinations
+        print 'In forward, before extra_forward, here is self'
+        self.dump()
         for partial in old_list:
+            print 'In forward, before extra_forward, here is partial'
+            partial.dump()
             for method in self.extra_forward:
-                method(partial)
+                method(partial,t)
+            print 'In forward, after extra_forward, here is partial'
+            partial.dump()
         # Now each entry in old_list is a complete association and
         # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
 
@@ -421,7 +427,29 @@ class ASSOCIATION4:
             neg_nu,a = sortlist[k]
             if neg_nu > limit:
                 break
+            print 'in forward() entering the following successor with h2c=',a.h2c
+            a.dump()
             successors.enter(a)
+def make_history(targets,         # Dict of targets with tuple(m_t) keys
+                 t,               # Time of last observation
+                 dead_targets={}, #
+                 FAs={}
+                 ):
+    """ Return a history dict made from arguments
+    """
+    history = {} # Dict with keys (t,k) where k is index of observation
+    # Make pairs [[tar0,tf],[tar1,tf]...] where each is a final time
+    target_time = map(lambda x: [x,t],targets.values())
+    target_time.extend(dead_targets.values())
+    for target,tf in target_time:
+        ti = tf - len(target.m_t)
+        for k in range(len(target.m_t)):
+            if target.m_t[k] < 0:
+                continue # Only include observations
+            history[(ti+k,target.m_t[k])] = target
+    history.update(FAs)
+    return(history)
+    
 class Cluster:
     """ A cluster is a set of targets and associations of those
     targets.  Each association should explain the same past
@@ -429,7 +457,6 @@ class Cluster:
 
     Methods:
        __init__()     Make self.history and self.As from arguments
-       make_history() Return dict with keys (t,k)= (time,observation_index)
        check()        See if history from argument matches self.history
        append()       
        merge()
@@ -445,7 +472,7 @@ class Cluster:
                  ):
         """ Make first association and history and attach them to self
         """
-        self.history = self.make_history(targets,t,dead_targets,FAs)
+        self.history = make_history(targets,t,dead_targets,FAs)
         self.As = []
         self.Append(targets,a,dead_targets,FAs)
     def Append(self,            # Cluster
@@ -475,41 +502,25 @@ class Cluster:
         print 'Dumping a cluster with %d associations:'%len(self.As)
         for A in self.As:
             A.dump()
-    def make_history(self,            # Cluster
-                     targets,         # Dict of targets with tuple(m_t) keys
-                     t,               # Time of last observation
-                     dead_targets={}, #
-                     FAs={}
-                     ):
-        """ Return a history dict made from arguments
-        """
-        history = {} # Dict with keys (t,k) where k is index of observation
-        # Make pairs [[tar0,tf],[tar1,tf]...] where each is a final time
-        target_time = map(lambda x: [x,t],targets.values())
-        target_time.extend(dead_targets.values())
-        for target,tf in target_time:
-            ti = tf - len(target.m_t)
-            for k in range(len(target.m_t)):
-                history[(ti+k,target.m_t[k])] = True
-        for key in FAs.keys():
-            history[key] = True
-            print 'make_history, t=%d key='%t,key
-        return(history)
     def check(self,     # Cluster
               targets,  # Dict of targets
               dead_targets,
               FAs,
               t
               ):
-        """ Retrurn True if targets explain same observations as this
+        """ Retrurn True if arguments explain same observations as this
         cluster
         """
-        history = self.make_history(targets,t,dead_targets,FAs)
+        history = make_history(targets,t,dead_targets,FAs)
         for key in self.history.keys():
             if not history.has_key(key):
+                print 'check returning False:\n self.history.keys()=',self.history.keys()
+                print '      history.keys()=',history.keys()
                 return False
         for key in history.keys():
             if not self.history.has_key(key):
+                print 'check returning False:\n self.history.keys()=',self.history.keys()
+                print '      history.keys()=',history.keys()
                 return False
         return True
     def merge(self,     # Cluster
@@ -534,8 +545,8 @@ class ASSOCIATION5(ASSOCIATION4):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.type='ASSOCIATION5'
         self.FAs = {}
-        self.extra_forward = [self.extra_invisible]
-        #self.extra_forward = [self.extra_invisible,self.extra_FAs] FixMe
+        #self.extra_forward = [self.extra_invisible] # FixMe
+        self.extra_forward = [self.extra_FA_I] # FixMe
     def New(self, *args,**kwargs):
         return ASSOCIATION5(*args,**kwargs)
     def Fork(self, # Create a child that extends association by cause
@@ -568,11 +579,31 @@ class ASSOCIATION5(ASSOCIATION4):
         self.FAs.update(other.FAs)
         self.dead_targets.update(other.dead_targets)
         self.targets += other.targets 
-    def extra_FAs(self,partial):
+    def extra_FA_I(self,partial,t):
         """ A method in extra_forward called by forward().  Put old
-        FAs in new association.
+        FAs and invisibles in new association and append to self.h2c.
         """
-        partial.FAs = self.FAs
+        I_targets = {}
+        for target in self.targets:
+            if partial.tar_dict.has_key(target.index) or \
+                   not target.children.has_key(-1): # Invisible target
+                continue
+            child = target.children[-1]
+            partial.targets.append(child)
+            partial.nu += child.R
+            key = tuple(child.m_t)
+            I_targets[key] = child
+        partial.FAs.update(self.FAs)
+        # Now modify h2c to avoid collisions in successor.maxes()
+        history = make_history(I_targets,t,FAs=partial.FAs)
+        keys = history.keys()
+        keys.sort()
+        for key in keys:
+            if partial.FAs.has_key(key):
+                partial.h2c.append(-1)
+            else:
+                partial.h2c.append(history[key].index)
+        print 'returning from extra_FA_I self.FAs=',self.FAs,'partial.FAs=',partial.FAs,'history=',history
     def dump(self # ASSOCIATION5
              ):
         print 'Begin dumping an association of type',self.type,':'
@@ -675,12 +706,18 @@ class Cluster_Flock:
                         if Oks.has_key(k):
                             del Oks[k]
             self.ks_and_pars.append({'ks':cluster_k,'pars':cluster_tar})
-        for tar_key,target in Opars.items():
-            self.ks_and_pars.append({'ks':{-1:True},'pars':{tar_key:target}})
+        # Put unclustered (only invisible children) targets in
+        # additional cluster
+        if len(Opars) > 0:
+            self.ks_and_pars.append({'ks':{-1:True},'pars':Opars})
+        # Map parent keys to new cluster indices NI
         self.par_key_2_KTI = {}
         for I in xrange(len(self.ks_and_pars)):
+            NI = I
+            if self.ks_and_pars[I]['ks'].has_key(-1):
+                NI = -1 # New cluster for otherwise unclustered parents
             for tar_key in self.ks_and_pars[I]['pars'].keys():
-                self.par_key_2_KTI[tar_key] = I
+                self.par_key_2_KTI[tar_key] = NI
     def recluster(self,   # Cluster_Flock
                   t,
                   Yt
@@ -709,9 +746,13 @@ class Cluster_Flock:
             fragmentON[OI] = {}
             # Put compatible fragments of each association in new
             # fragment clusters
+            first = True
             for neg_nu,i,a in sortkeys:
+                print 'In loop over old associations nu=%5.3f, i=%d'%(
+                    -neg_nu,i)
                 d = {-1:{}} # Keys are new cluster indices NI; values are
-                # dicts of targets for pair (OI,NI).  Seed for dead_targets
+                # dicts of targets for pair (OI,NI).  Seed with key=-1
+                # for new cluster of dead_targets
                 for target in a.targets:
                     tar_key = tuple(target.m_t)
                     NI = self.par_key_2_KTI[tar_key]
@@ -719,16 +760,18 @@ class Cluster_Flock:
                         d[NI][tar_key] = target
                     else:
                         d[NI] = {tar_key:target}
-                if i is 0: # Initialize the fragment clusters using
+                if first: # Initialize the fragment clusters using
                            # association with highest utility
+                    first = False
                     for NI,targets_f in d.items():
+                        print 'First.  Using new fragment index NI=%d'%NI
                         if NI == -1:
-                            if len(a.dead_targets) == 0 and len(a.FAs) == 0:
+                            if len(a.dead_targets)+len(a.FAs)+len(targets_f) == 0:
                                 print 'Declining to make fragmentON[%d][%d]'%(
                                     OI,NI)
                                 a.dump()
                                 continue
-                            fragmentON[OI][NI] = Cluster({},a,t,
+                            fragmentON[OI][NI] = Cluster(targets_f,a,t,
                                   dead_targets=a.dead_targets,FAs=a.FAs)
                             print 'fragment[%d][%d].As[0].nu=%5.3f'%(
                                 OI,NI,fragmentON[OI][NI].As[0].nu)
@@ -741,6 +784,7 @@ class Cluster_Flock:
                     for NI,targets_f in d.items():
                         if not fragmentON[OI].has_key(NI):
                             OK = False
+                            print 'Not first, reject fragment index NI=%d no such fragment'%NI
                             break
                         if NI == -1:
                             DT = a.dead_targets
@@ -750,6 +794,7 @@ class Cluster_Flock:
                             FAs = {}
                         if not fragmentON[OI][NI].check(targets_f,DT,FAs,t):
                             OK = False
+                            print 'Not first, reject fragment index %d check failed'%NI
                             break
                     if OK:
                         for NI,targets_f in d.items():
@@ -878,7 +923,6 @@ class MV4:
         for k in k_list:
             self.newts[k] = self.target_0.KF(Yts[k],k)
             self.newts[k].R += self.log_new_norm
-            print 'self.newts[%d].R=%5.3f'%(k,self.newts[k].R)
     def decode_prune(self, #MV4
                      t,
                      new_As,
@@ -917,21 +961,24 @@ class MV4:
                  "At t=%d, drop an association that's only off by %5.3f"%(
                   t,nu_max - keepers[k].nu))
                         del keepers[k]
+                        print 'deleted Assoc. for Join_Time match'
             new_As = keepers.values()
             if len(new_As) < 1:
                 raise RuntimeError,'Join check killed all As'
         if self.alpha < 1e-6 or self.MaxD < 1e-6:
             return new_As
         else:
-            # Only pass associations that are within alpha*MaxD*sqrt(N)
+            # Only pass associations that are within alpha*MaxD*sqrt(N+4)
             Rs = []
             for A in new_As:
                 Rs.append(A.nu)
-            limit = max(Rs) - (self.alpha*self.MaxD)**2*len_Y/2
+            limit = max(Rs) - (self.alpha*self.MaxD)**2*(len_Y+4)/2
             old_As = []
             for A in new_As:
                 if A.nu >= limit:
                     old_As.append(A)
+                else:
+                    print 'Dropping an association in prune for limit'
         return old_As
     def decode_init(self,Ys): # Ys is used by subclass
         self.target_0 = self.TARGET(self,[0],[self.mu_init],
@@ -1171,9 +1218,17 @@ class MV5(MV4):
             for cluster,k_list in flock.recluster(t,Ys[t]):
                 # k_list lists the observations that cluster explains
                 successors = SUCCESSOR_DB()
+                print 't=%d decode_forward.  Call forward on %d associations.  Dump each:'%(
+                    t,len(cluster.As))
                 for A in cluster.As:
+                    if len(A.FAs) > 0:
+                        print 'dump before forward:'
+                        A.dump()
                     A.forward(successors,Ys[t],t,k_list=k_list)
-                cluster.As=self.decode_prune(t,successors.maxes(),len(k_list))
+                suc_max = successors.maxes()
+                print '   After forward, %d associations'%len(suc_max)
+                cluster.As=self.decode_prune(t,suc_max,len(k_list))
+                print '   After decode_prune, %d associations'%len(cluster.As)
         # Find the best last associations
         A_union = empty[0]
         for cluster in flock.old_clusters:
