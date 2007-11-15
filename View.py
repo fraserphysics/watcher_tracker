@@ -365,7 +365,7 @@ class ControlPanel(wx.Panel):
             0.8, 1.0, 0.01, a_v, parent.a_v_sliderUpdate, size=(-1, 200))
         N_frame,self.N_Slider = Vlab_slider(self, row_A, "N",
                                 parent.N_sliderUpdate, value=N_obj, minValue=1,
-                                maxValue=20, size=(-1, 200))
+                                maxValue=100, size=(-1, 200))
         T_frame,self.T_Slider = Vlab_slider(self, row_A, "T",
                                 parent.T_sliderUpdate, value=T, minValue=1,
                                 maxValue=100, size=(-1, 200))
