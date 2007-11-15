@@ -161,7 +161,11 @@ class TARGET4(CAUSE_FA):
         """ Rather than the Mahalanobis distance of y from forecast
         y, I generalize to sqrt(-2 Delta_R)
         """
-        return float(-2*self.utility(y)[0])**.5
+        u = self.utility(y)[0]
+        if u < 0:
+            return float(-2*self.utility(y)[0])**.5
+        else:
+            return 0.0
     def update(self, # Target4
            y,        # The observation of the target at the current time
            m         # Index of the observation
@@ -427,7 +431,7 @@ class ASSOCIATION4:
             sortlist.append([-association.nu,association])
         sortlist.sort()
         limit = sortlist[0][0] + (self.mod.alpha*self.mod.MaxD)**2*len(y_t)/2
-        length = min(len(sortlist),10) #FixMe: hard coded 10
+        length = min(len(sortlist),20) #FixMe: hard coded 20
         for k in xrange(length):
             neg_nu,a = sortlist[k]
             if neg_nu > limit:
@@ -1387,15 +1391,23 @@ class analysis:
             print 't=%2d, index_count='%t,self.records[t]['index_count']
 if __name__ == '__main__':  # Test code
     import time
-    random.seed(3)
-    scipy.random.seed(3)
+    # The following parameters are for 4-d MV5 model with 2-d observation
+    A = [[.95,1,0,0],[0,.95,0,0],[0,0,.95,1],[0,0,0,.95]]
+    Sigma_D = [[0.01,0,0,0],[0,0.04,0,0],[0,0,0.01,0],[0,0,0,0.04]]
+    O = [[1,0,0,0],[0,0,1,0]]
+    Sigma_O = [[0.0025,0],[0,0.0025]]
+    PV_V=[[.95,0.05],[0.2,.8]]
+    # Loop over models (all except MV5 have 2-d states and 1-d observations)
     for pair in (
-       [MV5(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]],MaxD=5.0,alpha=2.0),'MV5',0.69],
+       [MV5(N_tar=4,PV_V=PV_V,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+            MaxD=5.0,alpha=2.0,Lambda_FA=.01),'MV5',0.11],
        [MV1(N_tar=4),'MV1',0.1],
-       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.09],
-       [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.27],
-       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',0.69]
+       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.08],
+       [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.07],
+       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',0.05]
        ):
+        random.seed(3)
+        scipy.random.seed(3)
         Target_Counter=0
         M=pair[0]
         print '%s: Begin simulate'%pair[1]
@@ -1406,22 +1418,25 @@ if __name__ == '__main__':  # Test code
         d,tmp = M.decode(y,analysis=A)
         print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)
         print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
+        dim_s = s[0][0].shape[0]
+        dim_y = y[0][0].shape[0]
         for t in xrange(len(s)):
-            print 't=%d    y         s           d'%t
+            print 't=%d '%t+4*dim_y*' '+'y'+(1+5*dim_y+2*dim_s)*' '+\
+                  's'+(2+6*dim_s)*' ' +'d'
             for k in xrange(max(len(s[t]),len(d))):
                 try:
-                    print ' k=%d  %4.2f  '%(k,y[t][k][0,0]),
+                    print ' k=%d '%k + dim_y*' %5.2f '%tuple(y[t][k][:,0]),
                 except:
-                    print ' k=%d        '%k,
+                    print ' k=%d '%k+dim_y*'       ',
                 try:
-                    print '(%4.2f, %4.2f)  '%(s[t][k][0,0],s[t][k][1,0]),
+                    print ('(%5.2f'+(dim_s-1)*' %5.2f')%tuple(
+                        s[t][k][:,0])+') ',
                 except:
-                    print '              ',
+                    print (2+6*dim_s)*' ',
                 try:
-                    print '(%4.2f, %4.2f)  '%(d[k][t][0,0],d[k][t][1,0]),
+                    print ('(%5.2f'+(dim_s-1)*' %5.2f')%tuple(d[k][t][:,0])+')'
                 except:
-                    pass
-                print ' '
+                    print ' '
         print '\n'
     A.dump()
 
