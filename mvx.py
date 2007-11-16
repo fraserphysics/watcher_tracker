@@ -198,7 +198,13 @@ class TARGET4(CAUSE_FA):
         Sigma_new = self.Sigma_next
         mu_new = self.mu_a + self.K*Delta_y
         Delta_R += -float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
-                           -self.mod.log_det_Sig_O)/2
+                    -self.mod.log_det_Sig_O)/2 - 3.0 #FixMe
+                                                     #distance=sqrt-log(P)?
+        if Delta_R > 0:
+            print 'positive Delta_R=%5.3f in utility.  y=\n'%Delta_R,y
+            self.dump()
+            self.mod.dump()
+            raise RuntimeError
         return (Delta_R,mu_new,Sigma_new)
     def KF(self,     # Target4
            y,        # The observation of the target at the current time
@@ -413,7 +419,7 @@ class ASSOCIATION4:
                         new_list.append(partial.Fork(cause))
             old_list = new_list
         if len(old_list) == 0:
-            print 'forward returning with out any new associations'
+            print 'forward returning without any new associations'
             return
         # For each association, do extra work work required for
         # nonstandard hit/target combinations
@@ -904,8 +910,12 @@ class MV4:
         self.newts = {}
         for k in k_list:
             self.newts[k] = self.target_0.KF(Yts[k],k)
-            self.newts[k].R += self.log_new_norm
+            self.newts[k].R += self.log_new_norm - 3.0 # FixMe
+                                                       # distance=sqrt-log(P)
             self.newts[k].R_sum = self.newts[k].R
+            if self.newts[k].R > 0:
+                print 'positive R=%5.3f in make_newts'%self.newts[k].R
+                raise RuntimeError
     def decode_prune(self, #MV4
                      t,
                      new_As,
