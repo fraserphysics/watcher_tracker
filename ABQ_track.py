@@ -39,7 +39,7 @@ class MV_ABQ(mvx.MV5):
         mvx.MV5.__init__(self,**kwargs)
         self.ASSOCIATION = ASS_ABQ
         self.PV_V = scipy.matrix([[1.0,0],[1.0,0]]) # No invisibles in ABQ
-        self.Lambda_FA=0.0 # No FAs in ABQ
+        self.Lambda_FA=0.001 # No FAs in ABQ
         self.O = scipy.matrix([[1,0,0,0],[0,0,1,0]])
     def dump(self  # MV_ABQ
              ):
@@ -63,12 +63,17 @@ P1 = scipy.matrix([[0,0],
                    [1,0],
                    [0,0],
                    [0,1]])
-def X(track,t):
+def extract_x(track,t):
     """ Make an x(t) vector from a track
     """
     d0 = scipy.matrix(track[t][0:2]).T
     d1 = scipy.matrix(track[t+1][0:2]).T
-    return P0*d0 + P1*d1
+    return (P0*d0 + P1*d1).T
+def extract_yts(track):
+    yts = []
+    for triple in track:
+        yts.append([scipy.matrix(triple[0:2]).T])
+    return yts
 if __name__ == '__main__':  # Test code
     import sys, getopt
     opts,pargs = getopt.getopt(sys.argv[1:],'',
@@ -91,6 +96,18 @@ if __name__ == '__main__':  # Test code
     
     if opt_dict.has_key('--fit'): # Fit model parameters
         O = scipy.matrix([[1,0,0,0],[0,0,1,0]])
+        A = scipy.matrix([[1,1,0,0],
+                          [0,1,0,0],
+                          [0,0,1,1],
+                          [0,0,0,1]])
+        Sigma_D=scipy.matrix([
+            [ 0,  -0.1, 0,     0     ],
+            [-.1, 30,   0,     -7    ],
+            [ 0,   0,   0,     -0.04 ],
+            [ 0,  -7,  -0.04,  50    ]])
+        Sigma_O=scipy.matrix([[0.05,   0],
+                              [0,   0.05]])
+
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)
         Lambda_new = float(N_tracks)/float(T)
@@ -102,41 +119,43 @@ if __name__ == '__main__':  # Test code
             if len(track) < 2:
                 continue
             N += 1
-            x = X(track,0)
+            x = extract_x(track,0).T
             Sum += x
             SumSq += x*x.T
-        mu_init = Sum/N
-        Sigma_init = SumSq/N - mu_init*mu_init.T
-        # Fit dynamics, ie, A and Sigma_D  FixMe: bad method for Sigma_D
-        N=0
-        x0 = scipy.matrix([[],[],[],[]])
-        x1 = scipy.matrix([[],[],[],[]])
-        for track in track_2_hits.values():
-            if len(track) < 3:
-                continue
-            for t in xrange(0,len(track)-2):
-                N += 1
-                x0 = scipy.concatenate((x0,X(track,t)),1)
-                x1 = scipy.concatenate((x1,X(track,t+1)),1)
-        A,resids,rank,s = scipy.linalg.lstsq(x0.T,x1.T)
-        A = A.T
-        Sigma_D = scipy.matrix(scipy.diag(resids/N+1))
-        # Fit Sigma_O.  FixMe: method is wrong
-        N = 0
-        SumSq = scipy.matrix(scipy.zeros((2,2)))
-        for track in track_2_hits.values():
-            if len(track) < 4:
-                continue
-            for t in xrange(0,len(track)-3):
-                N += 1
-                x0 =X(track,t)
-                x2 =X(track,t+2)
-                e = O*(x2-A*A*x0)
-                SumSq = SumSq + e*e.T
-        Sigma_O = SumSq/N
-        Mod = MV_ABQ(Lambda_new=Lambda_new,mu_init=mu_init,O=O,
-              Sigma_init=Sigma_init,Sigma_O=Sigma_O,A=A,Sigma_D=Sigma_D)
-        Mod.dump()
+        mu_init = Sum.T/N
+        Sigma_init = SumSq/N - mu_init.T*mu_init
+        # Set up for reestimation loop
+        Mods = [MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+                      mu_init=mu_init,Sigma_init=Sigma_init)]
+        for I in xrange(1):
+            Mod = mvx.MV1(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+                          mu_init=mu_init,Sigma_init=Sigma_init)
+            # Now reestimate using decoded states as truth
+            N=0
+            y0 = scipy.matrix([[],[]])
+            x0 = scipy.matrix([[],[],[],[]])
+            x1 = scipy.matrix([[],[],[],[]])
+            for track in track_2_hits.values():
+                if len(track) < 10:
+                    continue
+                Yts = extract_yts(track)
+                d,tmp = Mod.decode(Yts)
+                for t in xrange(0,len(track)-1):
+                    N += 1
+                    y0 = scipy.concatenate((y0,Yts[t][0]),1)
+                    x0 = scipy.concatenate((x0,d[0][t]),1)
+                    x1 = scipy.concatenate((x1,d[0][t+1]),1)
+            # A,resids,rank,s = scipy.linalg.lstsq(x0.T,x1.T)
+            # A = A.T
+            e = x1-A*x0
+            Sigma_D = e*e.T/N
+            e = y0 - O*x0
+            Sigma_O = e*e.T/N
+            Mods.append(MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+                          mu_init=mu_init,Sigma_init=Sigma_init))
+        for I in xrange(len(Mods)):
+            print '\n\nDumping model %d'%I
+            Mods[I].dump()
     if opt_dict.has_key('--test'):
         # For each frame, print a line for each hit
         for key,value in t_2_hits.items():
