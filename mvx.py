@@ -548,8 +548,7 @@ class ASSOCIATION5(ASSOCIATION4):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.type='ASSOCIATION5'
         self.FAs = {}
-        #self.extra_forward = [self.extra_invisible] # FixMe
-        self.extra_forward = [self.extra_FA_I] # FixMe
+        self.extra_forward = [self.extra_FA_I]
     def New(self, *args,**kwargs):
         NA = ASSOCIATION5(*args,**kwargs)
         NA.dead_targets = self.dead_targets.copy()
