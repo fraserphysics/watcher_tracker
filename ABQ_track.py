@@ -55,20 +55,6 @@ class MV_ABQ(mvx.MV5):
         print 'Lambda_new=%5.3f,  Lambda_FA=%5.3f'%(self.Lambda_new,
                                                     self.Lambda_FA)
         return
-P0 = scipy.matrix([[1,0],
-                   [-1,0],
-                   [0,1],
-                   [0,-1]])
-P1 = scipy.matrix([[0,0],
-                   [1,0],
-                   [0,0],
-                   [0,1]])
-def extract_x(track,t):
-    """ Make an x(t) vector from a track
-    """
-    d0 = scipy.matrix(track[t][0:2]).T
-    d1 = scipy.matrix(track[t+1][0:2]).T
-    return (P0*d0 + P1*d1).T
 def extract_yts(track):
     yts = []
     for triple in track:
@@ -105,25 +91,21 @@ if __name__ == '__main__':  # Test code
             [-.1, 30,   0,     -7    ],
             [ 0,   0,   0,     -0.04 ],
             [ 0,  -7,  -0.04,  50    ]])
-        Sigma_O=scipy.matrix([[0.05,   0],
-                              [0,   0.05]])
-
+        Sigma_O=scipy.matrix([[1.0,   0],
+                              [0,   1.0]])
+        Sigma_init=scipy.matrix([
+            [ 1e4,  0,    0,   0],
+            [ 0,    5e2,  0,   0],
+            [ 0,    0,    4e4, 0],
+            [ 0,    0,    0,   1e3]])
+        mu_init=scipy.matrix([
+            [250],
+            [ 0],
+            [250],
+            [ 0]]).T
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)
         Lambda_new = float(N_tracks)/float(T)
-        # Fit mu_init,Sigma_init to initial track positions in 4-d
-        N=0
-        Sum = scipy.matrix(scipy.zeros(4)).T
-        SumSq = scipy.matrix(scipy.zeros((4,4)))
-        for track in track_2_hits.values():
-            if len(track) < 2:
-                continue
-            N += 1
-            x = extract_x(track,0).T
-            Sum += x
-            SumSq += x*x.T
-        mu_init = Sum.T/N
-        Sigma_init = SumSq/N - mu_init.T*mu_init
         # Set up for reestimation loop
         Mods = [MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
                       mu_init=mu_init,Sigma_init=Sigma_init)]
@@ -132,14 +114,18 @@ if __name__ == '__main__':  # Test code
                           mu_init=mu_init,Sigma_init=Sigma_init)
             # Now reestimate using decoded states as truth
             N=0
+            N_i=0
             y0 = scipy.matrix([[],[]])
             x0 = scipy.matrix([[],[],[],[]])
             x1 = scipy.matrix([[],[],[],[]])
+            x_i = scipy.matrix([[],[],[],[]])
             for track in track_2_hits.values():
                 if len(track) < 10:
                     continue
                 Yts = extract_yts(track)
                 d,tmp = Mod.decode(Yts)
+                N_i += 1
+                x_i = scipy.concatenate((x_i,d[0][0]),1)
                 for t in xrange(0,len(track)-1):
                     N += 1
                     y0 = scipy.concatenate((y0,Yts[t][0]),1)
@@ -151,6 +137,8 @@ if __name__ == '__main__':  # Test code
             Sigma_D = e*e.T/N
             e = y0 - O*x0
             Sigma_O = e*e.T/N
+            mu_init = x_i.sum(1)/N_i
+            Sigma_init = x_i*x_i.T/N_i - mu_init*mu_init.T
             Mods.append(MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
                           mu_init=mu_init,Sigma_init=Sigma_init))
         for I in xrange(len(Mods)):
