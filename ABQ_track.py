@@ -150,10 +150,21 @@ if __name__ == '__main__':  # Test code
             yts.append([])
             for triple in t_2_hits[t1]:
                 yts[t].append(scipy.matrix(triple[0:2]).T)
-        Mod = MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,MaxD=3.2,
+        Mod = MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,MaxD=4.0,
                mu_init=mu_init,Sigma_init=Sigma_init,Lambda_new=Lambda_new)
         d,tmp = Mod.decode(yts)
-        print d
+        file = open('AMF_tracks.txt','w')
+        print >>file,'START_FILE'
+        for track in d:
+            print >>file,'START_TRACK'
+            t=0
+            for hit in track:
+                t += 1
+                if not hit is None:
+                    print >>file,'%2d %3d %3d'%(t,int(hit[0]),int(hit[2]))
+            print >>file,'END_TRACK'
+        print >>file,'END_FILE'
+        file.close
     if opt_dict.has_key('--fit'): # Fit model parameters
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)

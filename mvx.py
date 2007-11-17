@@ -165,7 +165,7 @@ class TARGET4(CAUSE_FA):
         if u < 0:
             return float(-2*self.utility(y)[0])**.5
         else:
-            return 0.0
+            return -(float(2*self.utility(y)[0])**.5)
     def update(self, # Target4
            y,        # The observation of the target at the current time
            m         # Index of the observation
@@ -198,13 +198,7 @@ class TARGET4(CAUSE_FA):
         Sigma_new = self.Sigma_next
         mu_new = self.mu_a + self.K*Delta_y
         Delta_R += -float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
-                    -self.mod.log_det_Sig_O)/2 - 3.0 #FixMe
-                                                     #distance=sqrt-log(P)?
-        if Delta_R > 0:
-            print 'positive Delta_R=%5.3f in utility.  y=\n'%Delta_R,y
-            self.dump()
-            self.mod.dump()
-            raise RuntimeError
+                           -self.mod.log_det_Sig_O)/2
         return (Delta_R,mu_new,Sigma_new)
     def KF(self,     # Target4
            y,        # The observation of the target at the current time
@@ -340,10 +334,11 @@ class ASSOCIATION4:
         if not self.mod.newts.has_key(k):
             return
         CC = self.mod.newts[k]
-        if self.mod.MaxD  < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
-            causes.append(CC)  # New target
-        else:
-            print 'test failed, self.mod.MaxD=',self.mod.MaxD
+        if self.mod.MaxD  > 1e-7 and CC.R <0 and (-2*CC.R)**.5 > self.mod.MaxD:
+            print 'test failed, self.mod.MaxD=%5.3f, CC.R=%5.3f, t=%d, k=%d'%(
+                self.mod.MaxD,CC.R,t,k)
+            return
+        causes.append(CC)  # New target
     def extra_invisible(self,partial,t):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association.
@@ -417,7 +412,21 @@ class ASSOCIATION4:
                     # tar_dict has only targets, not FAs
                     if not partial.tar_dict.has_key(cause.index):
                         new_list.append(partial.Fork(cause))
-            old_list = new_list
+            if len(new_list) <= 30:   # If too many partials, prune greedily
+                old_list = new_list
+                continue
+            sortlist = []
+            old_list = []
+            for partial in new_list:
+                sortlist.append([-partial.nu,partial])
+            sortlist.sort()
+            limit = sortlist[0][0]+(self.mod.alpha*self.mod.MaxD)**2*len(y_t)/2
+            length = min(len(sortlist),30) #FixMe: hard coded 20
+            for k in xrange(length):
+                neg_nu,a = sortlist[k]
+                if neg_nu > limit:
+                    break
+                old_list.append(a)
         if len(old_list) == 0:
             print 'forward returning without any new associations'
             return
@@ -432,16 +441,7 @@ class ASSOCIATION4:
         # Map each association in old_list to it's successor key and
         # propose the present association as the predecessor for that
         # key.
-        sortlist = []
-        for association in old_list:
-            sortlist.append([-association.nu,association])
-        sortlist.sort()
-        limit = sortlist[0][0] + (self.mod.alpha*self.mod.MaxD)**2*len(y_t)/2
-        length = min(len(sortlist),20) #FixMe: hard coded 20
-        for k in xrange(length):
-            neg_nu,a = sortlist[k]
-            if neg_nu > limit:
-                break
+        for a in old_list:
             successors.enter(a)
 def make_history(targets,         # Dict of targets with tuple(m_t) keys
                  t,               # Time of last observation
@@ -910,12 +910,8 @@ class MV4:
         self.newts = {}
         for k in k_list:
             self.newts[k] = self.target_0.KF(Yts[k],k)
-            self.newts[k].R += self.log_new_norm - 3.0 # FixMe
-                                                       # distance=sqrt-log(P)
+            self.newts[k].R += self.log_new_norm
             self.newts[k].R_sum = self.newts[k].R
-            if self.newts[k].R > 0:
-                print 'positive R=%5.3f in make_newts'%self.newts[k].R
-                raise RuntimeError
     def decode_prune(self, #MV4
                      t,
                      new_As,
@@ -956,7 +952,8 @@ class MV4:
                         del keepers[k]
             new_As = keepers.values()
             if len(new_As) < 1:
-                raise RuntimeError,'Join check killed all As'
+                raise RuntimeError,\
+                      'Join check in decode_prune killed all As at t=%d'%t
         if self.alpha < 1e-6 or self.MaxD < 1e-6 or len(new_As) < 2:
             return new_As
         else:
@@ -1211,11 +1208,15 @@ class MV5(MV4):
                 for A in cluster.As:
                     A.forward(successors,Ys[t],t,k_list=k_list)
                 suc_max = successors.maxes()
-                cluster.As=self.decode_prune(t,suc_max,len(k_list))
+                #cluster.As=self.decode_prune(t,suc_max,len(k_list))#FixMe
+                cluster.As=suc_max
         # Find the best last associations
         A_union = empty[0]
         for cluster in flock.old_clusters:
             As = cluster.As
+            if len(As) == 0:
+                print 'At end of decode_forward, found an empty cluster'
+                continue
             R = scipy.zeros(len(As))
             for i in xrange(len(As)):
                 R[i] = As[i].nu
