@@ -91,9 +91,13 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     T_labels = {}
     pi = scipy.ones(n)*1e20
     exposed_S = {}
+    S_All = {}
+    T_All = {}
     for i in xrange(m):
-        exposed_S[i] = None
-    def Label():
+        S_All[i] = None
+    for j in xrange(n):
+        T_All[j] = None
+    def Label():  # This should be the "label loop" in Hungarian, not procedure
         S_label = {}
         T_label = {}
         for i in xrange(m):
