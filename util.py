@@ -73,6 +73,52 @@ def normalP(mu,sigma, x):
     norm = 1/((2*math.pi)**(r/2.0)*D)
     P = norm*math.exp(-Q)
     return P
+
+def Hungarian(w,  # dict of weights indexed by tuple (i,j)
+              m,  # Cardinality of S (use i \in S)
+              n   # Cardinality of T (use j \in T)
+              ):
+    """ Find mapping X from S to T that maximizes \sum_{i,j}
+    X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
+    """
+    X_S2T = {}
+    X_T2S = {}
+    w_list = w.values()
+    w_list.sort()
+    u = scipy.ones(m)*max(w.values())
+    v = scipy.zeros(n)
+    S_labels = {}
+    T_labels = {}
+    pi = scipy.ones(n)*1e20
+    exposed_S = {}
+    for i in xrange(m):
+        exposed_S[i] = None
+    def Label():
+        S_label = {}
+        T_label = {}
+        for i in xrange(m):
+            if not X_S2T.has_key(i):
+                S_label[i] = None
+                continue
+            for j in xrange(n):
+                if not w.has_key((i,j)) or X_S2T[i] == j :
+                    continue
+                if u[i] + v[j] - w[(i,j)] > pi[j]:
+                    continue
+                T_label[j] = i
+                pi[j] = u[i] + v[j] - w[(i,j)]
+        for j in xrange(n):
+            if pi[j] > 0:
+                continue
+            if not X_T2S.has_key(j):
+                return (j)
+            S_label[X_T2S[j]] = j
+        return ()
+    def Augment(j):
+            
+                
+        
+    
             
 #---------------
 # Local Variables:
