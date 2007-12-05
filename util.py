@@ -89,77 +89,94 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     T_labels = {}
     S_All = {}
     T_All = {}
+    X_S = [] # List of dicts. X_S[i][j] = True if i linked to j
+    X_T = [] # List of nodes. X_T[j]=i if j linked to i.  X_T[j]=None
+             # if no link
+    X = {}   # Dict of links X[(i,j)] = True
     for i in xrange(m):
         S_All[i] = None
+        X_S.append({})
     for j in xrange(n):
         T_All[j] = None
+        X_T.append(None)
     # Begin Lawler's step 0
-    X_S2T = {}
-    X_T2S = {}
     u = scipy.ones(m)*max(w.values())
     v = scipy.zeros(n)
     pi = scipy.ones(n)*1e20
     S_label = {}
     T_label = {}
     # End Lawler's step 0
-    def augment(X_S2T,X_T2S,i,j):
+    def augment(X,X_S,X_T,i,j):
         """ If arc (i,j) is in X, take it out.  If it is not in X, put
         it in.
         """
-        if X_S2T.has_key(i) and X_T2S.has_key(j):
-            del X_S2T[i]
-            del X_T2S[j]
-            return
-        if X_S2T.has_key(i) or X_T2S.has_key(j):
-            raise RuntimeError,'Arc exists in one dict but not the other'
-        X_S2T[i] = j
-        X_T2S[j] = i
+        if X.has_key((i,j)):
+            del X[(i,j)]
+            del X_S[i][j]
+            X_T[j] = None
+        else:
+            X[(i,j)] = True
+            X_S[i][j] = True
+            if X_T[j] is None:
+                X_T[j] = i
+            else:
+                raise RuntimeError,"Two i's linked to same j"
         return
-    def backtrack_i(X_S2T,X_T2S,S_label,T_label,i):
+    def backtrack_i(X,X_S,X_T,S_label,T_label,i):
         if not S_label.has_key(i):
             return
         j = S_label[i]
-        augment(X_S2T,X_T2S,i,j)
-        backtrack_j(X_S2T,X_T2S,S_label,T_label,j)
-    def backtrack_j(X_S2T,X_T2S,S_label,T_label,j):
+        augment(X,X_S,X_T,i,j)
+        backtrack_j(X,X_S,X_T,S_label,T_label,j)
+    def backtrack_j(X,X_S,X_T,S_label,T_label,j):
         if not T_label.has_key(j):
             return
         i = T_label[j]
-        augment(X_S2T,X_T2S,i,j)
-        backtrack_i(X_S2T,X_T2S,S_label,T_label,i)
+        augment(X,X_S,X_T,i,j)
+        backtrack_i(X,X_S,X_T,S_label,T_label,i)
     unscanned_S = S_All.copy()
     unscanned_T = T_All.copy()
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
-        assert(k<n**3*m**3)
+        assert(k<n**3*m**3),'k=%d'%k
+        for i in xrange(m):
+            if len(X_S[i]) == 0 and S_label.has_key(i):  # Step 1.0
+                del S_label[i]
         for i in unscanned_S.keys():
-            if not X_S2T.has_key(i):  # Step 1.0
-                S_label[i] = None
-                continue
             # Begin step step 1.3 on i
+            print 'Begin step step 1.3 on i=%d'%i
             for j in xrange(n):
-                if not w.has_key((i,j)) or X_S2T[i] == j :
+                if not w.has_key((i,j)):
+                    print 'continue 1'
+                    continue
+                if X.has_key((i,j)):
+                    print 'continue 3'
                     continue
                 if u[i] + v[j] - w[(i,j)] > pi[j]:
+                    print 'continue 2'
                     continue
                 T_label[j] = i
                 pi[j] = u[i] + v[j] - w[(i,j)]
+                print 'assigned pi[%d]=%g'%(j,pi[j])
             del unscanned_S[i]
             # End step step 1.3 on i
         for j in unscanned_T.keys():
             if pi[j] > 0:
                 continue
             # Begin step step 1.4 on j
-            if not X_T2S.has_key(j):
+            print 'Begin step step 1.4 on j=%d'%j
+            if X_T[j] is None:
                 # Begin Lawler's step 2 (augmentation)
-                backtrack_j(X_S2T,X_T2S,S_label,T_label,j)
+                backtrack_j(X,X_S,X_T,S_label,T_label,j)
                 pi = scipy.ones(n)*1e20
                 S_label = {}
                 T_label = {}
+                unscanned_S = S_All.copy()
+                unscanned_T = T_All.copy()
                 # End Lawler's step 2
             else:
-                S_label[X_T2S[j]] = j
+                S_label[X_T[j]] = j
                 del unscanned_T[j]
         # Begin Lawler's step 1.1 (check for step 3)
         if len(unscanned_S) > 0:
@@ -167,27 +184,41 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         skip3 = False
         for j in unscanned_T.keys():
             if pi[j] > 0:
+                print 'In skip3 check pi[%d]=%g'%(j,pi[j])
                 continue # Continue checking j's
             else:
                 skip3 = True
                 break
+        print 'skip3=',skip3
         if skip3:
             continue # Start another iteration of the labeling loop
         # End step 1.1
         # Begin Lawler's step 3 (change dual varibles)
+        print "Beginning Lawler's step 3 (change dual varibles)"
         delta_1 = min(u)
-        delta_2 = min(pi) # FixMe: is delta_2>0?
-        assert(delta_2 > 0)
+        Max = pi.max()
+        Mask = (pi < 1e-6)
+        pi_ = pi + Max*Mask
+        delta_2 = min(pi_) # FixMe: is delta_2>0?
+        if delta_2 < 1e-6:
+            print 'pi=',pi
+            print 'X=',X
+        assert(delta_2 > 1e-6),'delta_2=%f'%delta_2
+        assert(delta_1 > 1e-6),'delta_1=%f'%delta_1
         delta = min(delta_1,delta_2)
         for i in S_label.keys():
             u[i] -= delta
         for j in T_label.keys():
             if pi[j] > 0:
+                pi[j] -= delta
+            else:
                 v[j] += delta
+            print 'In step 3 pi[%d]=%5.3f, v[%d]=%5.3f'%(j,pi[j],j,v[j])
         if delta < delta_1:
+            print 'delta=%5.3f < delta_1=%5.3f continuing'%(delta,delta_1)
             continue # Start another iteration of the labeling loop
         # Finished
-        return X_S2T
+        return X
 
 if __name__ == '__main__':  # Test code
     M = scipy.array([
@@ -202,7 +233,19 @@ if __name__ == '__main__':  # Test code
             w_ij = M[i,j]
             if w_ij*w_ij < .1:
                 continue
-            w[(i,j)] = w_ij * 1.1
+            w[(i,j)] = w_ij
+    print 'w='
+    for i in xrange(m):
+        for j in xrange(n):
+            if w.has_key((i,j)):
+                print '%5.3f'%w[(i,j)],
+            else:
+                print 5*' ',
+        print '\n',
+    print '\n'
+    print """Call Hungarian.  Expect result:
+    X= {(0, 2): True, (1, 3): True, (2, 0): True}
+    """
     X = Hungarian(w,m,n)
     print X
 
