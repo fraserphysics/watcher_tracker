@@ -81,29 +81,63 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     """ Find mapping X from S to T that maximizes \sum_{i,j}
     X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
     """
-    X_S2T = {}
-    X_T2S = {}
     w_list = w.values()
-    w_list.sort()
-    u = scipy.ones(m)*max(w.values())
-    v = scipy.zeros(n)
+    Min = min(w_list)
+    for key in w.keys():   # Ensure all w[ij] >= 0
+        w[key] = w[key] - Min
     S_labels = {}
     T_labels = {}
-    pi = scipy.ones(n)*1e20
-    exposed_S = {}
     S_All = {}
     T_All = {}
     for i in xrange(m):
         S_All[i] = None
     for j in xrange(n):
         T_All[j] = None
-    def Label():  # This should be the "label loop" in Hungarian, not procedure
-        S_label = {}
-        T_label = {}
-        for i in xrange(m):
-            if not X_S2T.has_key(i):
+    # Begin Lawler's step 0
+    X_S2T = {}
+    X_T2S = {}
+    u = scipy.ones(m)*max(w.values())
+    v = scipy.zeros(n)
+    pi = scipy.ones(n)*1e20
+    S_label = {}
+    T_label = {}
+    # End Lawler's step 0
+    def augment(X_S2T,X_T2S,i,j):
+        """ If arc (i,j) is in X, take it out.  If it is not in X, put
+        it in.
+        """
+        if X_S2T.has_key(i) and X_T2S.has_key(j):
+            del X_S2T[i]
+            del X_T2S[j]
+            return
+        if X_S2T.has_key(i) or X_T2S.has_key(j):
+            raise RuntimeError,'Arc exists in one dict but not the other'
+        X_S2T[i] = j
+        X_T2S[j] = i
+        return
+    def backtrack_i(X_S2T,X_T2S,S_label,T_label,i):
+        if not S_label.has_key(i):
+            return
+        j = S_label[i]
+        augment(X_S2T,X_T2S,i,j)
+        backtrack_j(X_S2T,X_T2S,S_label,T_label,j)
+    def backtrack_j(X_S2T,X_T2S,S_label,T_label,j):
+        if not T_label.has_key(j):
+            return
+        i = T_label[j]
+        augment(X_S2T,X_T2S,i,j)
+        backtrack_i(X_S2T,X_T2S,S_label,T_label,i)
+    unscanned_S = S_All.copy()
+    unscanned_T = T_All.copy()
+    k = 0
+    while True: # This is Lawler's step 1 (labeling).  I make it the main loop
+        k += 1
+        assert(k<n**3*m**3)
+        for i in unscanned_S.keys():
+            if not X_S2T.has_key(i):  # Step 1.0
                 S_label[i] = None
                 continue
+            # Begin step step 1.3 on i
             for j in xrange(n):
                 if not w.has_key((i,j)) or X_S2T[i] == j :
                     continue
@@ -111,19 +145,68 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                     continue
                 T_label[j] = i
                 pi[j] = u[i] + v[j] - w[(i,j)]
-        for j in xrange(n):
+            del unscanned_S[i]
+            # End step step 1.3 on i
+        for j in unscanned_T.keys():
             if pi[j] > 0:
                 continue
+            # Begin step step 1.4 on j
             if not X_T2S.has_key(j):
-                return (j)
-            S_label[X_T2S[j]] = j
-        return ()
-    def Augment(j):
-            
-                
-        
-    
-            
+                # Begin Lawler's step 2 (augmentation)
+                backtrack_j(X_S2T,X_T2S,S_label,T_label,j)
+                pi = scipy.ones(n)*1e20
+                S_label = {}
+                T_label = {}
+                # End Lawler's step 2
+            else:
+                S_label[X_T2S[j]] = j
+                del unscanned_T[j]
+        # Begin Lawler's step 1.1 (check for step 3)
+        if len(unscanned_S) > 0:
+            continue # Start another iteration of the labeling loop
+        skip3 = False
+        for j in unscanned_T.keys():
+            if pi[j] > 0:
+                continue # Continue checking j's
+            else:
+                skip3 = True
+                break
+        if skip3:
+            continue # Start another iteration of the labeling loop
+        # End step 1.1
+        # Begin Lawler's step 3 (change dual varibles)
+        delta_1 = min(u)
+        delta_2 = min(pi) # FixMe: is delta_2>0?
+        assert(delta_2 > 0)
+        delta = min(delta_1,delta_2)
+        for i in S_label.keys():
+            u[i] -= delta
+        for j in T_label.keys():
+            if pi[j] > 0:
+                v[j] += delta
+        if delta < delta_1:
+            continue # Start another iteration of the labeling loop
+        # Finished
+        return X_S2T
+
+if __name__ == '__main__':  # Test code
+    M = scipy.array([
+        [ 1, 2, 3, 0],
+        [ 2, 4, 0, 8],
+        [-1, 0,-3,-4]])
+    w = {}
+    m = 3
+    n = 4
+    for i in xrange(m):
+        for j in xrange(n):
+            w_ij = M[i,j]
+            if w_ij*w_ij < .1:
+                continue
+            w[(i,j)] = w_ij * 1.1
+    X = Hungarian(w,m,n)
+    print X
+
+
 #---------------
 # Local Variables:
 # eval: (python-mode)
