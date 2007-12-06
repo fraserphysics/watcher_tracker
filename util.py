@@ -135,7 +135,6 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     pi = scipy.ones(n)*inf
     S_label = {}
     T_label = {}
-    # End Lawler's step 0
     # Begin Lawler's step 1.0: Exposed S nodes get label None
     for i in xrange(m):
         if X_S[i] is None:
@@ -165,7 +164,16 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             # Begin step step 1.4 on j
             if X_T[j] is None:
                 # Begin Lawler's step 2 (augmentation)
+                if __debug__:
+                    print '\nBefore step 2 augmentation X=',
+                    for key in X.keys():
+                        print key,
                 backtrack_j(X,X_S,X_T,S_label,T_label,j)
+                if __debug__:
+                    print '\nAfter step 2 augmentation  X=',
+                    for key in X.keys():
+                        print key,
+                    print ''
                 pi = scipy.ones(n)*inf
                 S_label = {}
                 T_label = {}
@@ -194,13 +202,18 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         # End step 1.1
         # Begin Lawler's step 3 (change dual varibles)
         delta_1 = min(u)
-        assert(float(pi.min()) > tol),"float(pi.min())=%f, tol=%f"%(
+        assert(float(pi.min()) > -tol),"float(pi.min())=%f, tol=%f"%(
             pi.min(),tol)
         Lim = pi.max()
         Mask = (pi < tol)
         pi_ = pi + Lim*Mask
         delta_2 = float(pi_.min())
         delta = min(delta_1,delta_2)
+        if __debug__:
+            print '\nBefore and after step 3 adjustment by delta=%5.3f'%delta
+            print 'u=',u,
+            print 'v=',v,
+            print 'pi=',pi
         for i in S_label.keys():
             u[i] -= delta
         for j in xrange(n):
@@ -208,6 +221,10 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                 pi[j] -= delta
             else:
                 v[j] += delta
+        if __debug__:
+            print 'u=',u,
+            print 'v=',v,
+            print 'pi=',pi
         if delta < delta_1:
             continue # Start another iteration of the labeling loop
         # Finished
@@ -224,21 +241,24 @@ if __name__ == '__main__':  # Test code
             print '\n',
         print ''
         return
+    # This is tests noninteger, negative and missing entries
+    M = scipy.array([
+        [ 1, 2, 3, 0, 6],
+        [ 2, 4, 0, 8, 7],
+        [ 4, 3, 4, 5, 9],
+        [-1, 0,-3,-4,-2]
+        ])*1.1
+    m = 4
+    n = 5
+    sol = {(0, 2): True, (1, 3): True, (2, 4): True, (3,0):True }
     # This is eaiser to follow
     M = scipy.array([
-        [ 1, 2, 3],
-        [ 4, 2, 1]
+        [ 7, 3, 2],
+        [ 8, 5, 4]
         ])
     m = 2
     n = 3
-    # This is tests noninteger, negative and missing entries
-    M = scipy.array([
-        [ 1, 2, 3, 0],
-        [ 2, 4, 0, 8],
-        [-1, 0,-3,-4]
-        ])*1.1
-    m = 3
-    n = 4
+    sol = {(0, 0): True, (1, 1): True}
     w = {}
     for i in xrange(m):
         for j in xrange(n):
@@ -249,7 +269,7 @@ if __name__ == '__main__':  # Test code
     print 'w='
     print_wx(w,w)
     print 'Call Hungarian.  Expect (within offset) result:'
-    print_wx(w,{(0, 2): True, (1, 3): True, (2, 0): True})
+    print_wx(w,sol)
     X = Hungarian(w,m,n)
     print 'Returned from Hungarian with result:'
     print_wx(w,X)
