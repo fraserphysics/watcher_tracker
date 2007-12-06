@@ -106,11 +106,10 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             X_S[i] = None
             X_T[j] = None
         else:
-            print 'adding to X.  (i,j)=',i,j
             X[(i,j)] = True
-            #assert(X_S[i] is None),"Two j's linked to same i"
+            assert(X_S[i] is None),"Two j's linked to same i"
             X_S[i] = j
-            #assert(X_T[j] is None),"Two i's linked to same j"
+            assert(X_T[j] is None),"Two i's linked to same j"
             X_T[j] = i
         return
     def backtrack_i(X,X_S,X_T,S_label,T_label,i):
@@ -137,39 +136,33 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     S_label = {}
     T_label = {}
     # End Lawler's step 0
+    # Begin Lawler's step 1.0: Exposed S nodes get label None
+    for i in xrange(m):
+        if X_S[i] is None:
+            S_label[i] = None
+            unscanned_S[i] = True
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
         assert(k<n**3*m**3),'k=%d'%k
-        # Begin Lawler's step 1.0: Exposed S nodes get label None
-        for i in xrange(m):
-            if X_S[i] is None:
-                S_label[i] = None
-                unscanned_S[i] = True
         for i in unscanned_S.keys():
-            # Begin step step 1.3 on i
-            print 'Begin step step 1.3 on i=%d'%i
+            # Begin step 1.3 on i
             for j in xrange(n):
                 if not w.has_key((i,j)):
-                    print 'continue 1'
                     continue
                 if X.has_key((i,j)):
-                    print 'continue 3'
                     continue
                 if u[i] + v[j] - w[(i,j)] > pi[j]:
-                    print 'continue 2'
                     continue
                 T_label[j] = i
                 unscanned_T[j] = True
                 pi[j] = u[i] + v[j] - w[(i,j)]
-                print 'assigned pi[%d]=%g'%(j,pi[j])
             del unscanned_S[i]
             # End step step 1.3 on i
         for j in unscanned_T.keys():
             if pi[j] > 0:
                 continue
             # Begin step step 1.4 on j
-            print 'Begin step step 1.4 on j=%d'%j
             if X_T[j] is None:
                 # Begin Lawler's step 2 (augmentation)
                 backtrack_j(X,X_S,X_T,S_label,T_label,j)
@@ -178,6 +171,10 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                 T_label = {}
                 unscanned_S = {}
                 unscanned_T = {}
+                for i in xrange(m): # Step 1.0
+                    if X_S[i] is None:
+                        S_label[i] = None
+                        unscanned_S[i] = True
                 # End Lawler's step 2
             else:
                 S_label[X_T[j]] = j
@@ -188,17 +185,14 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         skip3 = False
         for j in unscanned_T.keys():
             if pi[j] > tol:
-                print 'In skip3 check pi[%d]=%g'%(j,pi[j])
                 continue # Continue checking j's
             else:
                 skip3 = True
                 break
-        print 'skip3=',skip3
         if skip3:
             continue # Start another iteration of the labeling loop
         # End step 1.1
         # Begin Lawler's step 3 (change dual varibles)
-        print "Beginning Lawler's step 3 (change dual varibles)"
         delta_1 = min(u)
         assert(float(pi.min()) > tol),"float(pi.min())=%f, tol=%f"%(
             pi.min(),tol)
@@ -214,23 +208,38 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                 pi[j] -= delta
             else:
                 v[j] += delta
-            print 'In step 3 pi[%d]=%5.3f, v[%d]=%5.3f'%(j,pi[j],j,v[j])
         if delta < delta_1:
-            print 'delta=%5.3f < delta_1=%5.3f continuing'%(delta,delta_1)
             continue # Start another iteration of the labeling loop
         # Finished
-        print 'returning from Hungarian'
         return X
 
 if __name__ == '__main__':  # Test code
+    def print_wx(w,X):
+        for i in xrange(m):
+            for j in xrange(n):
+                if X.has_key((i,j)):
+                    print '%5.2f'%w[(i,j)],
+                else:
+                    print 5*' ',
+            print '\n',
+        print ''
+        return
+    # This is eaiser to follow
+    M = scipy.array([
+        [ 1, 2, 3],
+        [ 4, 2, 1]
+        ])
+    m = 2
+    n = 3
+    # This is tests noninteger, negative and missing entries
     M = scipy.array([
         [ 1, 2, 3, 0],
         [ 2, 4, 0, 8],
         [-1, 0,-3,-4]
-        ])
-    w = {}
+        ])*1.1
     m = 3
     n = 4
+    w = {}
     for i in xrange(m):
         for j in xrange(n):
             w_ij = M[i,j]
@@ -238,19 +247,12 @@ if __name__ == '__main__':  # Test code
                 continue
             w[(i,j)] = w_ij
     print 'w='
-    for i in xrange(m):
-        for j in xrange(n):
-            if w.has_key((i,j)):
-                print '%5.3f'%w[(i,j)],
-            else:
-                print 5*' ',
-        print '\n',
-    print '\n'
-    print """Call Hungarian.  Expect result:
-    X= {(0, 2): True, (1, 3): True, (2, 0): True}
-    """
+    print_wx(w,w)
+    print 'Call Hungarian.  Expect (within offset) result:'
+    print_wx(w,{(0, 2): True, (1, 3): True, (2, 0): True})
     X = Hungarian(w,m,n)
-    print X
+    print 'Returned from Hungarian with result:'
+    print_wx(w,X)
 
 
 #---------------
