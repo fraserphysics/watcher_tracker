@@ -81,6 +81,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     """ Find mapping X from S to T that maximizes \sum_{i,j}
     X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
     """
+    debug = True
     w_list = w.values()
     Max = max(w_list)
     Min = min(w_list)
@@ -110,19 +111,18 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         return
     def backtrack_i(X,X_S,X_T,S_label,T_label,i):
         if not S_label.has_key(i) or S_label[i] is None:
-            print '\nreturning from backtrack_i, i=%d'%i
-            print 'S_label=',S_label
-            print 'T_label=',T_label,
             return
         j = S_label[i]
-        print '(%d,%d)'%(i,j),
+        if debug:
+            print '(%d,%d)'%(i,j),
         augment(X,X_S,X_T,i,j)
         backtrack_j(X,X_S,X_T,S_label,T_label,j)
     def backtrack_j(X,X_S,X_T,S_label,T_label,j):
         if not T_label.has_key(j):
             return
         i = T_label[j]
-        print '(%d,%d)'%(i,j),
+        if debug:
+            print '(%d,%d)'%(i,j),
         augment(X,X_S,X_T,i,j)
         backtrack_i(X,X_S,X_T,S_label,T_label,i)
     # Begin Lawler's step 0
@@ -142,7 +142,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
-        assert(k<n**3*m**3),'k=%d'%k
+        assert(k<2*n*m**2),'k=%d'%k
         for i in unscanned_S.keys():
             # Begin step 1.3 on i
             for j in xrange(n):
@@ -163,15 +163,15 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             # Begin step step 1.4 on j
             if not X_T.has_key(j):
                 # Begin Lawler's step 2 (augmentation)
-                if __debug__:
+                if debug:
                     print '\nBefore step 2 augmentation X=',
                     for key in X.keys():
                         print key,
                     print '\nj=%d, S_label='%j,S_label, 'T_label=',T_label
                     print 'Augmenting path=',
                 backtrack_j(X,X_S,X_T,S_label,T_label,j)
-                if __debug__:
-                    print '\nAfter step 2 augmentation  X=',
+                if debug:
+                    print '\nAfter step 2 augmentation:  X=',
                     for key in X.keys():
                         print key,
                     print ''
@@ -184,8 +184,8 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                     if not X_S.has_key(i):
                         S_label[i] = None
                         unscanned_S[i] = True
-                if __debug__:
-                    print 'At end of step 2 augmentation  unscanned_S=',unscanned_S
+                if debug:
+                    print '              and unscanned_S=',unscanned_S
                 # End Lawler's step 2
             else:
                 i = X_T[j]
@@ -212,13 +212,15 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         Lim = pi.max()
         Mask = (pi < tol)
         pi_ = pi + Lim*Mask
-        delta_2 = float(pi_.min())
-        delta = min(delta_1,delta_2)
-        if __debug__:
-            print '\nBefore and after step 3 adjustment by delta=%5.3f'%delta
+        delta = float(pi_.min())
+        if delta > delta_1:
+            # Finished
+            return X
+        if debug:
+            print '\nBefore step 3 adjustment by delta=%5.3f:'%delta
             print 'u=',u,
             print 'v=',v,
-            print 'pi=',pi
+            print 'pi=',pi,
         for i in S_label.keys():
             u[i] -= delta
         for j in xrange(n):
@@ -226,15 +228,17 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                 pi[j] -= delta
             else:
                 v[j] += delta
-        if __debug__:
+        if debug:
+            print '  After step 3 adjustment:'
             print 'u=',u,
             print 'v=',v,
             print 'pi=',pi
-            print 'S_label=',S_label, 'T_label=',T_label
-        if delta < delta_1:
-            continue # Start another iteration of the labeling loop
-        # Finished
-        return X
+            print 'New scannable T node:',
+            for j in unscanned_T.keys():
+                if pi[j] < tol:
+                    print j,
+            print '\nS_label=',S_label, 'T_label=',T_label
+        # Start another iteration of the labeling loop
 
 if __name__ == '__main__':  # Test code
     def print_wx(w,X):
@@ -250,13 +254,13 @@ if __name__ == '__main__':  # Test code
     # This is tests noninteger, negative and missing entries
     M = scipy.array([
         [ 1, 2, 3, 0, 6],
-        [ 2, 4, 0, 8, 7],
-        [ 4, 3, 4, 5, 9],
+        [ 2, 4, 0, 2, 7],
+        [ 4, 3, 4, 8, 9],
         [-1, 0,-3,-4,-2]
         ])*1.1
     m = 4
     n = 5
-    sol = {(0, 2): True, (1, 3): True, (2, 4): True, (3,0):True }
+    sol = {(0, 2): True, (1, 4): True, (2, 3): True, (3,0):True }
     # This is eaiser to follow
     M = scipy.array([
         [ 7, 3, 2],
