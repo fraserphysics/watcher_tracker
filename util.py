@@ -91,10 +91,6 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         Max = Max - Min + 2*tol
         Min = 2*tol
     inf = Max*10            # "Infinity" for pi values
-    S_labels = {}
-    T_labels = {}
-    X_S = [] # List of nodes. X_S[i]=j if i linked to j.
-    X_T = [] # List of nodes. X_T[j]=i if j linked to i.
     unscanned_S = {}
     unscanned_T = {}
     def augment(X,X_S,X_T,i,j):
@@ -103,33 +99,36 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         """
         if X.has_key((i,j)):
             del X[(i,j)]
-            X_S[i] = None
-            X_T[j] = None
+            if X_S[i] == j:
+                del X_S[i]
+            if X_T[j] == i:
+                del X_T[j]
         else:
             X[(i,j)] = True
-            assert(X_S[i] is None),"Two j's linked to same i"
             X_S[i] = j
-            assert(X_T[j] is None),"Two i's linked to same j"
             X_T[j] = i
         return
     def backtrack_i(X,X_S,X_T,S_label,T_label,i):
         if not S_label.has_key(i) or S_label[i] is None:
+            print '\nreturning from backtrack_i, i=%d'%i
+            print 'S_label=',S_label
+            print 'T_label=',T_label,
             return
         j = S_label[i]
+        print '(%d,%d)'%(i,j),
         augment(X,X_S,X_T,i,j)
         backtrack_j(X,X_S,X_T,S_label,T_label,j)
     def backtrack_j(X,X_S,X_T,S_label,T_label,j):
         if not T_label.has_key(j):
             return
         i = T_label[j]
+        print '(%d,%d)'%(i,j),
         augment(X,X_S,X_T,i,j)
         backtrack_i(X,X_S,X_T,S_label,T_label,i)
     # Begin Lawler's step 0
     X = {}   # Dict of links X[(i,j)] = True
-    for i in xrange(m):
-        X_S.append(None)
-    for j in xrange(n):
-        X_T.append(None)
+    X_S = {} # Dict of nodes. X_S[i]=j if i linked to j.
+    X_T = {} # Dict of nodes. X_T[j]=i if j linked to i.
     u = scipy.ones(m)*Max
     v = scipy.zeros(n)
     pi = scipy.ones(n)*inf
@@ -137,7 +136,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     T_label = {}
     # Begin Lawler's step 1.0: Exposed S nodes get label None
     for i in xrange(m):
-        if X_S[i] is None:
+        if not X_S.has_key(i):
             S_label[i] = None
             unscanned_S[i] = True
     k = 0
@@ -162,12 +161,14 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             if pi[j] > 0:
                 continue
             # Begin step step 1.4 on j
-            if X_T[j] is None:
+            if not X_T.has_key(j):
                 # Begin Lawler's step 2 (augmentation)
                 if __debug__:
                     print '\nBefore step 2 augmentation X=',
                     for key in X.keys():
                         print key,
+                    print '\nj=%d, S_label='%j,S_label, 'T_label=',T_label
+                    print 'Augmenting path=',
                 backtrack_j(X,X_S,X_T,S_label,T_label,j)
                 if __debug__:
                     print '\nAfter step 2 augmentation  X=',
@@ -180,12 +181,16 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                 unscanned_S = {}
                 unscanned_T = {}
                 for i in xrange(m): # Step 1.0
-                    if X_S[i] is None:
+                    if not X_S.has_key(i):
                         S_label[i] = None
                         unscanned_S[i] = True
+                if __debug__:
+                    print 'At end of step 2 augmentation  unscanned_S=',unscanned_S
                 # End Lawler's step 2
             else:
-                S_label[X_T[j]] = j
+                i = X_T[j]
+                S_label[i] = j
+                unscanned_S[i] = True
                 del unscanned_T[j]
         # Begin Lawler's step 1.1 (check for step 3)
         if len(unscanned_S) > 0:
@@ -225,6 +230,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             print 'u=',u,
             print 'v=',v,
             print 'pi=',pi
+            print 'S_label=',S_label, 'T_label=',T_label
         if delta < delta_1:
             continue # Start another iteration of the labeling loop
         # Finished

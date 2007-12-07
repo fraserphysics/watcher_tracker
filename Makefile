@@ -8,3 +8,12 @@ data/ABQ_Intersection:
 
 ha.png: hackt.ckt
 	convert hackt.ckt ha.png
+
+model.pdf: model.tex ha.png
+	pdflatex model.tex
+
+# Local Variables:
+# mode: makefile
+# folded-file: t
+# folding-internal-margins: 0
+# End:
