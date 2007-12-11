@@ -240,6 +240,106 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             print '\nS_label=',S_label, 'T_label=',T_label
         # Start another iteration of the labeling loop
 
+class NODE:
+    """ Class for Murty's algorithm that find the n best assignments
+    for any n.  Note that Murty's paper considers assignments with
+    costs, I use utilities here.
+
+    Properties:
+    IN           List of used vertices in parent util matrix
+    u_in         Total utility of used vertices
+    OUT          List of excluded vertices
+    util         Utility "matrix" stored as dict/list?
+    ij_max       Best assignment in util
+    u_max        Utility of ij_max added to u_in
+
+    Methods:
+    __init__     New node from utility matrix and other arguments
+    partition    Return both nodes and (u_max, node) pairs of
+                 partition on self.ij_max
+    """
+    def __init__(self, # NODE
+                 IN,   #
+                 OUT,  #
+                 u_in, #
+                 util, #
+                 m,    # Number of different input vertices in util
+                 n     # Number of different output vertices in util
+                 ):
+        self.IN = IN
+        self.u_in = u_in
+        self.OUT = OUT
+        self.util = util
+        X = Hungarian(util,m,n)
+        self.ij_max = X
+        u_max = u_in
+        for ij in X:
+            u_max += util[ij]
+        self.u_max = u_max
+    def reduce_in(self,    # NODE
+               new_in      # Additional vertex for IN
+               ):
+        """ Augment self.IN by new_in and modify self.util
+        """
+        ij_O = new_in.pop()
+        self.IN.append(ij_O)
+        # tranlate ij from orignal coordinates to current coordinates
+        i_strike = self.Oi_2_i[ij_O[0]]
+        self.Oi_2_i[i_strike] = -0.5
+        for i in xrange(i_strike+1,self.m):
+            self.Oi_2_i[i] -= 1
+        j_strike = self.Oj_2_j[ij_O[1]]
+        self.Oj_2_j[j_strike] = -0.5
+        for j in xrange(j_strike+1,self.n):
+            self.Oj_2_j[j] -= 1
+        # Remove a row and column
+        for ij in self.util.keys():
+            if ij[0] == i_strike:
+                del self.util[ij]
+                continue
+            if ij[1] == j_strike:
+                del self.util[ij]
+        # Adjust the indices of the reduced utility matrix
+        new = {}
+        for ij in self.util.keys():
+            i,j = ij
+            if i < i_strike and j < j_strike:
+                continue
+            if i > i_strike:
+                i -= 1
+            if j > j_strike:
+                j -= 1
+            new[(i,j)] = self.util[ij]
+            del self.util[ij]
+        self.util.update(new)  # Fold the dict new into self.util
+    def reduce(self,     # NODE
+               new_in,   # List of additional vertices for IN
+               new_out   # Additional vertices for OUT
+               ):
+        """ Augment self.OUT by new_out and modify self.util, then
+        call reduce_in to handle new_in
+        """
+        # tranlate ij from orignal coordinates to current coordinates
+        i = self.Oi_2_i[new_out[0]]
+        j = self.Oj_2_j[new_out[1]]
+        del self.util[(i,j)]            
+        self.OUT.append(new_out)
+        for ij in new_in:
+            self.reduce_in(ij)
+    def partition(self):
+        """ Return both nodes and (u_max, node) pairs of partition on
+        self.ij_max
+        """
+        children = []
+        pairs = []
+        new_in = [:-1]
+        for ij in self.ij_max.keys():
+            new_node_parts = self.reduce(new_in,ij)
+            new_in.append(ij)
+            child = NODE(new_node_parts)
+            children.append(child)
+            pairs.append((child.u_max,child))
+        return (children,pairs)
 if __name__ == '__main__':  # Test code
     def print_wx(w,X):
         for i in xrange(m):
