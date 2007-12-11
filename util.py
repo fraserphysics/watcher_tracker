@@ -241,7 +241,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
         # Start another iteration of the labeling loop
 
 class NODE:
-    """ Class for Murty's algorithm that find the n best assignments
+    """ Class for Murty's algorithm that finds the n best assignments
     for any n.  Note that Murty's paper considers assignments with
     costs, I use utilities here.
 
@@ -257,19 +257,29 @@ class NODE:
     __init__     New node from utility matrix and other arguments
     partition    Return both nodes and (u_max, node) pairs of
                  partition on self.ij_max
+
+Citation: An Algorithm for Ranking all the Assignments in Order of
+Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
+(May - Jun., 1968), pp. 682-687
     """
     def __init__(self, # NODE
-                 IN,   #
-                 OUT,  #
-                 u_in, #
-                 util, #
+                 IN,   # List of vertices included in all a \in NODE
+                 OUT,  # List of vertices excluded from all a \in NODE
+                 u_in, # Utility of vertices in IN
+                 util, # Utility "matrix" stored as dict
                  m,    # Number of different input vertices in util
-                 n     # Number of different output vertices in util
+                 n,    # Number of different output vertices in util
+                 Oi_2_i=None, # List for mapping original i to util
+                 Oj_2_j=None  # List for mapping original j to util
                  ):
-        self.IN = IN
-        self.u_in = u_in
-        self.OUT = OUT
-        self.util = util
+        if Oi_2_i is None:
+            Oi_2_i = range(m)
+        if Oj_2_j is None:
+            Oj_2_j = range(n)
+        self.IN = IN[:]          # shallow copy list
+        self.OUT = OUT[:]        # shallow copy list
+        self.u_in = u_in         # Float
+        self.util = util.copy()  # shallow copy dict
         X = Hungarian(util,m,n)
         self.ij_max = X
         u_max = u_in
@@ -312,31 +322,32 @@ class NODE:
             new[(i,j)] = self.util[ij]
             del self.util[ij]
         self.util.update(new)  # Fold the dict new into self.util
-    def reduce(self,     # NODE
+    def spawn(self,     # NODE
                new_in,   # List of additional vertices for IN
                new_out   # Additional vertices for OUT
                ):
         """ Augment self.OUT by new_out and modify self.util, then
         call reduce_in to handle new_in
         """
+        new = NODE(self.IN, self.OUT, self.u_in, self.util, self.m,
+                   self.n, self.Oi_2_i, self.Oj_2_j)
         # tranlate ij from orignal coordinates to current coordinates
         i = self.Oi_2_i[new_out[0]]
         j = self.Oj_2_j[new_out[1]]
-        del self.util[(i,j)]            
-        self.OUT.append(new_out)
+        del new.util[(i,j)]            
+        new.OUT.append(new_out)
         for ij in new_in:
-            self.reduce_in(ij)
+            new.reduce_in(ij)
     def partition(self):
         """ Return both nodes and (u_max, node) pairs of partition on
         self.ij_max
         """
         children = []
         pairs = []
-        new_in = [:-1]
+        new_in = []  # FixMe: Is this right?
         for ij in self.ij_max.keys():
-            new_node_parts = self.reduce(new_in,ij)
+            child = self.spawn(new_in,ij)
             new_in.append(ij)
-            child = NODE(new_node_parts)
             children.append(child)
             pairs.append((child.u_max,child))
         return (children,pairs)
@@ -361,6 +372,7 @@ if __name__ == '__main__':  # Test code
     m = 4
     n = 5
     sol = {(0, 2): True, (1, 4): True, (2, 3): True, (3,0):True }
+    test0 = (M,m,n,sol)
     # This is eaiser to follow
     M = scipy.array([
         [ 7, 3, 2],
@@ -369,6 +381,8 @@ if __name__ == '__main__':  # Test code
     m = 2
     n = 3
     sol = {(0, 0): True, (1, 1): True}
+    test1 = (M,m,n,sol)
+    M,m,n,sol = test1 # Funny way enable different tests with small edit
     w = {}
     for i in xrange(m):
         for j in xrange(n):
