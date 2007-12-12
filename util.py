@@ -271,7 +271,8 @@ class M_NODE:
     IN           List of used vertices in parent util matrix
     u_in         Total utility of used vertices
     OUT          List of excluded vertices
-    util         Utility "matrix" stored as dict/list?
+    util         Utility "matrix" stored as dict
+    m,n          Dimensions of util
     ij_max       Best assignment in util
     u_max        Utility of ij_max added to u_in
 
@@ -292,17 +293,17 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
                  util, # Utility "matrix" stored as dict
                  m,    # Number of different input vertices in util
                  n,    # Number of different output vertices in util
-                 Oi_2_i=None, # List for mapping original i to util
-                 Oj_2_j=None  # List for mapping original j to util
+                 Ri_2_Oi=None, # List for mapping reduced i to original
+                 Rj_2_Oj=None  # List for mapping reduced j to original
                  ):
-        if Oi_2_i is None:
-            self.Oi_2_i = range(m)
+        if Ri_2_Oi is None:
+            self.Ri_2_Oi = range(m)
         else:
-            self.Oi_2_i = Oi_2_i[:] # shallow copy list
-        if Oj_2_j is None:
-            self.Oj_2_j = range(n)
+            self.Ri_2_Oi = Ri_2_Oi[:] # shallow copy list
+        if Rj_2_Oj is None:
+            self.Rj_2_Oj = range(n)
         else:
-            self.Oj_2_j = Oj_2_j[:] # shallow copy list
+            self.Rj_2_Oj = Rj_2_Oj[:] # shallow copy list
         self.IN = IN[:]             # shallow copy list
         self.OUT = OUT[:]           # shallow copy list
         self.u_in = u_in            # Float
@@ -315,71 +316,79 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.u_max = u_max
         self.m = m
         self.n = n
-    def reduce_in(self,    # M_NODE
-               ij_O        # Additional vertex for IN
-               ):
-        """ Augment self.IN by new_in and modify self.util
-        """
-        self.IN.append(ij_O)
-        # tranlate ij from orignal coordinates to current coordinates
-        i_O = ij_O[0]
-        i_strike = self.Oi_2_i[i_O]
-        self.Oi_2_i[i_O] = -0.5 # Raise exception if this i used again
-        for i in xrange(i_O+1,self.m):
-            self.Oi_2_i[i] -= 1
-        j_O = ij_O[1]
-        j_strike = self.Oj_2_j[j_O]
-        self.Oj_2_j[j_O] = -0.5
-        for j in xrange(j_O+1,self.n):
-            self.Oj_2_j[j] -= 1
-        # Remove a row and column
-        for ij in self.util.keys():
-            if ij[0] == i_strike:
-                del self.util[ij]
-                continue
-            if ij[1] == j_strike:
-                del self.util[ij]
-        # Adjust the indices of the reduced utility matrix
-        new = {}
-        for ij in self.util.keys():
-            i,j = ij
-            if i < i_strike and j < j_strike:
-                continue
-            if i > i_strike:
-                i -= 1
-            if j > j_strike:
-                j -= 1
-            new[(i,j)] = self.util[ij]
-            del self.util[ij]
-        self.util.update(new)  # Fold the dict new into self.util
+    def dump(self      #M_NODE
+             ):
+        print "\nDumping an M_NODE:"
+        print "IN=",self.IN
+        print "OUT=",self.OUT
+        print "Ri_2_Oi=",self.Ri_2_Oi
+        print "Rj_2_Oj=",self.Rj_2_Oj
+        print "ij_max=",self.ij_max.keys()
+        print "u_in=%5.2f,  u_max=%5.2f, m=%d, n=%d, util="%(self.u_in,
+            self.u_max, self.m, self.n)
+        for i in xrange(self.m):
+            for j in xrange(self.n):
+                if self.util.has_key((i,j)):
+                    print '%5.2f'%self.util[(i,j)],
+                else:
+                    print 5*' ',
+            print '\n',
+        print ''
+        return
     def spawn(self,      # M_NODE
-               new_in,   # List of additional vertices for IN
-               new_out   # Additional vertices for OUT
+               new_in,   # List of additional vertices in reduced form for IN
+               new_out   # Additional vertex for in reduced form OUT
                ):
         """ Augment self.OUT by new_out and modify self.util, then
         call reduce_in to handle new_in
         """
         new = M_NODE(self.IN, self.OUT, self.u_in, self.util, self.m,
-                   self.n, self.Oi_2_i, self.Oj_2_j)
+                   self.n, self.Ri_2_Oi, self.Rj_2_Oj) # FixMe: build parts before this
+        del new.util[new_out] 
         # tranlate ij from orignal coordinates to current coordinates
-        i = self.Oi_2_i[new_out[0]]
-        j = self.Oj_2_j[new_out[1]]
-        del new.util[(i,j)]            
-        new.OUT.append(new_out)
-        print '\nIn spawn before new_in loop:\n   new_in=',new_in
-        print '   self.IN=', self.IN
-        print '   Oi_2_i',self.Oi_2_i
-        for ij in new_in:
-            new.reduce_in(ij)
+        Ri,Rj = new_out
+        new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
+        # Now remove the row and coulumn for each ij in new_in from util
+        self.m -= len(new_in)
+        self.n -= len(new_in)
+        i_map = dict(map(lambda x: (x,True),range(self.m)))
+        j_map = dict(map(lambda x: (x,True),range(self.n)))
+        for Ri,Rj in new_in:
+            self.IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
+            del i_map[Ri]
+            del j_map[Rj]
+        temp = i_map.keys()
+        temp.sort()
+        i_map = {}
+        new.Ri_2_Oi = []
+        for k in xrange(len(temp)):
+            i = temp[k]
+            new.Ri_2_Oi.append(self.Ri_2_Oi[i])
+            i_map[i] = k
+        temp = j_map.keys()
+        temp.sort()
+        j_map = {}
+        new.Rj_2_Oj = []
+        for k in xrange(len(temp)):
+            j = temp[k]
+            new.Rj_2_Oj.append(self.Rj_2_Oj[j])
+            j_map[j] = k
+        new.util = {}
+        for key in self.util.keys():
+            i,j = key
+            if i_map.has_key(i) and j_map.has_key(j):
+                new.util[(i_map[i],j_map[j])] = self.util[key]
         return new
     def partition(self # M_NODE
                   ):
         """ Return both m_nodes and (u_max, m_node) pairs of partition on
         self.ij_max
         """
+        if self.m == 0 or len(self.util) == 0:
+            return ([],[])
         children = []
         pairs = []
-        new_in = []  # FixMe: Is this right?
+        new_in = []
         for ij in self.ij_max.keys():
             try:
                 child = self.spawn(new_in,ij)
@@ -485,7 +494,7 @@ if __name__ == '__main__':  # Test code
         [ 0, 20, 9, 27, 46, 15, 84, 19, 3, 24 ],
         [ 56, 10, 45, 39, 0, 93, 67, 79, 19, 38 ],
         [ 27, 0, 39, 53, 46, 24, 69, 46, 23, 1 ]
-        ]))/10
+        ]))/10.0
     m = 10
     n = 10
     sol = {(6, 9): True, (0, 8): True, (7, 0): True, (9, 1): True, (4, 5): True, (1, 6): True, (2, 2): True, (3, 7): True, (5, 3): True, (8, 4): True}
@@ -495,7 +504,7 @@ if __name__ == '__main__':  # Test code
     for i in xrange(m):
         for j in xrange(n):
             w_ij = M[i,j]
-            if w_ij*w_ij < .1:
+            if w_ij*w_ij < .01:
                 continue
             w[(i,j)] = w_ij
     #print 'w='
