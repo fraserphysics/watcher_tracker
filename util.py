@@ -342,42 +342,47 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         """ Augment self.OUT by new_out and modify self.util, then
         call reduce_in to handle new_in
         """
-        new = M_NODE(self.IN, self.OUT, self.u_in, self.util, self.m,
-                   self.n, self.Ri_2_Oi, self.Rj_2_Oj) # FixMe: build parts before this
-        del new.util[new_out] 
-        # tranlate ij from orignal coordinates to current coordinates
-        Ri,Rj = new_out
-        new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
-        # Now remove the row and coulumn for each ij in new_in from util
-        self.m -= len(new_in)
-        self.n -= len(new_in)
-        i_map = dict(map(lambda x: (x,True),range(self.m)))
-        j_map = dict(map(lambda x: (x,True),range(self.n)))
+        def remap(Rx_2_Ox,x_list):
+            """ Return (x_map,new_Rx_2_Ox).  x_map is a dict for
+            calculating keys of the new utility from the keys of the
+            old utility.  The list new_Rx_2_Ox maps new Reduced keys to
+            Original indices.
+            """
+            x_list.sort()
+            x_map = {}
+            L = 0
+            for k in xrange(len(Rx_2_Ox)):
+                if L < len(x_list) and x_list[L] == k:
+                    L += 1
+                    continue
+                x_map[k] = k-L
+            new_Rx_2_Ox = Rx_2_Ox[:] # Shallow copy
+            x_list.reverse()
+            for k in x_list:
+                del new_Rx_2_Ox[k]
+            return (x_map,new_Rx_2_Ox)
+    
+        # Create the mapping lists and util dict for new node
+        i_list = []
+        j_list = []
         for Ri,Rj in new_in:
-            self.IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
-            del i_map[Ri]
-            del j_map[Rj]
-        temp = i_map.keys()
-        temp.sort()
-        i_map = {}
-        new.Ri_2_Oi = []
-        for k in xrange(len(temp)):
-            i = temp[k]
-            new.Ri_2_Oi.append(self.Ri_2_Oi[i])
-            i_map[i] = k
-        temp = j_map.keys()
-        temp.sort()
-        j_map = {}
-        new.Rj_2_Oj = []
-        for k in xrange(len(temp)):
-            j = temp[k]
-            new.Rj_2_Oj.append(self.Rj_2_Oj[j])
-            j_map[j] = k
-        new.util = {}
+            i_list.append(Ri)
+            j_list.append(Rj)
+        i_map,Ri_2_Oi = remap(self.Ri_2_Oi,i_list)
+        j_map,Rj_2_Oj = remap(self.Rj_2_Oj,j_list)
+        util = {}
         for key in self.util.keys():
             i,j = key
             if i_map.has_key(i) and j_map.has_key(j):
-                new.util[(i_map[i],j_map[j])] = self.util[key]
+                if key == new_out:
+                    continue
+                util[(i_map[i],j_map[j])] = self.util[key]
+        new = M_NODE(self.IN, self.OUT, self.u_in, util, self.m-len(new_in),
+           self.n-len(new_in), Ri_2_Oi, Rj_2_Oj)
+        Ri,Rj = new_out
+        new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
+        for Ri,Rj in new_in:
+            new.IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
         return new
     def partition(self # M_NODE
                   ):
