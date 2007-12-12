@@ -74,6 +74,27 @@ def normalP(mu,sigma, x):
     P = norm*math.exp(-Q)
     return P
 
+def print_wx(w,X):
+    for i in xrange(m):
+        for j in xrange(n):
+            if X.has_key((i,j)):
+                print '%5.2f'%w[(i,j)],
+            else:
+                print 5*' ',
+        print '\n',
+    print ''
+    return
+def print_x(X,w):
+    keys = X.keys()
+    keys.sort()
+    u = 0.0
+    print 'U[',
+    for key in keys:
+        u += w[key]
+        print '(%d,%d)'%(key[0]+1,key[1]+1),
+    print '] = %5.2f'%u
+    return u
+    
 def Hungarian(w,  # dict of weights indexed by tuple (i,j)
               m,  # Cardinality of S (use i \in S)
               n   # Cardinality of T (use j \in T)
@@ -82,6 +103,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
     """
     debug = True
+    debug = False
     w_list = w.values()
     Max = max(w_list)
     Min = min(w_list)
@@ -240,7 +262,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             print '\nS_label=',S_label, 'T_label=',T_label
         # Start another iteration of the labeling loop
 
-class NODE:
+class M_NODE:
     """ Class for Murty's algorithm that finds the n best assignments
     for any n.  Note that Murty's paper considers assignments with
     costs, I use utilities here.
@@ -254,17 +276,18 @@ class NODE:
     u_max        Utility of ij_max added to u_in
 
     Methods:
-    __init__     New node from utility matrix and other arguments
-    partition    Return both nodes and (u_max, node) pairs of
+    __init__     New m_node from utility matrix and other arguments
+    spawn        Modify m_node for a single new_out and list of new_in
+    partition    Return both m_nodes and (u_max, m_node) pairs of
                  partition on self.ij_max
 
 Citation: An Algorithm for Ranking all the Assignments in Order of
 Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
 (May - Jun., 1968), pp. 682-687
     """
-    def __init__(self, # NODE
-                 IN,   # List of vertices included in all a \in NODE
-                 OUT,  # List of vertices excluded from all a \in NODE
+    def __init__(self, # M_NODE
+                 IN,   # List of vertices included in all a \in M_NODE
+                 OUT,  # List of vertices excluded from all a \in M_NODE
                  u_in, # Utility of vertices in IN
                  util, # Utility "matrix" stored as dict
                  m,    # Number of different input vertices in util
@@ -273,34 +296,41 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
                  Oj_2_j=None  # List for mapping original j to util
                  ):
         if Oi_2_i is None:
-            Oi_2_i = range(m)
+            self.Oi_2_i = range(m)
+        else:
+            self.Oi_2_i = Oi_2_i[:] # shallow copy list
         if Oj_2_j is None:
-            Oj_2_j = range(n)
-        self.IN = IN[:]          # shallow copy list
-        self.OUT = OUT[:]        # shallow copy list
-        self.u_in = u_in         # Float
-        self.util = util.copy()  # shallow copy dict
+            self.Oj_2_j = range(n)
+        else:
+            self.Oj_2_j = Oj_2_j[:] # shallow copy list
+        self.IN = IN[:]             # shallow copy list
+        self.OUT = OUT[:]           # shallow copy list
+        self.u_in = u_in            # Float
+        self.util = util.copy()     # shallow copy dict
         X = Hungarian(util,m,n)
         self.ij_max = X
         u_max = u_in
         for ij in X:
             u_max += util[ij]
         self.u_max = u_max
-    def reduce_in(self,    # NODE
-               new_in      # Additional vertex for IN
+        self.m = m
+        self.n = n
+    def reduce_in(self,    # M_NODE
+               ij_O        # Additional vertex for IN
                ):
         """ Augment self.IN by new_in and modify self.util
         """
-        ij_O = new_in.pop()
         self.IN.append(ij_O)
         # tranlate ij from orignal coordinates to current coordinates
-        i_strike = self.Oi_2_i[ij_O[0]]
-        self.Oi_2_i[i_strike] = -0.5
-        for i in xrange(i_strike+1,self.m):
+        i_O = ij_O[0]
+        i_strike = self.Oi_2_i[i_O]
+        self.Oi_2_i[i_O] = -0.5 # Raise exception if this i used again
+        for i in xrange(i_O+1,self.m):
             self.Oi_2_i[i] -= 1
-        j_strike = self.Oj_2_j[ij_O[1]]
-        self.Oj_2_j[j_strike] = -0.5
-        for j in xrange(j_strike+1,self.n):
+        j_O = ij_O[1]
+        j_strike = self.Oj_2_j[j_O]
+        self.Oj_2_j[j_O] = -0.5
+        for j in xrange(j_O+1,self.n):
             self.Oj_2_j[j] -= 1
         # Remove a row and column
         for ij in self.util.keys():
@@ -322,46 +352,107 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
             new[(i,j)] = self.util[ij]
             del self.util[ij]
         self.util.update(new)  # Fold the dict new into self.util
-    def spawn(self,     # NODE
+    def spawn(self,      # M_NODE
                new_in,   # List of additional vertices for IN
                new_out   # Additional vertices for OUT
                ):
         """ Augment self.OUT by new_out and modify self.util, then
         call reduce_in to handle new_in
         """
-        new = NODE(self.IN, self.OUT, self.u_in, self.util, self.m,
+        new = M_NODE(self.IN, self.OUT, self.u_in, self.util, self.m,
                    self.n, self.Oi_2_i, self.Oj_2_j)
         # tranlate ij from orignal coordinates to current coordinates
         i = self.Oi_2_i[new_out[0]]
         j = self.Oj_2_j[new_out[1]]
         del new.util[(i,j)]            
         new.OUT.append(new_out)
+        print '\nIn spawn before new_in loop:\n   new_in=',new_in
+        print '   self.IN=', self.IN
+        print '   Oi_2_i',self.Oi_2_i
         for ij in new_in:
             new.reduce_in(ij)
-    def partition(self):
-        """ Return both nodes and (u_max, node) pairs of partition on
+        return new
+    def partition(self # M_NODE
+                  ):
+        """ Return both m_nodes and (u_max, m_node) pairs of partition on
         self.ij_max
         """
         children = []
         pairs = []
         new_in = []  # FixMe: Is this right?
         for ij in self.ij_max.keys():
-            child = self.spawn(new_in,ij)
+            try:
+                child = self.spawn(new_in,ij)
+            except:
+                print 'Calling spawn with len(new_in)=%d, ij='%len(new_in),ij
+                print '   new_in=',new_in,'self.util='
+                print_wx(self.util,self.util)
+                child = self.spawn(new_in,ij)
             new_in.append(ij)
             children.append(child)
             pairs.append((child.u_max,child))
         return (children,pairs)
-if __name__ == '__main__':  # Test code
-    def print_wx(w,X):
-        for i in xrange(m):
-            for j in xrange(n):
-                if X.has_key((i,j)):
-                    print '%5.2f'%w[(i,j)],
-                else:
-                    print 5*' ',
-            print '\n',
-        print ''
+class M_LIST:
+    """ A class that implements a list of M_NODEs for Murty's algorithm.
+
+    Properties:
+
+      node_list
+
+      association_list
+
+    Methods:
+
+      __init__
+
+      next   Find the next best association
+
+      till(N,U) Find more associations until either there are N in
+        association_list or you reach an association with utility less
+        than U
+    """
+    def __init__(self, # M_LIST
+                 w,    # A dict of utilities indexed by tuples (i,j)
+                 m,    # Range of i values
+                 n     # Range of j values
+                 ):
+        """
+        """
+        node_0 = M_NODE([],[],0.0,w,m,n)
+        self.node_list = [(node_0.u_max,node_0)]
+        self.association_list = []
+        self.next()
         return
+    def next(self,    # M_LIST
+                 ):
+        u,node = self.node_list.pop()
+        self.association_list.append((u,node.IN+node.ij_max.keys()))
+        try:
+            children,pairs = node.partition()
+        except:
+            node.dump()
+            children,pairs = node.partition()
+        self.node_list += pairs
+        self.node_list.sort()
+        return
+    """ Find the next best association, put it in
+    self.association_list, and partition the M_NODE from which it
+    came.
+    """
+    def till(self,    # M_LIST
+             N,
+             U
+                 ):
+        """ Call self.next until either len(self.association_list) >=
+        N or utility(association_list[-1]) <= U.
+        """
+        while len(self.association_list) < N \
+              and self.association_list[0][0] > U:
+            print 'Starting another iteration of while loop in till'
+            print '  association_list=',self.association_list
+            self.next()
+        return
+if __name__ == '__main__':  # Test code
     # This is tests noninteger, negative and missing entries
     M = scipy.array([
         [ 1, 2, 3, 0, 6],
@@ -382,7 +473,24 @@ if __name__ == '__main__':  # Test code
     n = 3
     sol = {(0, 0): True, (1, 1): True}
     test1 = (M,m,n,sol)
-    M,m,n,sol = test1 # Funny way enable different tests with small edit
+    # This is the matrix in Murty's paper (scaled)
+    M = (100-scipy.array([
+        [ 7, 51, 52, 87, 38, 60, 74, 66, 0, 20 ],
+        [ 50, 21, 0, 64, 8, 53, 0, 46, 76, 42 ],
+        [ 27, 77, 0, 18, 22, 48, 44, 13, 0, 57 ],
+        [ 62, 0, 3, 8, 5, 6, 14, 0, 26, 39 ],
+        [ 0, 97, 0, 5, 13, 0, 41, 31, 62, 48 ],
+        [ 79, 68, 0, 0, 15, 12, 17, 47, 35, 43 ],
+        [ 76, 99, 48, 27, 34, 0, 0, 0, 28, 0 ],
+        [ 0, 20, 9, 27, 46, 15, 84, 19, 3, 24 ],
+        [ 56, 10, 45, 39, 0, 93, 67, 79, 19, 38 ],
+        [ 27, 0, 39, 53, 46, 24, 69, 46, 23, 1 ]
+        ]))/10
+    m = 10
+    n = 10
+    sol = {(6, 9): True, (0, 8): True, (7, 0): True, (9, 1): True, (4, 5): True, (1, 6): True, (2, 2): True, (3, 7): True, (5, 3): True, (8, 4): True}
+    test2 = (M,m,n,sol)
+    M,m,n,sol = test2 # Funny way to enable different tests with small edit
     w = {}
     for i in xrange(m):
         for j in xrange(n):
@@ -390,13 +498,21 @@ if __name__ == '__main__':  # Test code
             if w_ij*w_ij < .1:
                 continue
             w[(i,j)] = w_ij
-    print 'w='
-    print_wx(w,w)
-    print 'Call Hungarian.  Expect (within offset) result:'
-    print_wx(w,sol)
+    #print 'w='
+    #print_wx(w,w)
+    #print 'Call Hungarian.  Expect (within offset) result:'
+    #print_wx(w,sol)
+    #X = Hungarian(w,m,n)
+    #print 'Returned from Hungarian with result:'
+    #print_wx(w,X)
     X = Hungarian(w,m,n)
-    print 'Returned from Hungarian with result:'
-    print_wx(w,X)
+    print_x(X,w)
+    print 'before M_LIST'
+    ML = M_LIST(w,m,n)
+    print 'before till'
+    ML.till(10,90)
+    for U,X in ML.association_list:
+        print_x(X,w)
 
 
 #---------------
