@@ -110,9 +110,9 @@ def Hungarian(wO,  # dict of weights indexed by tuple (i,j)
     w_list = wO.values()
     Max = max(w_list)
     Min = min(w_list)
-    tol = (Max - Min)*1e-6  # Tolerance for some comparisons
-    if Min < tol:           # Ensure all w[ij] >= 0
-        w = {}              # Don't modify wO
+    tol = max(1e-25,(Max - Min)*1e-6) # Tolerance for some comparisons
+    if Min < tol:                     # Ensure all w[ij] >= 0
+        w = {}                        # Don't modify wO
         for key in wO.keys():
             w[key] = wO[key] - Min + 2*tol
         Max = Max - Min + 2*tol
@@ -244,8 +244,8 @@ def Hungarian(wO,  # dict of weights indexed by tuple (i,j)
         # End step 1.1
         # Begin Lawler's step 3 (change dual varibles)
         delta_1 = min(u)
-        assert(float(pi.min()) > -tol),"float(pi.min())=%f, tol=%f"%(
-            pi.min(),tol)
+        assert(float(pi.min()) > -tol),\
+         "float(pi.min())=%f, tol=%f len(wO)=%d"%(pi.min(),tol,len(wO))
         Lim = pi.max()
         Mask = (pi < tol)
         pi_ = pi + Lim*Mask
@@ -331,7 +331,6 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.u_max = u_max
         self.m = m
         self.n = n
-        assert len(self.IN) + len(self.ij_max) == 10,'len(self.IN)=%d,len(self.ij_max)=%d'%(len(self.IN),len(self.ij_max))
     def dump(self      #M_NODE
              ):
         print "\nDumping an M_NODE:"
@@ -417,7 +416,6 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         pairs = []
         new_in = []
         for ij in self.ij_max.keys():
-            assert(self.m+len(self.IN)==10)
             child = self.spawn(new_in,ij)
             if child is None:
                 continue
@@ -452,7 +450,6 @@ class M_LIST:
         """
         """
         node_0 = M_NODE([],[],0.0,w,m,n)
-        assert(node_0.m+len(node_0.IN)==10)
         self.node_list = [(node_0.u_max,node_0)]
         self.association_list = []
         self.next()
@@ -460,20 +457,10 @@ class M_LIST:
     def next(self,    # M_LIST
                  ):
         u,node = self.node_list.pop()
-        assert(node.m+len(node.IN)==10)
         A =  node.IN[:]
         for Ri,Rj in node.ij_max.keys():  # Map from reduced to Original
             A.append((node.Ri_2_Oi[Ri],node.Rj_2_Oj[Rj]))
         self.association_list.append((u,A))
-        u_check = 0
-        for ij in A:
-            u_check += w[ij]
-        if (u_check - u)**2 > (0.05)**2:
-            print 'self.node_list.pop() u=%5.2f, u_check=%5.2f, len(node.ij_max=%d'%(u,u_check,len(node.ij_max))
-            print_x(A,w)
-            print_x(node.ij_max,w)
-            raise RuntimeError
-        assert(node.m+len(node.IN)==10)
         children,pairs = node.partition()
         self.node_list += pairs
         self.node_list.sort()
@@ -546,18 +533,12 @@ if __name__ == '__main__':  # Test code
     #X = Hungarian(w,m,n)
     #print 'Returned from Hungarian with result:'
     #print_wx(w,X,m,n)
-    X = Hungarian(w,m,n)
-    print_x(X,w)
-    print "Before calling M_LIST (Murty's algorithm)"
     ML = M_LIST(w,m,n)
-    print 'before till'
-    ML.till(100,50)
+    ML.till(10,95)
     print 'Result:'
     for U,X in ML.association_list:
-        Dict_X = dict(map(lambda ij: (ij,True),X))
         X.sort()
-        print '\n',X,U
-        print_x(Dict_X,w)
+        print_x(X,w)
 
 
 #---------------
