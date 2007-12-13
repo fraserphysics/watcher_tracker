@@ -74,7 +74,7 @@ def normalP(mu,sigma, x):
     P = norm*math.exp(-Q)
     return P
 
-def print_wx(w,X):
+def print_wx(w,X,m,n):
     for i in xrange(m):
         for j in xrange(n):
             if X.has_key((i,j)):
@@ -85,34 +85,40 @@ def print_wx(w,X):
     print ''
     return
 def print_x(X,w):
-    keys = X.keys()
+    try: # Works if X is dict or list
+        keys = X.keys()
+    except:
+        keys = X
     keys.sort()
     u = 0.0
     print 'U[',
     for key in keys:
         u += w[key]
-        print '(%d,%d)'%(key[0]+1,key[1]+1),
+        print '(%d,%d)'%(key[0]+1,key[1]+1), # +1 to match Murty's paper
     print '] = %5.2f'%u
     return u
     
-def Hungarian(w,  # dict of weights indexed by tuple (i,j)
+def Hungarian(wO,  # dict of weights indexed by tuple (i,j)
               m,  # Cardinality of S (use i \in S)
               n   # Cardinality of T (use j \in T)
               ):
     """ Find mapping X from S to T that maximizes \sum_{i,j}
     X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
     """
-    debug = True
     debug = False
-    w_list = w.values()
+    #debug = True
+    w_list = wO.values()
     Max = max(w_list)
     Min = min(w_list)
     tol = (Max - Min)*1e-6  # Tolerance for some comparisons
     if Min < tol:           # Ensure all w[ij] >= 0
-        for key in w.keys():
-            w[key] = w[key] - Min + 2*tol
+        w = {}              # Don't modify wO
+        for key in wO.keys():
+            w[key] = wO[key] - Min + 2*tol
         Max = Max - Min + 2*tol
         Min = 2*tol
+    else:
+        w = wO
     inf = Max*10            # "Infinity" for pi values
     unscanned_S = {}
     unscanned_T = {}
@@ -164,6 +170,14 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
+        if debug and k >= 1.9*n*m**2:
+            print "Trouble in Hungarian. m=%d, n=%d, w="%(m,n)
+            print 'u=',u
+            print 'v=',v
+            print 'pi=',pi
+            print 'unscanned_S.keys()=',unscanned_S.keys()
+            print 'unscanned_T.keys()=',unscanned_T.keys()
+            print 'X.keys()=',X.keys()
         assert(k<2*n*m**2),'k=%d'%k
         for i in unscanned_S.keys():
             # Begin step 1.3 on i
@@ -172,7 +186,7 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
                     continue
                 if X.has_key((i,j)):
                     continue
-                if u[i] + v[j] - w[(i,j)] > pi[j]:
+                if u[i] + v[j] - w[(i,j)] > pi[j] - tol: #FixMe > or >=
                     continue
                 T_label[j] = i
                 unscanned_T[j] = True
@@ -180,9 +194,10 @@ def Hungarian(w,  # dict of weights indexed by tuple (i,j)
             del unscanned_S[i]
             # End step step 1.3 on i
         for j in unscanned_T.keys():
-            if pi[j] > 0:
+            if pi[j] > tol:
                 continue
             # Begin step step 1.4 on j
+            pi[j] = 0.0
             if not X_T.has_key(j):
                 # Begin Lawler's step 2 (augmentation)
                 if debug:
@@ -316,6 +331,7 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.u_max = u_max
         self.m = m
         self.n = n
+        assert len(self.IN) + len(self.ij_max) == 10,'len(self.IN)=%d,len(self.ij_max)=%d'%(len(self.IN),len(self.ij_max))
     def dump(self      #M_NODE
              ):
         print "\nDumping an M_NODE:"
@@ -377,12 +393,18 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
                 if key == new_out:
                     continue
                 util[(i_map[i],j_map[j])] = self.util[key]
-        new = M_NODE(self.IN, self.OUT, self.u_in, util, self.m-len(new_in),
+        if len(util) == 0:
+            return None
+        u_in = self.u_in
+        for ij in new_in:
+            u_in += self.util[ij]
+        IN = self.IN[:]
+        for Ri,Rj in new_in:
+            IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
+        new = M_NODE(IN, self.OUT, u_in, util, self.m-len(new_in),
            self.n-len(new_in), Ri_2_Oi, Rj_2_Oj)
         Ri,Rj = new_out
         new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
-        for Ri,Rj in new_in:
-            new.IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
         return new
     def partition(self # M_NODE
                   ):
@@ -395,13 +417,10 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         pairs = []
         new_in = []
         for ij in self.ij_max.keys():
-            try:
-                child = self.spawn(new_in,ij)
-            except:
-                print 'Calling spawn with len(new_in)=%d, ij='%len(new_in),ij
-                print '   new_in=',new_in,'self.util='
-                print_wx(self.util,self.util)
-                child = self.spawn(new_in,ij)
+            assert(self.m+len(self.IN)==10)
+            child = self.spawn(new_in,ij)
+            if child is None:
+                continue
             new_in.append(ij)
             children.append(child)
             pairs.append((child.u_max,child))
@@ -433,6 +452,7 @@ class M_LIST:
         """
         """
         node_0 = M_NODE([],[],0.0,w,m,n)
+        assert(node_0.m+len(node_0.IN)==10)
         self.node_list = [(node_0.u_max,node_0)]
         self.association_list = []
         self.next()
@@ -440,12 +460,21 @@ class M_LIST:
     def next(self,    # M_LIST
                  ):
         u,node = self.node_list.pop()
-        self.association_list.append((u,node.IN+node.ij_max.keys()))
-        try:
-            children,pairs = node.partition()
-        except:
-            node.dump()
-            children,pairs = node.partition()
+        assert(node.m+len(node.IN)==10)
+        A =  node.IN[:]
+        for Ri,Rj in node.ij_max.keys():  # Map from reduced to Original
+            A.append((node.Ri_2_Oi[Ri],node.Rj_2_Oj[Rj]))
+        self.association_list.append((u,A))
+        u_check = 0
+        for ij in A:
+            u_check += w[ij]
+        if (u_check - u)**2 > (0.05)**2:
+            print 'self.node_list.pop() u=%5.2f, u_check=%5.2f, len(node.ij_max=%d'%(u,u_check,len(node.ij_max))
+            print_x(A,w)
+            print_x(node.ij_max,w)
+            raise RuntimeError
+        assert(node.m+len(node.IN)==10)
+        children,pairs = node.partition()
         self.node_list += pairs
         self.node_list.sort()
         return
@@ -461,9 +490,7 @@ class M_LIST:
         N or utility(association_list[-1]) <= U.
         """
         while len(self.association_list) < N \
-              and self.association_list[0][0] > U:
-            print 'Starting another iteration of while loop in till'
-            print '  association_list=',self.association_list
+              and self.association_list[0][0] > U:       
             self.next()
         return
 if __name__ == '__main__':  # Test code
@@ -513,20 +540,24 @@ if __name__ == '__main__':  # Test code
                 continue
             w[(i,j)] = w_ij
     #print 'w='
-    #print_wx(w,w)
+    #print_wx(w,w,m,n)
     #print 'Call Hungarian.  Expect (within offset) result:'
     #print_wx(w,sol)
     #X = Hungarian(w,m,n)
     #print 'Returned from Hungarian with result:'
-    #print_wx(w,X)
+    #print_wx(w,X,m,n)
     X = Hungarian(w,m,n)
     print_x(X,w)
-    print 'before M_LIST'
+    print "Before calling M_LIST (Murty's algorithm)"
     ML = M_LIST(w,m,n)
     print 'before till'
-    ML.till(10,90)
+    ML.till(100,50)
+    print 'Result:'
     for U,X in ML.association_list:
-        print_x(X,w)
+        Dict_X = dict(map(lambda ij: (ij,True),X))
+        X.sort()
+        print '\n',X,U
+        print_x(Dict_X,w)
 
 
 #---------------
