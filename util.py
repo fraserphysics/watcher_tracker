@@ -4,6 +4,8 @@ util.py utilities for persistent surveillance tracking
 """
 import numpy, scipy, scipy.linalg, random, math
 
+debug = False
+
 from itertools import izip
 argmax = lambda array: max(izip(array, xrange(len(array))))[1] # Daniel Lemire
 
@@ -97,16 +99,25 @@ def print_x(X,w):
         print '(%d,%d)'%(key[0]+1,key[1]+1), # +1 to match Murty's paper
     print '] = %5.2f'%u
     return u
-    
-def Hungarian(wO,  # dict of weights indexed by tuple (i,j)
-              m,  # Cardinality of S (use i \in S)
-              n   # Cardinality of T (use j \in T)
+
+def M_2_w(M):
+    w = {}
+    for i in xrange(m):
+        for j in xrange(n):
+            w_ij = M[i,j]
+            if w_ij*w_ij < .01:
+                continue
+            w[(i,j)] = w_ij
+    return w
+            
+def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
+              m,       # Cardinality of S (use i \in S)
+              n,       # Cardinality of T (use j \in T)
+              j_gnd=[] # Nodes in T with unlimited capacity
               ):
     """ Find mapping X from S to T that maximizes \sum_{i,j}
     X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
     """
-    debug = False
-    #debug = True
     w_list = wO.values()
     Max = max(w_list)
     Min = min(w_list)
@@ -222,7 +233,7 @@ def Hungarian(wO,  # dict of weights indexed by tuple (i,j)
                         S_label[i] = None
                         unscanned_S[i] = True
                 if debug:
-                    print '              and unscanned_S=',unscanned_S
+                    print '              and unscanned_S=',unscanned_S.keys()
                 # End Lawler's step 2
             else:
                 i = X_T[j]
@@ -482,6 +493,7 @@ class M_LIST:
         return
 if __name__ == '__main__':  # Test code
     # This is tests noninteger, negative and missing entries
+    global debug
     M = scipy.array([
         [ 1, 2, 3, 0, 6],
         [ 2, 4, 0, 2, 7],
@@ -494,12 +506,12 @@ if __name__ == '__main__':  # Test code
     test0 = (M,m,n,sol)
     # This is eaiser to follow
     M = scipy.array([
-        [ 7, 3, 2],
-        [ 8, 5, 4]
+        [ 2, 3, 7],
+        [ 4, 5, 8]
         ])
     m = 2
     n = 3
-    sol = {(0, 0): True, (1, 1): True}
+    sol = {(0, 2): True, (1, 1): True}
     test1 = (M,m,n,sol)
     # This is the matrix in Murty's paper (scaled)
     M = (100-scipy.array([
@@ -518,24 +530,22 @@ if __name__ == '__main__':  # Test code
     n = 10
     sol = {(6, 9): True, (0, 8): True, (7, 0): True, (9, 1): True, (4, 5): True, (1, 6): True, (2, 2): True, (3, 7): True, (5, 3): True, (8, 4): True}
     test2 = (M,m,n,sol)
-    M,m,n,sol = test2 # Funny way to enable different tests with small edit
-    w = {}
-    for i in xrange(m):
-        for j in xrange(n):
-            w_ij = M[i,j]
-            if w_ij*w_ij < .01:
-                continue
-            w[(i,j)] = w_ij
-    #print 'w='
-    #print_wx(w,w,m,n)
-    #print 'Call Hungarian.  Expect (within offset) result:'
-    #print_wx(w,sol)
-    #X = Hungarian(w,m,n)
-    #print 'Returned from Hungarian with result:'
-    #print_wx(w,X,m,n)
+    M,m,n,sol = test1 # Funny way to enable different tests with small edit
+    debug = True
+    w = M_2_w(M)
+    print 'w='
+    print_wx(w,w,m,n)
+    print 'Call Hungarian.  Expect (within offset) result:'
+    print_wx(w,sol,m,n)
+    X = Hungarian(w,m,n)
+    print 'Returned from Hungarian with result:'
+    print_wx(w,X,m,n)
+    M,m,n,sol = test2
+    w = M_2_w(M)
+    debug = False
     ML = M_LIST(w,m,n)
     ML.till(10,95)
-    print 'Result:'
+    print "Result of Murty's algorithm:"
     for U,X in ML.association_list:
         X.sort()
         print_x(X,w)

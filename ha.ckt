@@ -301,8 +301,8 @@ endgate
 1 1.000 -416 240 -416 336 -432 336 3 polygon
 1 1.000 -416 0 -416 80 -432 80 3 polygon
 (v1) {/Helvetica cf} 2 16 0 1.000 208 208 label
-(v0) {/Helvetica cf} 2 16 0 1.000 208 400 label
-(v2) {/Helvetica cf} 2 16 0 1.000 208 -16 label
+(v2) {/Helvetica cf} 2 16 0 1.000 208 400 label
+(v0) {/Helvetica cf} 2 16 0 1.000 208 -16 label
 (7) {/Helvetica cf} 2 16 0 1.000 -224 432 label
 (3) {/Helvetica cf} 2 16 0 1.000 -224 240 label
 (2) {/Helvetica cf} 2 16 0 1.000 -224 16 label
@@ -320,8 +320,8 @@ endgate
 1 1.000 -416 -112 -416 0 2 polygon
 1 1.000 -272 -112 -272 -32 2 polygon
 1.000 0 -272 -32 generic::dot
-(u0) {/Helvetica cf} 2 16 0 1.000 -208 -176 label
-(u1) {/Helvetica cf} 2 16 0 1.000 -512 -176 label
+(u1) {/Helvetica cf} 2 16 0 1.000 -208 -176 label
+(u0) {/Helvetica cf} 2 16 0 1.000 -512 -176 label
 1.000 0 -272 -224 analog::gnd
 1.000 0 -736 -224 analog::gnd
 1 1.000 -528 336 -528 240 -736 240 -736 -240 4 polygon

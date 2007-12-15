@@ -9,7 +9,10 @@ data/ABQ_Intersection:
 ha.png: hackt.ckt
 	convert hackt.ckt ha.png
 
-model.pdf: model.tex ha.png
+%.pdf: %.ckt
+	epstopdf $*.ckt --outfile=$@
+
+model.pdf: model.tex ha.pdf
 	pdflatex model.tex
 
 # Local Variables:

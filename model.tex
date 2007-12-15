@@ -811,6 +811,169 @@ separately, I find
 \end{align*}
 Equation~\eqref{eq:new_R} follows pretty easily.
 
+\section{Assignment Algorithms}
+\label{sec:assignment}
+
+\subsection{Hungarian}
+\label{sec:hungarian}
+
+I spent two weeks reading material on combinatorial optimization;
+ultimately using the material on pages 201-206 of Eugene Lawler's
+\emph{Combinatorial Optimization: Networks and Matroids} (Dover 2001
+reprint of the 1976 Holt Rinehardt and Winston edition) to implement
+the algorithm in python.  I found it helpful to think about the
+problem in terms of a circuit.  For example, consider the following
+problem and circuit:
+
+Finding the optimal assignment $X$ for the utility matrix
+\begin{equation*}
+  w =
+  \begin{bmatrix}
+    2 & 3 & 7 \\
+    4 & 5 & 8
+  \end{bmatrix}
+\end{equation*}
+is equivalent to the linear programming problem (quoting Lawler)
+\begin{description}
+\item[Maximize:] $\sum_{i,j} w_{i,j} x_{i,j}$
+\item[Subject to:]
+  \begin{align*}
+    \sum_i x_{i,j} &\leq 1 \\
+    \sum_j x_{i,j} &\leq 1 \\
+    x_{i,j} \geq 0
+  \end{align*}
+\end{description}
+with the understanding that $x_{i,j} = 1 \implies (i,j)\in X$ and
+$x_{i,j} = 0 \implies (i,j)\notin X$.
+The dual linear programming problem is
+\begin{description}
+\item[Minimize] $\sum_i u_i + \sum_j v_j$
+\item[Subject to:]
+  \begin{align*}
+    u_i + v_i &\geq w_{i,j} \\
+    u_i & \geq 0 \\
+    v_j & \geq 0
+  \end{align*}
+\end{description}
+The following orthogonality conditions are necessary and sufficient
+for optimality:
+\begin{align*}
+  x_{i,j} > 0 & \implies u_i + v_j = w_{i,j}\\
+  u_i > 0 & \implies \sum_j x_{i,j} = 1\\
+  v_j > 0 & \implies \sum_i x_{i,j} = 1
+\end{align*}
+In turn, the linear programming problem is equivalent to solving the
+circuit in Figure~\ref{fig:assignment1}.
+\begin{figure*}
+  \centering
+    \resizebox{.8\textwidth}{!}{\includegraphics{ha.pdf}}
+  \caption{Circuit equivalent of assignment problem}
+  \label{fig:assignment1}
+\end{figure*}
+
+The algorithm proceeds as follows:
+\begin{enumerate}
+\item Start with $X=()$ and $u= [ 8,  8] v= [ 0,  0,  0] $
+\item Identify \emph{augmenting} path, ie, a directed path that starts
+  with a link with no back voltage on the diode in series with the
+  voltage $w_{i,j}$ that is not in $X$ and perhaps continues with
+  pairs of links the first of which is in $X$ and goes from some $v_j$
+  to a $u_i$ followed by a link not in $X$ with zero voltage on the
+  diode that goes from a $u_i$ to a $v_j$.  The diodes and voltages
+  allow adding an augmenting forward current of value 1 through such a
+  path.  The augmenting current removes from $X$ those links in the
+  path that were in $X$ and appends to $X$ those in the path that were
+  not in $X$ before.  For the example, the first augmenting path is
+  $[(1,0)]$.  The augmentation yields $X=[(1,0)]$.
+\item In this step, I want to adjust some $u$ and $v$ values;
+  decreasing the $u$s and increading the $v$s.  I select the
+  adjustment value $\delta$ to by assigning candidates $\pi$ to each
+  node $j\in T$.  The value of $\pi_j$ is the minimum amount by which a
+  link to $j$ that is not in $X$ is out of kilter.  For this step, the
+  $\pi$ values are $[ 1, 5, 6]$, $\delta=1$, and the adjustment yields
+  $u= [ 7, 8] v= [ 0, 0, 0] pi= [ 0, 4, 5]$
+\item With the adjusted $u_0$ value I recalulate and find
+  $\pi=[0,3,4]$.  Now all links to the node $j=0$ are in kilter.  I
+  can increase $v_0$ by any $\delta$ without throwing those links out
+  of kilter if I also decrease the values of $u_i$ at the other ends
+  of those links by the same amount.  An adjustment by $\delta=3$
+  yields $u= [ 4, 5] v= [ 3, 0, 0] pi= [ 0, 0, 1]$
+\item These voltages enable the augmenting path $[(1,1) (1,0) (0,0)]$
+  which yields $X= [(0, 0) (1, 1)]$
+\item End.  With these voltages and currents the would be no current
+  through the $u$ voltage sources; I imagine removing them.
+\end{enumerate}
+
+\begin{verbatim}
+Before step 2 augmentation X= 
+j=0, S_label= {0: None, 1: None} T_label= {0: 1, 1: 1, 2: 1}
+Augmenting path= (1,0) 
+After step 2 augmentation:  X= (1, 0) 
+              and unscanned_S= {0: True}
+
+Before step 3 adjustment by delta=1.000:
+u= [ 8.  8.] v= [ 0.  0.  0.] pi= [ 1.  5.  6.]   After step 3 adjustment:
+u= [ 7.  8.] v= [ 0.  0.  0.] pi= [ 0.  4.  5.]
+New scannable T node: 0 
+S_label= {0: None} T_label= {0: 0, 1: 0, 2: 0}
+
+Before step 3 adjustment by delta=3.000:
+u= [ 7.  8.] v= [ 0.  0.  0.] pi= [ 0.  3.  4.]   After step 3 adjustment:
+u= [ 4.  5.] v= [ 3.  0.  0.] pi= [ 0.  0.  1.]
+New scannable T node: 1 
+S_label= {0: None, 1: 0} T_label= {0: 0, 1: 1, 2: 1}
+
+Before step 2 augmentation X= (1, 0) 
+j=1, S_label= {0: None, 1: 0} T_label= {0: 0, 1: 1, 2: 1}
+Augmenting path= (1,1) (1,0) (0,0) 
+After step 2 augmentation:  X= (0, 0) (1, 1) 
+              and unscanned_S= {}
+\end{verbatim}
+
+\subsection{Variation on Hungarian Algorithm}
+\label{sec:variation}
+
+For my application, I want allow any number of hits to be explained by
+false alarms, which corresponds to relaxing the constraint $\sum_i
+x_{i,j} \leq 1$ for one value of $j$.  To illustrate, I examine a
+variant of the problem in the previous subsection as follows:
+\begin{description}
+\item[Maximize:] $\sum_{i,j} w_{i,j} x_{i,j}$
+\item[Subject to:]
+  \begin{align*}
+    \sum_i x_{i,j} &\leq 1 ~\forall i\\
+    \sum_j x_{i,j} &\leq 1  ~\underline{\forall j \geq 1} \\
+    x_{i,j} \geq 0
+  \end{align*}
+With the same utility matrix:
+\begin{equation*}
+  w =
+  \begin{bmatrix}
+    2 & 3 & 7 \\
+    4 & 5 & 8
+  \end{bmatrix}
+\end{equation*}
+\end{description}
+I modify the Hungarian algorithm as follows: Ignore node $j=0$ until
+$u_i < w_{i,0}$ for some $i$, then
+\begin{itemize}
+\item Remove $(i,j)$ from $X \forall j: (i,j) \in X$
+\item Remove $w_{i,0}$ from $w$
+\item Remove $u_i$ from $u$
+\item Append $(i,0)$ to $Y$, the collection of links to unconstrained
+  nodes.
+\end{itemize}
+
+The circuit corresponding to this problem appears in
+Figure~\ref{fig:assignment2}
+\begin{figure*}
+  \centering
+    \resizebox{.8\textwidth}{!}{\includegraphics{ha2.pdf}}
+  \caption{Circuit equivalent of the assignment problem with no
+    restriction on the number of $i$ nodes assigned to node $j=0$.}
+  \label{fig:assignment2}
+\end{figure*}
+
 \section{Filtering}
 \label{sec:filtering}
 
