@@ -113,11 +113,12 @@ def M_2_w(M):
 def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
               m,       # Cardinality of S (use i \in S)
               n,       # Cardinality of T (use j \in T)
-              j_gnd=[] # Nodes in T with unlimited capacity
+              j_gnd={} # Nodes in T with unlimited capacity
               ):
     """ Find mapping X from S to T that maximizes \sum_{i,j}
     X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
     """
+    Y = {}
     w_list = wO.values()
     Max = max(w_list)
     Min = min(w_list)
@@ -156,13 +157,19 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             print '(%d,%d)'%(i,j),
         augment(X,X_S,X_T,i,j)
         backtrack_j(X,X_S,X_T,S_label,T_label,j)
-    def backtrack_j(X,X_S,X_T,S_label,T_label,j):
+    def backtrack_j(X,X_S,X_T,S_label,T_label,j,j_gnd={}):
         if not T_label.has_key(j):
             return
         i = T_label[j]
         if debug:
             print '(%d,%d)'%(i,j),
-        augment(X,X_S,X_T,i,j)
+        if j_gnd.has_key(j):
+            if X.has_key((i,j)):
+                raise RuntimeError,'X has key (%d,%d) but %d is in j_gnd'%(i,
+                                                                        j,j)
+            Y[(i,j)] = True
+        else:
+            augment(X,X_S,X_T,i,j)
         backtrack_i(X,X_S,X_T,S_label,T_label,i)
     # Begin Lawler's step 0
     X = {}   # Dict of links X[(i,j)] = True
@@ -171,6 +178,8 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     u = scipy.ones(m)*Max
     v = scipy.zeros(n)
     pi = scipy.ones(n)*inf
+    for j in j_gnd.keys():
+        pi[j] = 0
     S_label = {}
     T_label = {}
     # Begin Lawler's step 1.0: Exposed S nodes get label None
@@ -217,7 +226,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
                         print key,
                     print '\nj=%d, S_label='%j,S_label, 'T_label=',T_label
                     print 'Augmenting path=',
-                backtrack_j(X,X_S,X_T,S_label,T_label,j)
+                backtrack_j(X,X_S,X_T,S_label,T_label,j,j_gnd=j_gnd)
                 if debug:
                     print '\nAfter step 2 augmentation:  X=',
                     for key in X.keys():
@@ -263,6 +272,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
         delta = float(pi_.min())
         if delta > delta_1:
             # Finished
+            X.update(Y)
             return X
         if debug:
             print '\nBefore step 3 adjustment by delta=%5.3f:'%delta
@@ -276,6 +286,9 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
                 pi[j] -= delta
             else:
                 v[j] += delta
+        for j in j_gnd.keys():
+            v[j] = 0
+            pi[j] = 0
         if debug:
             print '  After step 3 adjustment:'
             print 'u=',u,
@@ -456,7 +469,8 @@ class M_LIST:
     def __init__(self, # M_LIST
                  w,    # A dict of utilities indexed by tuples (i,j)
                  m,    # Range of i values
-                 n     # Range of j values
+                 n,    # Range of j values
+                 j_gnd={} # j values, ie, T nodes with no limit
                  ):
         """
         """
@@ -515,16 +529,16 @@ if __name__ == '__main__':  # Test code
     test1 = (M,m,n,sol)
     # This is the matrix in Murty's paper (scaled)
     M = (100-scipy.array([
-        [ 7, 51, 52, 87, 38, 60, 74, 66, 0, 20 ],
-        [ 50, 21, 0, 64, 8, 53, 0, 46, 76, 42 ],
-        [ 27, 77, 0, 18, 22, 48, 44, 13, 0, 57 ],
-        [ 62, 0, 3, 8, 5, 6, 14, 0, 26, 39 ],
-        [ 0, 97, 0, 5, 13, 0, 41, 31, 62, 48 ],
-        [ 79, 68, 0, 0, 15, 12, 17, 47, 35, 43 ],
-        [ 76, 99, 48, 27, 34, 0, 0, 0, 28, 0 ],
-        [ 0, 20, 9, 27, 46, 15, 84, 19, 3, 24 ],
-        [ 56, 10, 45, 39, 0, 93, 67, 79, 19, 38 ],
-        [ 27, 0, 39, 53, 46, 24, 69, 46, 23, 1 ]
+        [ 7,  51, 52, 87, 38, 60, 74, 66, 0,  20 ],
+        [ 50, 21, 0,  64, 8,  53, 0,  46, 76, 42 ],
+        [ 27, 77, 0,  18, 22, 48, 44, 13, 0,  57 ],
+        [ 62, 0,  3,  8,  5,  6,  14, 0,  26, 39 ],
+        [ 0,  97, 0,  5,  13, 0,  41, 31, 62, 48 ],
+        [ 79, 68, 0,  0,  15, 12, 17, 47, 35, 43 ],
+        [ 76, 99, 48, 27, 34, 0,  0,  0,  28, 0 ],
+        [ 0,  20, 9,  27, 46, 15, 84, 19, 3,  24 ],
+        [ 56, 10, 45, 39, 0,  93, 67, 79, 19, 38 ],
+        [ 27, 0,  39, 53, 46, 24, 69, 46, 23, 1 ]
         ]))/10.0
     m = 10
     n = 10
@@ -539,6 +553,10 @@ if __name__ == '__main__':  # Test code
     print_wx(w,sol,m,n)
     X = Hungarian(w,m,n)
     print 'Returned from Hungarian with result:'
+    print_wx(w,X,m,n)
+    X = Hungarian(w,m,n,j_gnd={2:True})
+    #X = Hungarian(w,m,n,j_gnd={})
+    print 'Hungarian with j_gnd={2:True} yields:'
     print_wx(w,X,m,n)
     M,m,n,sol = test2
     w = M_2_w(M)
