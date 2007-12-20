@@ -12,7 +12,7 @@ ha.png: hackt.ckt
 %.pdf: %.ckt
 	epstopdf $*.ckt --outfile=$@
 
-model.pdf: model.tex ha.pdf
+model.pdf: model.tex ha.pdf ha2.pdf
 	pdflatex model.tex
 
 # Local Variables:

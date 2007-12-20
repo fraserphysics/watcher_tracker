@@ -118,6 +118,8 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     """ Find mapping X from S to T that maximizes \sum_{i,j}
     X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
     """
+    if len(wO) == 0:
+        return {}
     Y = {}
     w_list = wO.values()
     Max = max(w_list)
@@ -168,6 +170,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
                 raise RuntimeError,'X has key (%d,%d) but %d is in j_gnd'%(i,
                                                                         j,j)
             Y[(i,j)] = True
+            X_S[i] = j       # Treat S node number i as "covered"
         else:
             augment(X,X_S,X_T,i,j)
         backtrack_i(X,X_S,X_T,S_label,T_label,i)
@@ -178,8 +181,6 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     u = scipy.ones(m)*Max
     v = scipy.zeros(n)
     pi = scipy.ones(n)*inf
-    for j in j_gnd.keys():
-        pi[j] = 0
     S_label = {}
     T_label = {}
     # Begin Lawler's step 1.0: Exposed S nodes get label None
@@ -192,13 +193,14 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
         k += 1
         if debug and k >= 1.9*n*m**2:
             print "Trouble in Hungarian. m=%d, n=%d, w="%(m,n)
+            print_wx(w,w,m,n)
             print 'u=',u
             print 'v=',v
             print 'pi=',pi
             print 'unscanned_S.keys()=',unscanned_S.keys()
             print 'unscanned_T.keys()=',unscanned_T.keys()
             print 'X.keys()=',X.keys()
-        assert(k<2*n*m**2),'k=%d'%k
+        assert(k<2*n*m**2),'k=%d, m=%d, n=%d'%(k,m,n)
         for i in unscanned_S.keys():
             # Begin step 1.3 on i
             for j in xrange(n):
@@ -333,7 +335,8 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
                  m,    # Number of different input vertices in util
                  n,    # Number of different output vertices in util
                  Ri_2_Oi=None, # List for mapping reduced i to original
-                 Rj_2_Oj=None  # List for mapping reduced j to original
+                 Rj_2_Oj=None, # List for mapping reduced j to original
+                 j_gnd={}      # Dict of T nodes with unlimited capacity
                  ):
         if Ri_2_Oi is None:
             self.Ri_2_Oi = range(m)
@@ -347,7 +350,8 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.OUT = OUT[:]           # shallow copy list
         self.u_in = u_in            # Float
         self.util = util.copy()     # shallow copy dict
-        X = Hungarian(util,m,n)
+        self.j_gnd=j_gnd
+        X = Hungarian(util,m,n,j_gnd=j_gnd)
         self.ij_max = X
         u_max = u_in
         for ij in X:
@@ -406,7 +410,8 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         j_list = []
         for Ri,Rj in new_in:
             i_list.append(Ri)
-            j_list.append(Rj)
+            if not self.j_gnd.has_key(Rj): # Don't drop j's in self.j_gnd
+                j_list.append(Rj)
         i_map,Ri_2_Oi = remap(self.Ri_2_Oi,i_list)
         j_map,Rj_2_Oj = remap(self.Rj_2_Oj,j_list)
         util = {}
@@ -424,8 +429,11 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         IN = self.IN[:]
         for Ri,Rj in new_in:
             IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
-        new = M_NODE(IN, self.OUT, u_in, util, self.m-len(new_in),
-           self.n-len(new_in), Ri_2_Oi, Rj_2_Oj)
+        new_j_gnd = {}
+        for j in self.j_gnd.keys():   # Map j_gnd to new coordinates
+            new_j_gnd[j_map[j]] = True
+        new = M_NODE(IN, self.OUT, u_in, util, len(i_map), len(j_map),
+                     Ri_2_Oi, Rj_2_Oj,j_gnd=new_j_gnd)
         Ri,Rj = new_out
         new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
         return new
@@ -470,13 +478,14 @@ class M_LIST:
                  w,    # A dict of utilities indexed by tuples (i,j)
                  m,    # Range of i values
                  n,    # Range of j values
-                 j_gnd={} # j values, ie, T nodes with no limit
+                 j_gnd={} # j values, ie, T nodes with unlimited capacity
                  ):
         """
         """
-        node_0 = M_NODE([],[],0.0,w,m,n)
+        node_0 = M_NODE([],[],0.0,w,m,n,j_gnd=j_gnd)
         self.node_list = [(node_0.u_max,node_0)]
         self.association_list = []
+        self.j_gnd=j_gnd
         self.next()
         return
     def next(self,    # M_LIST
@@ -502,7 +511,7 @@ class M_LIST:
         N or utility(association_list[-1]) <= U.
         """
         while len(self.association_list) < N \
-              and self.association_list[0][0] > U:       
+              and self.association_list[-1][0] > U:       
             self.next()
         return
 if __name__ == '__main__':  # Test code
@@ -545,25 +554,30 @@ if __name__ == '__main__':  # Test code
     sol = {(6, 9): True, (0, 8): True, (7, 0): True, (9, 1): True, (4, 5): True, (1, 6): True, (2, 2): True, (3, 7): True, (5, 3): True, (8, 4): True}
     test2 = (M,m,n,sol)
     M,m,n,sol = test1 # Funny way to enable different tests with small edit
-    debug = True
+    debug = False
     w = M_2_w(M)
     print 'w='
     print_wx(w,w,m,n)
-    print 'Call Hungarian.  Expect (within offset) result:'
+    print 'Call Hungarian.  Expect result:'
     print_wx(w,sol,m,n)
     X = Hungarian(w,m,n)
     print 'Returned from Hungarian with result:'
     print_wx(w,X,m,n)
+    print 'Calling Hungarian with j_gnd={2:True} yields:'
     X = Hungarian(w,m,n,j_gnd={2:True})
-    #X = Hungarian(w,m,n,j_gnd={})
-    print 'Hungarian with j_gnd={2:True} yields:'
     print_wx(w,X,m,n)
     M,m,n,sol = test2
     w = M_2_w(M)
-    debug = False
     ML = M_LIST(w,m,n)
     ML.till(10,95)
     print "Result of Murty's algorithm:"
+    for U,X in ML.association_list:
+        X.sort()
+        print_x(X,w)
+    # Test with no capacity limit for third column
+    ML = M_LIST(w,m,n,j_gnd={2:True})
+    ML.till(18,99.8)
+    print "Result of Murty's algorithm with j_gnd={2:True}:"
     for U,X in ML.association_list:
         X.sort()
         print_x(X,w)
