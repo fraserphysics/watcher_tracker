@@ -934,15 +934,18 @@ After step 2 augmentation:  X= (0, 0) (1, 1)
 \label{sec:variation}
 
 For my application, I want allow any number of hits to be explained by
-false alarms, which corresponds to relaxing the constraint $\sum_i
-x_{i,j} \leq 1$ for one value of $j$.  To illustrate, I examine a
-variant of the problem in the previous subsection as follows:
+false alarms or new targets, which corresponds to relaxing the
+constraint $\sum_i x_{i,j} \leq 1$ for two values of $j$.  I need a
+variant of the Hungarian algorithm that recognizes ${\cal J} \subset
+T$ a subset of nodes with \emph{unlimited capacity}.  To illustrate, I
+modify the problem in the previous subsection by making ${\cal J} =
+\left\{2\right\}$:
 \begin{description}
 \item[Maximize:] $\sum_{i,j} w_{i,j} x_{i,j}$
 \item[Subject to:]
   \begin{align*}
     \sum_i x_{i,j} &\leq 1 ~\forall i\\
-    \sum_j x_{i,j} &\leq 1  ~\underline{\forall j \geq 1} \\
+    \sum_j x_{i,j} &\leq 1  ~\underline{\forall j \notin {\cal J}} \\
     x_{i,j} \geq 0
   \end{align*}
 With the same utility matrix:
@@ -954,15 +957,18 @@ With the same utility matrix:
   \end{bmatrix}
 \end{equation*}
 \end{description}
-I modify the Hungarian algorithm as follows: Ignore node $j=0$ until
-$u_i < w_{i,0}$ for some $i$, then
+The only required modifications of the Hungarian algorithm are for
+$j\in {\cal J}$ in the following steps:
 \begin{itemize}
-\item Remove $(i,j)$ from $X \forall j: (i,j) \in X$
-\item Remove $w_{i,0}$ from $w$
-\item Remove $u_i$ from $u$
-\item Append $(i,0)$ to $Y$, the collection of links to unconstrained
-  nodes.
+\item In augmentation processing, put the link $(i,j)$ in a special
+  set $Y$ and henceforth consider the node $i$ as \emph{covered}, ie,
+  as if it were in $X$.  It is an error if any link to $j$ ever
+  appears in $X$.
+\item In adjusting the dual variables for step 3, set $v_j$ and
+  $\pi_j$ to zero.
+\item When finished report both $X$ and $Y$
 \end{itemize}
+
 
 The circuit corresponding to this problem appears in
 Figure~\ref{fig:assignment2}
@@ -973,6 +979,24 @@ Figure~\ref{fig:assignment2}
     restriction on the number of $i$ nodes assigned to node $j=0$.}
   \label{fig:assignment2}
 \end{figure*}
+
+\subsection{Murty's Algorithm}
+\label{sec:murty}
+
+I like the explanation of the algorithm in Murty's
+paper\footnote{\emph{An Algorithm for Ranking all the Assignments in
+    Order of Increasing Cost}, Katta G.  Murty Operations Research,
+  Vol. 16, No. 3 (May - Jun., 1968), pp.  682-687.}  Murty defines a
+collection of assignments or soultions that \emph{includes} a set of
+links $I$ and excludes another set of links $E$ as the
+\underline{node} $N(I,E)$.  To avoid confusion with the vertices or
+nodes of the Hungarian algorithm, will underline Murty's concept of
+\underline{node}.  I have modified the algorithm for vertices with
+unlimited capacity as follows: After appending a link $(i,j)$ to the
+list $I$ for \underline{node} $N(I,E)$, Murty's algorithm strikes the
+$i^{\text th}$ row and $j^{\text th}$ column of the utility matrix
+$w$.  However, if $j\in {\cal J}$, I do not strike the $j^{\text th}$
+column.
 
 \section{Filtering}
 \label{sec:filtering}
