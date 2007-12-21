@@ -372,31 +372,14 @@ class ASSOCIATION4:
                        'Dying target appears twice?'
                 self.dead_targets[target.index] = [target,t]
                 target.children = {}
-    def forward(self,       # ASSOCIATION4
-                successors, # DB of associations and u's for the next time step
-                y_t,        # Hits at this time
-                t,
-                k_list=None # Option for MV5
-                ):
-        """ For each plausible successor S of the ASSOCIATION self,
-        enter the following into the successors DB 1. A key for the
-        explanation that S gives for the observations. 2. The
-        candidate successor association S. 3. The value of
-        u'(self,S,t+1).
-
-        FixMe: This is where I could use Murty's algorithm
+    def exhaustive(self,     # ASSOCIATION4
+                   k_list,   # Observation indices in this cluster
+                   causes,   # Plausible explanations of each observation
+                   N_max     # Maximum number of associations to return
+                   ):
+        """ A service routine for forward that finds the N_max best
+        associations by exhaustive search
         """
-        if k_list is None:
-            k_list = range(len(y_t))
-        # For each observation, make a list of plausible causes
-        causes = []
-        for k in k_list:
-            if k < 0:
-                continue
-            causes_k = []
-            for check in self.cause_checks:
-                check(k,causes_k,y_t[k],t)
-            causes.append(causes_k)
         # Initialize list of partial associations.
         old_list = [self.New(self.nu,self.mod)]
         # Make list of plausible associations.  At level j, each
@@ -412,36 +395,102 @@ class ASSOCIATION4:
                     # tar_dict has only targets, not FAs
                     if not partial.tar_dict.has_key(cause.index):
                         new_list.append(partial.Fork(cause))
-            if len(new_list) <= 30:   # If too many partials, prune greedily
                 old_list = new_list
-                continue
+        if len(new_list) > N_max:   # If too many partials, prune
             sortlist = []
-            old_list = []
-            for partial in new_list:
+            for partial in old_list:
                 sortlist.append([-partial.nu,partial])
             sortlist.sort()
-            limit = sortlist[0][0]+(self.mod.alpha*self.mod.MaxD)**2*len(y_t)/2
-            length = min(len(sortlist),30) #FixMe: hard coded 20
-            for k in xrange(length):
+            new_list = []
+            for k in xrange(N_max):
                 neg_nu,a = sortlist[k]
-                if neg_nu > limit:
-                    break
-                old_list.append(a)
-        if len(old_list) == 0:
+                new_list.append(a)
+        return new_list
+    def Murty(self,     # ASSOCIATION4
+              k_list,   # Observations indices in this cluster
+              causes,   # Plausible explanations of each observation
+              N_max     # Maximum number of associations to return
+              ):
+        """ A service routine for forward that finds the N_max best
+        associations by Murty's algorithm.
+        """
+        assert(len(k_list) == len(causes)),\
+              'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
+        m = len(k_list) # Number of observations
+        C_2_j = {} # Map from cause index to j
+        j_2_C = {} # Map from j to cause index
+        j_mult = {}
+        w = {}
+        n = 0
+        for i in xrange(m):
+            for cause in causes[i]:
+                index = cause.index
+                if not C_2_j.has_key(index):
+                    C_2_j[index] = n
+                    j_2_C[n] = index
+                    if index < 0:
+                        j_mult[n]=True # Allow multiple assignments to FA
+                    n += 1
+                j = C_2_j[index]
+                w[(i,j)] = cause.R
+        ML = util.M_LIST(w,m,n,j_gnd=j_mult)
+        ML.till(10,-100)
+        print "Result of Murty's algorithm with j_gnd={2:True}:"
+        for U,X in ML.association_list:
+            X.sort()
+            util.print_x(X,w)
+        raise RuntimeError,'N_hat=%f too large.  Murty not implemented'%N_max
+    def forward(self,       # ASSOCIATION4
+                successors, # DB of associations and u's for the next time step
+                y_t,        # Hits at this time
+                t,
+                k_list=None # Option for MV5 to identify subset of y_t
+                            # in this cluster
+                ):
+        """ For each plausible successor S of the ASSOCIATION self,
+        enter the following into the successors DB 1. A key for the
+        explanation that S gives for the observations. 2. The
+        candidate successor association S. 3. The value of
+        u'(self,S,t+1).
+
+        FixMe: This is where I could use Murty's algorithm
+        """
+        if k_list is None:
+            k_list = range(len(y_t))
+        # For each observation, make a list of plausible causes
+        causes = []
+        N_c =0    # Total number of causes
+        for k in k_list:
+            if k < 0:
+                continue
+            causes_k = []
+            for check in self.cause_checks:
+                check(k,causes_k,y_t[k],t)
+            causes.append(causes_k)
+            N_c += len(causes_k)
+        m = len(k_list)
+        N_hat = (float(N_c)/m)**m  # Bound on number of associations
+        if N_hat < 200:
+            new_list = self.exhaustive(k_list,causes,200)
+            print 'N_hat=%d, len(new_list)=%d'%(int(N_hat),len(new_list))
+        else:
+            new_list = self.Murty(k_list,causes,N_hat)
+        
+        if len(new_list) == 0:
             print 'forward returning without any new associations'
             return
         # For each association, do extra work work required for
         # nonstandard hit/target combinations
-        for partial in old_list:
+        for partial in new_list:
             for method in self.extra_forward:
                 method(partial,t)
-        # Now each entry in old_list is a complete association and
+        # Now each entry in new_list is a complete association and
         # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
 
-        # Map each association in old_list to it's successor key and
+        # Map each association in new_list to it's successor key and
         # propose the present association as the predecessor for that
         # key.
-        for a in old_list:
+        for a in new_list:
             successors.enter(a)
 def make_history(targets,         # Dict of targets with tuple(m_t) keys
                  t,               # Time of last observation
