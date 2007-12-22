@@ -96,7 +96,8 @@ def print_x(X,w):
     print 'U[',
     for key in keys:
         u += w[key]
-        print '(%d,%d)'%(key[0]+1,key[1]+1), # +1 to match Murty's paper
+        #print '(%d,%d)'%(key[0]+1,key[1]+1), # +1 to match Murty's paper
+        print '(%d,%d)'%(key[0],key[1]),
     print '] = %5.2f'%u
     return u
 

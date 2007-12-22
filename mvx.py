@@ -308,6 +308,19 @@ class ASSOCIATION4:
             CA.targets = self.targets
             return CA
         raise RuntimeError,"Cause type %s not known"%cause.type
+    def Spoon(self, # ASSOCIATION4
+            cause   # CAUSE of next hit in y_t
+            ):
+        """ Append cause to association.  Like Fork but modify self
+        """
+        self.nu += cause.R
+        self.h2c.append(cause.index)
+        if cause.type is 'target':
+            self.targets.append(cause)
+            return
+        if cause.type is 'FA':
+            return
+        raise RuntimeError,"Cause type %s not known"%cause.type
     def check_targets(self,k,causes,y,t):
         """ A check method for list cause_checks called by forward().
         This method appends relevant children to plausible causes.
@@ -396,16 +409,16 @@ class ASSOCIATION4:
                     if not partial.tar_dict.has_key(cause.index):
                         new_list.append(partial.Fork(cause))
                 old_list = new_list
-        if len(new_list) > N_max:   # If too many partials, prune
+        if len(old_list) > N_max:   # If too many partials, prune
             sortlist = []
-            for partial in old_list:
+            for partial in new_list:
                 sortlist.append([-partial.nu,partial])
             sortlist.sort()
-            new_list = []
+            old_list = []
             for k in xrange(N_max):
                 neg_nu,a = sortlist[k]
-                new_list.append(a)
-        return new_list
+                old_list.append(a)
+        return old_list
     def Murty(self,     # ASSOCIATION4
               k_list,   # Observations indices in this cluster
               causes,   # Plausible explanations of each observation
@@ -417,29 +430,51 @@ class ASSOCIATION4:
         assert(len(k_list) == len(causes)),\
               'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
         m = len(k_list) # Number of observations
-        C_2_j = {} # Map from cause index to j
-        j_2_C = {} # Map from j to cause index
-        j_mult = {}
-        w = {}
-        n = 0
-        for i in xrange(m):
+        index_2_j = {}  # Map from cause index to j
+        ij_2_cause = {} # Map from (i,j) to cause
+        j_mult = {}     # Dict of causes that can explain many observations
+        w = {}          # Dict of assignement weights
+        n = 0           # Number of j values, ie, causes
+        for i in xrange(m): # Loop over observations
             for cause in causes[i]:
                 index = cause.index
-                if not C_2_j.has_key(index):
-                    C_2_j[index] = n
-                    j_2_C[n] = index
+                if not index_2_j.has_key(index):
+                    index_2_j[index] = n
                     if index < 0:
                         j_mult[n]=True # Allow multiple assignments to FA
                     n += 1
-                j = C_2_j[index]
+                j = index_2_j[index]
+                ij_2_cause[(i,j)] = cause
                 w[(i,j)] = cause.R
+        # Make each w[key] > (Max-Min) so all solutions have m links
+        w_list = w.values()
+        delta = max(w_list) - 2*min(w_list)
+        for key in w.keys():
+            w[key] = w[key] + delta
+        #
+        X = util.Hungarian(w,m,n,j_gnd=j_mult)
+        floor = -8.0 # FixMe: Use smarter margin than 8.0
+        for key in X.keys():
+            floor += w[key]
         ML = util.M_LIST(w,m,n,j_gnd=j_mult)
-        ML.till(10,-100)
-        print "Result of Murty's algorithm with j_gnd={2:True}:"
+        ML.till(250,floor) # FixMe: use smarter limit than 250
+        print "Result of Murty's algorithm with j_gnd=",j_mult,'and w='
+        util.print_wx(w,w,m,n)
+        new_list = []
         for U,X in ML.association_list:
-            X.sort()
+            if len(X) < m:
+                print 'Skip association len(X)=%d, m=%d, U=%5.2f'%(len(X),
+                       m, U)
+                continue
+            assert(len(X) == m),'association len(X)=%d, m=%d, U=%5.2f'%(
+                len(X), m, U)
+            X.sort()  # X is a list of pairs (i,j)
             util.print_x(X,w)
-        raise RuntimeError,'N_hat=%f too large.  Murty not implemented'%N_max
+            new_A = self.New(self.nu,self.mod)
+            for ij in X:
+                new_A.Spoon(ij_2_cause[ij])
+            new_list.append(new_A)
+        return new_list
     def forward(self,       # ASSOCIATION4
                 successors, # DB of associations and u's for the next time step
                 y_t,        # Hits at this time
@@ -452,8 +487,6 @@ class ASSOCIATION4:
         explanation that S gives for the observations. 2. The
         candidate successor association S. 3. The value of
         u'(self,S,t+1).
-
-        FixMe: This is where I could use Murty's algorithm
         """
         if k_list is None:
             k_list = range(len(y_t))
@@ -469,10 +502,12 @@ class ASSOCIATION4:
             causes.append(causes_k)
             N_c += len(causes_k)
         m = len(k_list)
-        N_hat = (float(N_c)/m)**m  # Bound on number of associations
+        if m > 0:
+            N_hat = (float(N_c)/m)**m  # Bound on number of associations
+        else:
+            N_hat = 0
         if N_hat < 200:
             new_list = self.exhaustive(k_list,causes,200)
-            print 'N_hat=%d, len(new_list)=%d'%(int(N_hat),len(new_list))
         else:
             new_list = self.Murty(k_list,causes,N_hat)
         
@@ -1458,12 +1493,12 @@ if __name__ == '__main__':  # Test code
     PV_V=[[.95,0.05],[0.2,.8]]
     # Loop over models (all except MV5 have 2-d states and 1-d observations)
     for pair in (
+       [MV1(N_tar=8),'MV1',0.1],
+       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',0.05],
        [MV5(N_tar=4,PV_V=PV_V,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
             MaxD=5.0,alpha=2.0,Lambda_FA=.01),'MV5',0.11],
-       [MV1(N_tar=4),'MV1',0.1],
        [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.08],
-       [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.07],
-       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',0.05]
+       [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.07]
        ):
         random.seed(3)
         scipy.random.seed(3)

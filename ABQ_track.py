@@ -181,6 +181,14 @@ if __name__ == '__main__':  # Test code
             Mods[I].dump()
             
     if opt_dict.has_key('--test'):
+        # Check for missed hits in each track
+        for track in track_2_hits.values():
+            t = track[0][2]
+            for hit in track[1:]:
+                if hit[2] != t+1:
+                    print 'gap in track at t=%d,'%(t+1,),(3*' %d')%tuple(old_hit)
+                t += 1
+                old_hit = hit
         # For each frame, print a line for each hit
         for key,value in t_2_hits.items():
             print 't=%d'%key
