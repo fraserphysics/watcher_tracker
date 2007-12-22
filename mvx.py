@@ -448,18 +448,22 @@ class ASSOCIATION4:
                 w[(i,j)] = cause.R
         # Make each w[key] > (Max-Min) so all solutions have m links
         w_list = w.values()
-        delta = max(w_list) - 2*min(w_list)
+        delta = 2*m*max(w_list) - (2*m+1)*min(w_list)
         for key in w.keys():
             w[key] = w[key] + delta
         #
         X = util.Hungarian(w,m,n,j_gnd=j_mult)
-        floor = -8.0 # FixMe: Use smarter margin than 8.0
+        floor = -4.0 # FixMe: Use smarter margin than 4.0
         for key in X.keys():
             floor += w[key]
         ML = util.M_LIST(w,m,n,j_gnd=j_mult)
-        ML.till(250,floor) # FixMe: use smarter limit than 250
+        ML.till(20,floor) # FixMe: use smarter limit than 20
+        # Begin debugging print
+        for key in w.keys():
+            w[key] = w[key] - delta
         print "Result of Murty's algorithm with j_gnd=",j_mult,'and w='
         util.print_wx(w,w,m,n)
+        # End debugging print
         new_list = []
         for U,X in ML.association_list:
             if len(X) < m:

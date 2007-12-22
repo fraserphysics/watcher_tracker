@@ -303,7 +303,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
                     print j,
             print '\nS_label=',S_label, 'T_label=',T_label
         # Start another iteration of the labeling loop
-
+    # End of Hungarian
 class M_NODE:
     """ Class for Murty's algorithm that finds the n best assignments
     for any n.  Note that Murty's paper considers assignments with
@@ -405,7 +405,7 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
             for k in x_list:
                 del new_Rx_2_Ox[k]
             return (x_map,new_Rx_2_Ox)
-    
+        # End of remap
         # Create the mapping lists and util dict for new node
         i_list = []
         j_list = []
@@ -435,9 +435,16 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
             new_j_gnd[j_map[j]] = True
         new = M_NODE(IN, self.OUT, u_in, util, len(i_map), len(j_map),
                      Ri_2_Oi, Rj_2_Oj,j_gnd=new_j_gnd)
+        if len(new.ij_max) < len(Ri_2_Oi):
+            #if debug:
+            print \
+'Trouble in spawn: association has %d links but needs %d'%(
+    len(new.ij_max),len(j_map))
+            #return None
         Ri,Rj = new_out
         new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
         return new
+    # End of spawn()
     def partition(self # M_NODE
                   ):
         """ Return both m_nodes and (u_max, m_node) pairs of partition on
@@ -491,6 +498,10 @@ class M_LIST:
         return
     def next(self,    # M_LIST
                  ):
+        """ Find the next best association, put it in
+        self.association_list, and partition the M_NODE from which it
+        came.
+        """
         u,node = self.node_list.pop()
         A =  node.IN[:]
         for Ri,Rj in node.ij_max.keys():  # Map from reduced to Original
@@ -500,10 +511,6 @@ class M_LIST:
         self.node_list += pairs
         self.node_list.sort()
         return
-    """ Find the next best association, put it in
-    self.association_list, and partition the M_NODE from which it
-    came.
-    """
     def till(self,    # M_LIST
              N,
              U
