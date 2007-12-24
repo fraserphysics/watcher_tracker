@@ -458,22 +458,8 @@ class ASSOCIATION4:
             floor += w[key]
         ML = util.M_LIST(w,m,n,j_gnd=j_mult)
         ML.till(20,floor) # FixMe: use smarter limit than 20
-        # Begin debugging print
-        for key in w.keys():
-            w[key] = w[key] - delta
-        print "Result of Murty's algorithm with j_gnd=",j_mult,'and w='
-        util.print_wx(w,w,m,n)
-        # End debugging print
         new_list = []
         for U,X in ML.association_list:
-            if len(X) < m:
-                print 'Skip association len(X)=%d, m=%d, U=%5.2f'%(len(X),
-                       m, U)
-                continue
-            assert(len(X) == m),'association len(X)=%d, m=%d, U=%5.2f'%(
-                len(X), m, U)
-            X.sort()  # X is a list of pairs (i,j)
-            util.print_x(X,w)
             new_A = self.New(self.nu,self.mod)
             for ij in X:
                 new_A.Spoon(ij_2_cause[ij])

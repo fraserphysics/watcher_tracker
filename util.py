@@ -353,13 +353,16 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.util = util.copy()     # shallow copy dict
         self.j_gnd=j_gnd
         X = Hungarian(util,m,n,j_gnd=j_gnd)
+        self.m = m
+        self.n = n
+        if len(X) < m:        # Some source vertices (hits) have no links
+            self.ij_max = None
+            return
         self.ij_max = X
         u_max = u_in
         for ij in X:
             u_max += util[ij]
         self.u_max = u_max
-        self.m = m
-        self.n = n
     def dump(self      #M_NODE
              ):
         print "\nDumping an M_NODE:"
@@ -435,12 +438,8 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
             new_j_gnd[j_map[j]] = True
         new = M_NODE(IN, self.OUT, u_in, util, len(i_map), len(j_map),
                      Ri_2_Oi, Rj_2_Oj,j_gnd=new_j_gnd)
-        if len(new.ij_max) < len(Ri_2_Oi):
-            #if debug:
-            print \
-'Trouble in spawn: association has %d links but needs %d'%(
-    len(new.ij_max),len(j_map))
-            #return None
+        if new.ij_max is None: # Cardinality of X less than m
+            return None
         Ri,Rj = new_out
         new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
         return new
@@ -457,7 +456,7 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         new_in = []
         for ij in self.ij_max.keys():
             child = self.spawn(new_in,ij)
-            if child is None:
+            if child is None: # Cardinality of X less than m
                 continue
             new_in.append(ij)
             children.append(child)
@@ -515,11 +514,13 @@ class M_LIST:
              N,
              U
                  ):
-        """ Call self.next until either len(self.association_list) >=
-        N or utility(association_list[-1]) <= U.
+        """ Call self.next until either len(self.association_list) >= N or
+        utility(association_list[-1]) <= U or no more associations are
+        possible.
         """
         while len(self.association_list) < N \
-              and self.association_list[-1][0] > U:       
+              and self.association_list[-1][0] > U\
+              and len(self.node_list) > 0:       
             self.next()
         return
 if __name__ == '__main__':  # Test code
