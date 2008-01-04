@@ -311,7 +311,8 @@ class ASSOCIATION4:
     def Spoon(self, # ASSOCIATION4
             cause   # CAUSE of next hit in y_t
             ):
-        """ Append cause to association.  Like Fork but modify self
+        """ Extend association by cause.  Like Fork but modify self
+        rather than create child
         """
         self.nu += cause.R
         self.h2c.append(cause.index)
