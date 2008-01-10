@@ -2,7 +2,7 @@
 
 \usepackage{amsmath,amsfonts}
 \usepackage{graphicx}
-\usepackage{showlabels}
+%\usepackage{showlabels}
 
 \newcommand{\normal}[2]{{\cal N}(#1,#2)}
 \newcommand{\NormalE}[3]{{\mathcal{N}}\left.\left(#1,#2\right)\right|_{#3}}
@@ -886,13 +886,13 @@ The algorithm proceeds as follows:
   not in $X$ before.  For the example, the first augmenting path is
   $[(1,0)]$.  The augmentation yields $X=[(1,0)]$.
 \item In this step, I want to adjust some $u$ and $v$ values;
-  decreasing the $u$s and increading the $v$s.  I select the
+  decreasing the $u$s and increasing the $v$s.  I select the
   adjustment value $\delta$ to by assigning candidates $\pi$ to each
   node $j\in T$.  The value of $\pi_j$ is the minimum amount by which a
   link to $j$ that is not in $X$ is out of kilter.  For this step, the
   $\pi$ values are $[ 1, 5, 6]$, $\delta=1$, and the adjustment yields
   $u= [ 7, 8] v= [ 0, 0, 0] pi= [ 0, 4, 5]$
-\item With the adjusted $u_0$ value I recalulate and find
+\item With the adjusted $u_0$ value I recalculate and find
   $\pi=[0,3,4]$.  Now all links to the node $j=0$ are in kilter.  I
   can increase $v_0$ by any $\delta$ without throwing those links out
   of kilter if I also decrease the values of $u_i$ at the other ends
@@ -987,7 +987,7 @@ I like the explanation of the algorithm in Murty's
 paper\footnote{\emph{An Algorithm for Ranking all the Assignments in
     Order of Increasing Cost}, Katta G.  Murty Operations Research,
   Vol. 16, No. 3 (May - Jun., 1968), pp.  682-687.}  Murty defines a
-collection of assignments or soultions that \emph{includes} a set of
+collection of assignments or solutions that \emph{includes} a set of
 links $I$ and excludes another set of links $E$ as the
 \underline{node} $N(I,E)$.  To avoid confusion with the vertices or
 nodes of the Hungarian algorithm, will underline Murty's concept of
