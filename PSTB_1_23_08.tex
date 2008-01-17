@@ -1,0 +1,106 @@
+\documentclass{beamer}
+\usepackage{amsmath,amsfonts}
+\usepackage[pdftex]{rotating}
+\newcommand{\argmax}{\operatorname*{argmax}}
+\title{Multi-Target Tracking}
+\author{Andy Fraser}
+\date{January\ 23, 2008}
+
+%\usetheme{Pittsburgh}
+\usetheme{default}
+\usefonttheme[]{serif}
+\begin{document}
+\frame{\titlepage}
+
+%\frame{\tableofcontents}
+
+\frame{
+  \frametitle{Tracking}
+  \begin{description}
+  \item[Input:] List of \textbf{hits} $\left\{ h_i(t) \right\}$ for
+    frame at each time $t$
+    \begin{equation*}
+      h_i(t) = \text{Position \& Attributes}
+    \end{equation*}
+  \item[Output:] List of \textbf{trajectories}
+    \begin{equation*}
+      \left\{ x_j(t): T_i
+        \leq t \leq T_f \right\}
+    \end{equation*}
+    for each \textbf{target}
+    \begin{equation*}
+      x_j(t) = \text{Position \& Velocity}
+    \end{equation*}
+  \item[Technique:] State space model.  Random accelerations.  Approx
+    \textbf{Viterbi algorithm}:
+    \begin{equation*}
+      \bf{\hat x} = \argmax_{\bf{x}} P(\bf{x}|\bf{h})
+    \end{equation*}
+  \end{description}
+}
+
+\frame{
+  \frametitle{Tracking}
+  \begin{description}
+  \item[Challenge:] $N!$ possible \textbf{associations} (hits $\mapsto$
+    targets) for each frame.  Total of $(N!)^{T_{\text{frames}}}$
+    possible association sequences
+  \item[Response:] Consider only a few high probability associations for
+    each frame.  (MHT: DB Reid IEEE Trans AC 1979) with modifications:
+    \begin{itemize}
+    \item Viterbi approach is linear in ${T_{\text{frames}}}$
+    \item Flag discarded plausible possibilities
+    \end{itemize}
+  \end{description}
+}
+
+\frame{
+  \frametitle{Extreme Pruning:}
+  Use only best association (hits $\mapsto$ targets) for each frame
+  \vspace{1cm}\\ \framebox[\textwidth]{\rule{0cm}{4cm}Easy Movie Here}
+}
+
+\frame{
+  \frametitle{Confusing Complex Clusters:} \framebox[\textwidth]{\rule{0cm}{6cm}Hard Movie Here}
+}
+
+\frame{
+  \frametitle{Complex Pruning Techniques}
+  \begin{itemize}
+  \item Set threshold distance and cluster hits
+  \item 10 best associations for each cluster
+  \item Association sequences that match for 5 frames
+  \end{itemize}
+  \newcommand{\fudgeA}{0.48}
+  \parbox{\fudgeA\textwidth}{\center{Hits vs Time}\\
+    \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figA3.png}}}
+  \hspace{-0.02\textwidth}
+  \parbox{\fudgeA\textwidth}{\center{Trajectories}\\
+    \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figB3.png}}}
+}
+
+\frame{
+  \frametitle{Status:}
+  \begin{itemize}
+  \item Good results for sparse traffic from extreme pruning
+  \item For fixed \# targets Hungarian/Murty algorithm with clustering
+    runs well
+  \item Bugs for clustering with variable \# targets
+  \end{itemize}
+}
+
+\frame{
+  \frametitle{Next steps:}
+  \begin{itemize}
+  \item Debug clustering with variable \# targets
+  \item Make model parameters depend on position
+  \item Exploit attributes, eg, color/size
+  \end{itemize}
+}
+\end{document}
+
+
+%%%---------------
+%%% Local Variables:
+%%% eval: (TeX-PDF-mode)
+%%% End:
