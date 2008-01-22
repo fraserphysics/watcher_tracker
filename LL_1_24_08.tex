@@ -1,0 +1,162 @@
+\documentclass{beamer}
+\usepackage{amsmath,amsfonts}
+\usepackage[pdftex]{rotating}
+\usepackage{movie15}
+\newcommand{\argmax}{\operatorname*{argmax}}
+\newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
+\newcommand{\ts}[3]{{#1}_{#2}^{#3}} % Time series
+\title{Multi-Target Tracking}
+\author{Andy Fraser}
+\date{January\ 24, 2008}
+
+%\usetheme{Pittsburgh}
+\usetheme{default}
+\usefonttheme[]{serif}
+\begin{document}
+\frame{\titlepage}
+
+%\frame{\tableofcontents}
+
+\frame{
+  \frametitle{Task Statement}
+  \begin{description}
+  \item[Input:] List of \textbf{hits} $\left\{ y_i(t) \right\}$ for
+    frame at each time $t$
+    \begin{equation*}
+      y_i(t) = \text{Position \& Attributes}
+    \end{equation*}
+  \item[Output:] List of \textbf{trajectories}
+    \begin{equation*}
+      \left\{ x_j(t): T_i
+        \leq t \leq T_f \right\}
+    \end{equation*}
+    for each \textbf{target}
+    \begin{equation*}
+      x_j(t) = \text{Position \& Velocity}
+    \end{equation*}
+  \end{description}
+}
+
+\frame{
+  \frametitle{Solution Strategy}
+  \begin{description}
+  \item[State space model:] Linear dynamics, Gaussian accelerations:
+    $x_j(t+1) = A \cdot x_j(t) + \eta(t)$.  Want \textbf{M.A.P:}
+    \begin{equation*}
+      \bf{\hat x}_1^T = \argmax_{\bf{x}_1^T} P(\bf{x}_1^T|\bf{y})
+    \end{equation*}
+  \item[Challenge:] $N!$ possible \textbf{associations} (hits $\mapsto$
+    targets) for each frame.  Total of $(N!)^{T_{\text{frames}}}$
+    possible association sequences
+  \item[Response:] Consider only a few high probability associations for
+    each frame.  (MHT: DB Reid IEEE Trans AC 1979) with modifications:
+    \begin{itemize}
+    \item Viterbi approach is linear in ${T_{\text{frames}}}$
+    \item Flag discarded plausible possibilities
+    \end{itemize}
+  \end{description}
+}
+
+\frame{
+  \frametitle{Extreme Pruning:}
+  Use only best association (hits $\mapsto$ targets) for each frame
+  \vspace{1cm}\\ \framebox[\textwidth]{\rule{0cm}{4cm}Easy Movie Here}
+}
+
+\frame{
+  \frametitle{Confusing Complex Clusters:} \framebox[\textwidth]{\rule{0cm}{6cm}Hard Movie Here}
+}
+
+\frame{
+  \frametitle{Pruning Techniques}
+  \begin{itemize}
+  \item Cluster hits and set threshold distance
+  \item 10 best associations for each cluster
+  \item Prune sequences that match for 5 frames
+  \end{itemize}
+  \newcommand{\fudgeA}{0.4}
+  \parbox{\fudgeA\textwidth}{\center{Hits vs Time}\\
+    \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figA3.png}}}
+  \hspace{-0.02\textwidth}
+  \parbox{\fudgeA\textwidth}{\center{Trajectories}\\
+    \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figB3.png}}}
+}
+
+\frame{
+  \frametitle{Status:}
+  \begin{itemize}
+  \item Good results for sparse traffic from extreme pruning
+  \item Current code implements Hungarian/Murty algorithm and
+    clustering; \emph{usually} runs and \emph{often} finds
+    \emph{plausible} tracks
+  \end{itemize}
+}
+
+\frame{
+  \frametitle{Next steps:}
+  \begin{itemize}
+  \item Debug: (\emph{usually/often} $\rightarrow$ \emph{always})
+  \item Make model parameters depend on position
+  \item Exploit attributes, eg, color/size
+  \end{itemize}
+}
+\frame{
+  \frametitle{Method:  Model assumptions}
+Functions that specify a state space model:
+\begin{description}
+\item[State transition probability:] $P(\ti{s}{t+1}|\ti{s}{t})$
+\item[Conditional observation probability:] $P(\ti{y}{t}|\ti{s}{t})$
+\item[Initial state distribution] $P(\ti{s}{1})$
+\end{description}
+
+Note:
+\begin{equation*}
+  \argmax_{s_1^T} P(s_1^T|y_1^T) = \argmax_{s_1^T} P(y_1^T,s_1^T)
+\end{equation*}
+}
+
+\frame{
+  \frametitle{Method:  Notation for Viterbi decoding}
+\begin{align*}
+  u(\ts{s}{1}{t}) & \quad \text{Utility of state sequence }
+  \ts{s}{1}{t}\\
+  & \quad \equiv \log \left( P(\ts{y}{1}{t},\ts{s}{1}{t} \right)
+  \\
+  \nu(s,t) & \quad \text{Utility of best sequence ending with }
+  \ti{s}{t} = s \\
+  &  \quad \equiv \max_{\ts{s}{1}{t}:\ti{s}{t}=s} u(\ts{s}{1}{t}) \\
+  u'(s,s',t) & \quad \text{Utility of best sequence ending with }
+  \ti{s}{t},\ti{s}{t+1} = s,s' \\
+  & \quad \equiv \max_{\ts{s}{1}{t+1}:\ti{s}{t}=s \&\ti{s}{t+1}=s'}
+  u(\ts{s}{1}{t+1}) \\
+  B(s,t) & \quad \text{Best predecessor state given } \ti{s}{t+1}=s\\
+  & \quad \equiv \argmax_{s'} u'(s',s,t))
+\end{align*}
+}
+
+\frame{
+  \frametitle{Viterbi algorithm}
+Evaluate $B(*,t)$ and $\nu(*,t)$ recursively (Kalman filtering):
+\begin{align*}
+  u'(s,s',t) &= \nu(s,t) + \log\left( P_{\ti{s}{t+1}|}(s'|s) \right)
+  \\
+  & \quad + \log\left( P_{\ti{y}{t+1}|\ti{s}{t+1}}(\ti{y}{t+1}|s') \right) \\
+  \nu(s,t+1) &= u'(B(s,t),s,t)
+\end{align*}
+
+Use $B(*,t)$ and $\nu(*,t)$ $\forall t\in[1,\ldots,T]$ to find $
+\ts{\hat s}{1}{T}$ as follows:
+\begin{align*}
+  {\ti{{\hat s}}{T}} &= \argmax_s \nu(s,T) \\
+  & \text{for } t \text{ from } T-1 \text{ to } 1: \\
+  & \quad \ti{\hat s}{t} = B( \ti{\hat s}{t+1},t)
+\end{align*}
+}
+
+\end{document}
+
+
+%%%---------------
+%%% Local Variables:
+%%% eval: (TeX-PDF-mode)
+%%% End:
