@@ -1,7 +1,6 @@
 \documentclass{beamer}
 \usepackage{amsmath,amsfonts}
 \usepackage[pdftex]{rotating}
-\usepackage{movie15}
 \newcommand{\argmax}{\operatorname*{argmax}}
 \newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
 \newcommand{\ts}[3]{{#1}_{#2}^{#3}} % Time series
@@ -129,8 +128,8 @@ Note:
   \ti{s}{t},\ti{s}{t+1} = s,s' \\
   & \quad \equiv \max_{\ts{s}{1}{t+1}:\ti{s}{t}=s \&\ti{s}{t+1}=s'}
   u(\ts{s}{1}{t+1}) \\
-  B(s,t) & \quad \text{Best predecessor state given } \ti{s}{t+1}=s\\
-  & \quad \equiv \argmax_{s'} u'(s',s,t))
+  B(s',t) & \quad \text{Best predecessor state given } \ti{s}{t+1}=s'\\
+  & \quad \equiv \argmax_{s} u'(s,s',t))
 \end{align*}
 }
 
@@ -144,7 +143,7 @@ Evaluate $B(*,t)$ and $\nu(*,t)$ recursively (Kalman filtering):
   \nu(s,t+1) &= u'(B(s,t),s,t)
 \end{align*}
 
-Use $B(*,t)$ and $\nu(*,t)$ $\forall t\in[1,\ldots,T]$ to find $
+Given $B(*,t)$ and $\nu(*,t)$ $\forall t\in[1,\ldots,T]$, find $
 \ts{\hat s}{1}{T}$ as follows:
 \begin{align*}
   {\ti{{\hat s}}{T}} &= \argmax_s \nu(s,T) \\
