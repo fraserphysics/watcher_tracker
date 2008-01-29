@@ -2,7 +2,7 @@
 
 \usepackage{amsmath,amsfonts}
 \usepackage{graphicx}
-%\usepackage{showlabels}
+\usepackage{showlabels}
 
 \newcommand{\normal}[2]{{\cal N}(#1,#2)}
 \newcommand{\NormalE}[3]{{\mathcal{N}}\left.\left(#1,#2\right)\right|_{#3}}
@@ -27,7 +27,7 @@
 \newcommand{\logdet}{\log\left(\left|\Sigma_D\right| \left| \Sigma_O
     \right| \right)}
 
-\title{Model Based Motion Detection}
+\title{Model Based Tracking}
 \author{Andy Fraser}
 
 \begin{document}
@@ -318,7 +318,7 @@ recursion:
   \begin{equation}
     \label{eq:R_alg}
     R_{t+1} = R_t - \frac{1}{2} \left(\Delta_y^T \Sigma_y^{-1}
-      \Delta_y \right)
+      \Delta_y + \logdet \right)
   \end{equation}
 \end{description}
 
@@ -351,7 +351,7 @@ I write
   \nu(M,\bx,t) &= \sum_k \nu(M,x_k,t) \\
   &= \sum_k \nu(M,\bar x_k) + \sum_k \left (\nu(M,x_k,t) - \nu(M,\bar
     x_k) \right) \\
-  &= \sum_k R(k,t|M) + \sum_k \left (\nu(x_k,t|M) -  R(k,t|M) \right),
+  &= \sum_k R(k,t|M) + \sum_k \left (\nu(x_k,t|M) - R(k,t|M) \right),
 \end{align*}
 where $\bar x_k$ is the $x$ value that maximizes $\nu(M,x_k,t)$ for a
 the best permutation sequence ending in the given $M$ and $R(k,t|M)$ is
@@ -371,7 +371,7 @@ I have implemented an algorithm around the following recursion step:
   (M,k)$:\\
   For each possible permutation $M$ at time $t+1$:\\
   \hspace{2em} For each possible predecessor $M'$ at time $t$:\\
-  \hspace{4em}  Calculate $u'(M',M,t) = \sum_k R(k,t+1|M',M)$ \\
+  \hspace{4em} Calculate $u'(M',M,t) = \sum_k R(k,t+1|M',M)$ \\
   \hspace{2em} Set $B_M(M,t+1) = \tilde M = \argmax_{M'}u'(M',M,t)$\\
   \hspace{2em} For each object $k$:\\
   \hspace{4em} Calculate $(\mu(M,k,t+1), \Sigma(M,k,t+1), R(M,k,t+1))$\\
@@ -438,7 +438,6 @@ Doing a forward iteration on a target that is not visible requires
 expressions like Eqns.~\eqref{eq:decode_u'}-\eqref{eq:Sigma_yI} but
 without an observation, ie,
 
-
 \begin{align}
   \nu(s,t) &= -\frac{1}{2}(s-\mu_{t})^T
     \Sigma_{t}^{-1}(s-\mu_{t}) + R_t \nonumber \\
@@ -448,7 +447,7 @@ without an observation, ie,
   &= \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1} \left(
     \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right) \nonumber \\
   \nu(s,t+1) &= u'(B(s,t),s,t) \nonumber \\
-  &\equiv  -\frac{1}{2}(s-\mu_{t+1})^T
+  &\equiv -\frac{1}{2}(s-\mu_{t+1})^T
   \Sigma_{t+1}^{-1}(s-\mu_{t+1}) + R_{t+1} \nonumber \\
   \label{eq:new_Sigma_noy}
   \Sigma_{t+1} & = \left( \Sigma_D + A \Sigma_tA^T \right) \\
@@ -482,7 +481,6 @@ to false alarms at time $t$, add\footnote{See Appendix
   \ref{sec:counting}} $\sum_k^{N_{\text{FA}}} \log(P(y_k|\text{FA}))$
 and $\log \left( e^{-\lambda} \lambda^{N_{\text{FA}}} \right)$ to the
 value of $\nu$.\marginpar{Are you sure?}
-
 
 \section{Model Version Four: Variable Number of Targets}
 \label{sec:model4}
@@ -670,7 +668,7 @@ I am confused by counting problems in the models.
 
 I obtain \eqref{eq:new_Sigma} and \eqref{eq:new_mu} by expanding
 $u'(B(s,t),s,t)$ and completing the square.  I'll abbreviate $B(s,t)$
-with $B$, using the notation
+with $B$, using the notation (see Eqn.~\eqref{eq:decode_B})
 \begin{align*}
   B &\equiv \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
   \left( \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right) \\
@@ -680,7 +678,7 @@ with $B$, using the notation
   F &\equiv  \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
   A^T \Sigma_D^{-1}.
 \end{align*}
-I find
+I find (see Eqn.~\eqref{eq:decode_u'})
 \begin{align*}
   \nu(s,t+1) &= -\frac{1}{2}(B-\mu_{t})^T \Sigma_{t}^{-1}
   (B-\mu_{t}) + R_t\\
@@ -689,7 +687,7 @@ I find
   (\ti{y}{t+1}-Os) -\frac{1}{2} \logdet\\
   -2 \nu(s,t+1) &= (G-\mu_{t}+Fs)^T \Sigma_{t}^{-1} (G-\mu_{t}+Fs) \\
   &\quad + ((1-AF)s-AG)^T \Sigma_{D}^{-1} ((1-AF)s-AG)\\
-  &\quad + (\ti{y}{t+1}-O s)^T \Sigma_{O}^{-1} (\ti{y}{t+1}-Os) -2R_t \\
+  &\quad + (\ti{y}{t+1}-O s)^T \Sigma_{O}^{-1} (\ti{y}{t+1}-Os) -2R_t + \logdet \\
   &\equiv s^T q s - 2s^T l + c.
 \end{align*}
 To express $\nu_{t+1}$ in terms of $\Sigma_{t+1}$, $\mu_{t+1}$, and
@@ -702,7 +700,7 @@ $R_{t+1}$, I will use the following formulas:
 \end{align*}
 The quadratic term is
 \begin{align*}
-  q &= F^T\Sigma_t^{-1}F + (1-AF)^T\Sigma_D^{1-}(1-AF) +
+  q &= F^T\Sigma_t^{-1}F + (1-AF)^T\Sigma_D^{-1}(1-AF) +
   O^T\Sigma_O^{-1}O \\
   &= O^T\Sigma_O^{-1}O + \Sigma_D^{-1} - \Sigma_D^{-1}A
   ( \Sigma_t^{-1} + A^T\Sigma_D^{-1}A )^{-1}A^T\Sigma_D^{-1}\\
@@ -721,9 +719,10 @@ The linear term is
     A^T \Sigma_D^{-1} A \right)^{-1} \Sigma_t^{-1} \mu_t.
 \end{align*}
 
-While I could (and have with much pain) derive Eqn.~\eqref{eq:new_mu}
-from the formula $\mu_{t+1} = \Sigma_{t+1} l$, here I only verify that
-$q \mu_{t+1} = l$.  I will use the following lemma:
+While I could (and have with much effort) derive
+Eqn.~\eqref{eq:new_mu} from the formula $\mu_{t+1} = \Sigma_{t+1} l$,
+here I only verify that $q \mu_{t+1} = l$.  I will use the following
+lemma:
 \begin{align*}
   (q-O^T\Sigma^{-1}O)A &= \left( \Sigma_D^{-1} - \Sigma_D^{-1} A (
     \Sigma_t^{-1} + A^T \Sigma_D^{-1} A)^{-1} A^T \Sigma_D^{-1}
@@ -746,7 +745,7 @@ Now the verification is simply:
   &= l.
 \end{align*}
 
-Using the the following abbreviation and calculation
+Using the following abbreviation and calculation (Note: $H\mu_t = G$)
 \begin{align*}
   H &\equiv (\Sigma_t^{-1} + A^T \Sigma_D^{-1}A)^{-1} \Sigma_t^{-1} \\
   &= 1 - \Sigma_t A^T(A\Sigma_t A^T + \Sigma_D)^{-1} A \quad \text{ By
@@ -755,12 +754,14 @@ Using the the following abbreviation and calculation
 I write the constant term as
 \begin{align*}
   c &= \mu_t^T \left( (H-1)^T\Sigma_t^{-1} (H-1) + H^TA^T\Sigma_D^{-1}
-    AH \right) \mu_t + \ti{y^T}{t+1} \Sigma_O^{-1}
+    AH \right) \mu_t \\
+  & \quad + \ti{y^T}{t+1} \Sigma_O^{-1}
   \ti{y}{t+1} - 2R_t + \logdet\\
   &= \mu_t^T  A^T(A\Sigma_t A^T + \Sigma_D)^{-1}A \mu_t
-  + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} - 2R_t  + \logdet,
+  + \ti{y^T}{t+1} \Sigma_O^{-1} \ti{y}{t+1} - 2R_t \\
+  & \quad + \logdet,
 \end{align*}
-and find
+\marginpar{$-\mu_t^T\Sigma_t^{-1}\mu_t$?}and find
 \begin{align*}
   R_{t+1} = R_t -\frac{1}{2} \Big( &
   \mu_t^T  A^T(A\Sigma_t A^T + \Sigma_D)^{-1}A \mu_t 
@@ -773,7 +774,7 @@ equalities:
   X &\equiv \Sigma_D + A \Sigma_t A^T \\
   l &= O^T\Sigma_O^{-1} \ti{y}{t+1} + X^{-1} A \mu_t \\
   \mu_{t+1} &= \Sigma_{t+1} l \\
-  \mu_{t+1}^T \Sigma_{t+1} \mu_{t+1} &= l^T \Sigma_{t+1} l \\
+  \mu_{t+1}^T \Sigma_{t+1}^{-1} \mu_{t+1} &= l^T \Sigma_{t+1} l \\
   \Sigma_{t+1} &= (O^T\Sigma_O^{-1}O + X^{-1})^{-1} \\
   &= X - XO^T(OXO^T + \Sigma_O)^{-1} OX \\
   \Sigma_y &= O(A\Sigma_t A^T + \Sigma_D) O^T + \Sigma_O \\
@@ -782,7 +783,7 @@ equalities:
   + X^{-1})^{-1}O^T \Sigma_O^{-1} \\
   &= \Sigma_O^{-1} - \Sigma_O^{-1} O \Sigma_{t+1}O^T \Sigma_O^{-1} \\
   \Delta_R &\equiv \mu_t^TA^T X^{-1} A \mu_t - \mu_{t+1}^T
-  \Sigma_{t+1} \mu_{t+1} + \ti{y}{t+1}^T \Sigma_O^{-1} \ti{y}{t+1}.
+  \Sigma_{t+1}^{-1} \mu_{t+1} + \ti{y}{t+1}^T \Sigma_O^{-1} \ti{y}{t+1}.
 \end{align}
 Using the derivation
 \begin{align*}
@@ -795,17 +796,17 @@ Using the derivation
 \end{align*}
 and considering the three terms of
 \begin{align*}
-  l^T \Sigma_{t+1} l = & (O^T\Sigma_O^{-1} \ti{y}{t+1})T \Sigma_{t+1}
+  l^T \Sigma_{t+1} l = & (O^T\Sigma_O^{-1} \ti{y}{t+1})^T \Sigma_{t+1}
   (O^T\Sigma_O^{-1} \ti{y}{t+1}) \\
-  + & 2(O^T\Sigma_O^{-1} \Sigma_{t+1} X^{-1}A\mu_t \\
-  + & (X^{-1}A\mu_t)\Sigma_{t+1} X^{-1}A\mu_t \\
+  & \quad + 2(O^T\Sigma_O^{-1} \ti{y}{t+1})^T \Sigma_{t+1} X^{-1}A\mu_t \\
+  & \quad + (X^{-1}A\mu_t)^T\Sigma_{t+1} X^{-1}A\mu_t \\
   \equiv & T_1+T_2+T_3
 \end{align*}
 separately, I find
 \begin{align*}
   T_1 &= \ti{y}{t+1}^T \Sigma_O^{-1} \ti{y}{t+1} - \ti{y}{t+1}^T
-  \Sigma_Y^{-1} \ti{y}{t+1} \\
-  T_2 &= 2 \ti{y}{t+1}^T \Sigma_Y^{-1} OA\mu_t \\
+  \Sigma_y^{-1} \ti{y}{t+1} \\
+  T_2 &= 2 \ti{y}{t+1}^T \Sigma_y^{-1} OA\mu_t \\
   T_3 &= (A\mu_t)^T X^{-1} (A\mu_t) - (OA\mu_t)^T
   \Sigma_y^{-1}(OA\mu_t)
 \end{align*}
@@ -969,7 +970,6 @@ $j\in {\cal J}$ in the following steps:
 \item When finished report both $X$ and $Y$
 \end{itemize}
 
-
 The circuit corresponding to this problem appears in
 Figure~\ref{fig:assignment2}
 \begin{figure*}
@@ -1006,7 +1006,6 @@ realized that filtering is inappropriate for tracking.  In
 \ref{sec:filtering1} I give a general recursive algorithm for filtering
 for any state space model.  In \ref{sec:filter2} I discuss the
 difficulty of filtering for the model of Section~\ref{sec:model1}
-
 
 \subsection{General Filtering}
 \label{sec:filtering1}
