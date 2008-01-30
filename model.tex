@@ -17,8 +17,9 @@
 \newcommand{\transpose}{^\top}
 \newcommand{\os}[4]{{\left[ #1(#2) \right]}_{#3}^{#4}} % Object sequence
 \newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
-\newcommand{\ts}[4]{\os{#1}{#2}{#2=#3}{#4}} % Time series
+%\newcommand{\ts}[4]{\os{#1}{#2}{#2=#3}{#4}} % Time series
 %\newcommand{\ts}[4]{{\left[ #1(#2) \right]}_{#2=#3}^{#4}} % Sequence
+\newcommand{\ts}[4]{{#1}_{#3}^{#4}} % Time series
 \newcommand{\argmin}{\operatorname*{argmin}}
 \newcommand{\argmax}{\operatorname*{argmax}}
 \newcommand{\cS}{{\cal S}}
@@ -97,19 +98,19 @@ I will use the following definitions to describe decoding:
   \nu(s,t) & \quad \text{Utility of best sequence ending with }
   \ti{s}{t} = s \\ 
   &  \quad \equiv \max_{\ts{s}{\tau}{1}{t}:\ti{s}{t}=s} u(\ts{s}{\tau}{1}{t}) \\
-  u'(s,s',t) & \quad \text{Utility of best sequence ending with }
+  \omega(s,s',t) & \quad \text{Utility of best sequence ending with }
   \ti{s}{t},\ti{s}{t+1} = s,s' \\
   &  \quad \equiv \max_{\ts{s}{\tau}{1}{t+1}:\ti{s}{t}=s \&\ti{s}{t+1}=s'}
   u(\ts{s}{\tau}{1}{t+1}) \\
-  B(s,t) & \quad \text{Best predecessor state given } \ti{s}{t+1}=s   
+  B(s',t) & \quad \text{Best predecessor state given } \ti{s}{t+1}=s'\\
+  & \quad \equiv \argmax_{s} \omega(s,s',t))
 \end{align*}
 I can evaluate the functions $B(*,t)$ and $\nu(*,t)$ recursively as
 follows:
 \begin{align*}
-  u'(s,s',t) &= \nu(s,t) + \log\left( P_{\ti{s}{t+1}|}(s'|s) \right) +
+  \omega(s,s',t) &= \nu(s,t) + \log\left( P_{\ti{s}{t+1}|}(s'|s) \right) +
   \log\left( P_{\ti{y}{t+1}|\ti{s}{t+1}}(\ti{y}{t+1}|s') \right) \\
-  B(s,t) &= \argmax_{s'} u'(s',s,t)) \\
-  \nu(s,t+1) &= u'(B(s,t),s,t)
+  \nu(s,t+1) &= \omega(B(s,t),s,t)
 \end{align*}
 Given the functions $B(*,t)$ and $\nu(*,t)$ $\forall
 t\in[1,\ldots,T]$, the following procedure decodes the best sequence
@@ -233,15 +234,15 @@ the following recursion:
   \nu(s,t) &= -\frac{1}{2}(s-\mu_{t})^T
     \Sigma_{t}^{-1}(s-\mu_{t}) + R_t \nonumber \\
   \label{eq:decode_u'}
-  u'(s,s',t) &= \nu(s,t) -\frac{1}{2} \logdet  - 
+  \omega(s,s',t) &= \nu(s,t) -\frac{1}{2} \logdet  - 
   \frac{1}{2}(s'-As)^T \Sigma_{D}^{-1} (s'-As)  \nonumber \\
   &\quad - \frac{1}{2}(\ti{y}{t+1} - O s')^T \Sigma_{O}^{-1}(\ti{y}{t+1}
     - O s') \\
-  B(s,t) &= \argmax_{q} u'(q,s,t) \nonumber \\
+  B(s,t) &= \argmax_{q} \omega(q,s,t) \nonumber \\
   \label{eq:decode_B}
   &= \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1} \left(
     \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right) \\
-  \nu(s,t+1) &= u'(B(s,t),s,t) \nonumber \\
+  \nu(s,t+1) &= \omega(B(s,t),s,t) \nonumber \\
   &\equiv  -\frac{1}{2}(s-\mu_{t+1})^T
   \Sigma_{t+1}^{-1}(s-\mu_{t+1}) + R_{t+1} \nonumber \\
   \label{eq:new_Sigma}
@@ -269,7 +270,7 @@ abbreviations, Eqn.~\eqref{eq:Sigma_yI} requires effort to derive.
 I derive \eqref{eq:decode_B} by
 solving\footnote{The derivation of \eqref{eq:decode_B}:
   \begin{align*}
-    \frac{d u'(q,s,t)}{d q} &= -\Sigma_t^{-1}(q-\mu_t) + A^T \Sigma_D^{-1}
+    \frac{d \omega(q,s,t)}{d q} &= -\Sigma_t^{-1}(q-\mu_t) + A^T \Sigma_D^{-1}
     (s - Aq) \\
     &= \Sigma_t^{-1}\mu_t + A^T \Sigma_D^{-1} s -(\Sigma_t^{-1} +
     A^T\Sigma_D^{-1}A)q \\
@@ -278,7 +279,7 @@ solving\footnote{The derivation of \eqref{eq:decode_B}:
   \end{align*}
 }
 \begin{equation*}
-  \frac{d u'(q,s,t)}{d q} = 0.
+  \frac{d \omega(q,s,t)}{d q} = 0.
 \end{equation*}
 Note that the independent variable $s$ in \eqref{eq:decode_B} is the
 state at the future time $t+1$, while in \eqref{eq:decode_u'}, $s$ is
@@ -332,60 +333,80 @@ component of the state.  Thus
 \end{equation*}
 where $N$ is the number of objects or targets, $\cal M$ is the set of
 permutations of $N$ objects, and ${\cal X}$ is the state space of a
-single object.  Denoting the components of a particular state as
-follows: \newcommand{\bx}{{\mathbf{x}}}
+single object.  I denote the components of a particular state as
+follows:
+\newcommand{\bx}{{\mathbf{x}}}
+\newcommand{\by}{{\mathbf{y}}}
 \begin{align*}
   s &\equiv (M,\bx) \\
   M & \text{ is a permutation} \\
-  \bx &\equiv (x_1,x_2,\ldots,x_N),
+  \bx &\equiv (x_1,x_2,\ldots,x_N).
 \end{align*}
-I write
+The independence assumptions permit the following decomposition:
+\begin{align}
+  \mathbf{P} &\equiv
+  P(\ts{\by}{\tau}{1}{t},\ts{\bx}{\tau}{1}{t},\ts{M}{\tau}{1}{t})
+  \nonumber \\
+  &= P(\ts{M}{\tau}{1}{t})
+  P(\ts{\by}{\tau}{1}{t},\ts{\bx}{\tau}{1}{t}|\ts{M}{\tau}{1}{t})
+  \nonumber \\
+  &= \frac{1}{(N!)^t} \prod_{\tau=1}^t \left(
+    P(\ti{\by}{\tau}|\ti{\bx}{\tau},\ti{M}{\tau})
+    P(\ti{\bx}{\tau}|\ti{\bx}{\tau-1}) \right) \nonumber \\
+  \label{eq:factors}
+  &= \frac{1}{(N!)^t} \prod_{\tau=1}^t  \prod_{k=1}^N \left(
+  P(\ti{y_{M_k(\tau)}}{\tau}|\ti{x_k}{\tau})
+  P(\ti{x_k}{\tau}|\ti{x_k}{\tau-1}) \right).
+\end{align}
+\newcommand{\mmm}{\max_{\ts{M}{\tau}{1}{t}:\ti{M}{t}=M}}
+\newcommand{\mxx}{\max_{\ts{\bx}{\tau}{1}{t}:\ti{\bx}{t}=\bx}} Now I
+use Eqn.~\eqref{eq:factors} to define $\nu_k(x_k,t|M))$, which is the
+contribution to the total utility by the $k^{\text{th}}$ target and
+its observations given the best sequence of $M$s that ends in $M$, as
+follows:
 \begin{align*}
-  u'(M,\bx,M',\bx',t) &= \nu(M,\bx) + \log \left(
-    P(M',\bx'|M,\bx)\right) + \log \left(
-    P(\ti{y}{t+1}|M',\bx')\right) \\
-  P(M',\bx'|M,\bx) &= P(\bx'|M',M,\bx) P(M'|M,\bx) \\
-  &= \frac{1}{N!} P(\bx'|\bx) \\
-  u'(M,\bx,M',\bx',t) &= \nu(M,\bx) - \log(N!) + \log \left(
-    P(\bx'|\bx)\right) + \log \left( P(\ti{y}{t+1}|M',\bx')\right) \\
-  \nu(M,\bx,t) &= \sum_k \nu(M,x_k,t) \\
-  &= \sum_k \nu(M,\bar x_k) + \sum_k \left (\nu(M,x_k,t) - \nu(M,\bar
-    x_k) \right) \\
-  &= \sum_k R(k,t|M) + \sum_k \left (\nu(x_k,t|M) - R(k,t|M) \right),
+  \nu(M,\bx,t) &= \mmm \quad \mxx \quad \log(\mathbf{P})\\
+  &= t\log(N!) + \mmm \quad \mxx \quad \sum_k \sum_\tau \Big(\\
+  & \quad \quad \log(P(\ti{y_{M_k(\tau)}}{\tau}|\ti{x_k}{\tau})) +
+  \log( P(\ti{x_k}{\tau}|\ti{x_k}{\tau-1}) ) \Big) \\
+  & \equiv t\log(N!) + \sum_k \nu_k(x_k,t|M).
 \end{align*}
-where $\bar x_k$ is the $x$ value that maximizes $\nu(M,x_k,t)$ for a
-the best permutation sequence ending in the given $M$ and $R(k,t|M)$ is
-the remainder from Eqn.~\eqref{eq:R_alg} for the $k^{\text{th}}$
-object given the that sequence of permutations.  Each $B(s,t)$ maps
-from $(M',s')$ at time $t+1$ to the best pair $(M,s)$ at time $t$, and
-each $\nu(s,t)$ maps from a pair $(M,s)$ at time $t$ to the utility of
-the best path ending at $(M,s,t)$.  While I use the values of $\sum_k
-R(k,t|M)$ to determine the best predecessor permutation.  In the
-calculation of $R(k,t|M)$ I drop the term $\logdet$ from
-Eqn.~\eqref{eq:new_R} and $\log(N!)$ because they are independent of
-both $M$ and $s$.
+Letting $\mu(k,t|M)$, $\Sigma^{-1}(k,t|M)$ and $R(k,t|M)$ denote the
+parameters that characterize $\nu_k(x_k,t|M)$, and recognizing that
+$R(k,t|M) = \nu_k(\mu(k,t|M),t|M)$, I write
+\begin{align*}
+  \nu(M,\bx,t) &= t\log(N!) + \sum_k \Big( R(k,t|M) \\
+  &\quad - \frac{1}{2} \left( x_k-\mu(k,t|M) \right)^T
+  \Sigma^{-1}(k,t|M) \left( x_k-\mu(k,t|M) \right) \Big).
+\end{align*}
+Each $B(s,t)$ maps from $(M',\bx')$ at time $t+1$ to the best pair
+$(M,\bx)$ at time $t$, and each $\nu(s,t)$ maps from a pair $(M,\bx)$
+at time $t$ to the utility of the best path ending at $(M,\bx,t)$.
+For each $M$, I use the values of $\sum_k R(k,t|M)$ to determine the
+best predecessor permutation, and I drop the term $\log(N!)$ because
+it is independent of both $M$ and $\bx$.
 
 I have implemented an algorithm around the following recursion step:
 \begin{verse}
-  At time $t$ given $(\mu(M,k,t), \Sigma(M,k,t), R(M,k,t))~\forall
+  At time $t$ given $(\mu(k,t|M), \Sigma(k,t|M), R(k,t|M))~\forall
   (M,k)$:\\
   For each possible permutation $M$ at time $t+1$:\\
-  \hspace{2em} For each possible predecessor $M'$ at time $t$:\\
-  \hspace{4em} Calculate $u'(M',M,t) = \sum_k R(k,t+1|M',M)$ \\
-  \hspace{2em} Set $B_M(M,t+1) = \tilde M = \argmax_{M'}u'(M',M,t)$\\
+  \hspace{2em} For each possible predecessor $M$ at time $t$:\\
+  \hspace{4em} Calculate $\omega(M,M',t) = \sum_k R(k,t+1|M,M')$ \\
+  \hspace{2em} Set $B_M(M',t+1) = \tilde M = \argmax_{M}\omega(M,M',t)$\\
   \hspace{2em} For each object $k$:\\
-  \hspace{4em} Calculate $(\mu(M,k,t+1), \Sigma(M,k,t+1), R(M,k,t+1))$\\
+  \hspace{4em} Calculate $(\mu(k,t+1|M'), \Sigma(k,t+1|M'), R(k,t+1|M'))$\\
   \hspace{4em} from Eqns.~\eqref{eq:Sigma_alg}--\eqref{eq:R_alg} using
   the initial values\\
-  \hspace{4em} $(\mu(\tilde M,k,t), \Sigma(\tilde M,k,t),R(\tilde
-  M,k,t))$
+  \hspace{4em} $(\mu(k,t|\tilde M), \Sigma(k,t|\tilde M),R(k,t|\tilde
+  M))$
 \end{verse}
 
 \section{Model Version Two: Variable Visibility}
 \label{sec:model2}
 
 In MVI of the previous section, I described the state at each time as
-a combination of the position and velocities of the targets and the
+a combination of the positions and velocities of the targets and the
 map from targets to observations.  Recall from
 Section~\ref{sec:multiple}:
 \begin{align*}
@@ -420,7 +441,7 @@ The only new parameters are $P(\ti{v_i}{t+1}|\ti{v_i}{t})$ the
 probabilities of transitions between visibility states.  I find the
 modifications to algorithms for MVI required for MVII by observing
 \begin{align}
-  u'(M,\bx,\bv,M',\bx',\bv't) &= \nu(M,\bx,\bv) - \log(N!) + \log \left(
+  \omega(M,\bx,\bv,M',\bx',\bv't) &= \nu(M,\bx,\bv) - \log(N!) + \log \left(
     P(\bx'|\bx)\right) \nonumber \\
   & \quad + \log \left( P(\bv'|\bv)\right) + \log \left(
   P(\ti{y}{t+1}|M',\bx')\right)
@@ -441,12 +462,12 @@ without an observation, ie,
 \begin{align}
   \nu(s,t) &= -\frac{1}{2}(s-\mu_{t})^T
     \Sigma_{t}^{-1}(s-\mu_{t}) + R_t \nonumber \\
-  u'(s,s',t) &= \nu(s,t) -\frac{1}{2} \log(\left|\Sigma_D\right|)  - 
+  \omega(s,s',t) &= \nu(s,t) -\frac{1}{2} \log(\left|\Sigma_D\right|)  - 
   \frac{1}{2}(s'-As)^T \Sigma_{D}^{-1} (s'-As)  \nonumber \\
-  B(s,t) &= \argmax_{q} u'(q,s,t) \nonumber \\
+  B(s,t) &= \argmax_{q} \omega(q,s,t) \nonumber \\
   &= \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1} \left(
     \Sigma_t^{-1} \mu_t + A^T \Sigma_D^{-1} s \right) \nonumber \\
-  \nu(s,t+1) &= u'(B(s,t),s,t) \nonumber \\
+  \nu(s,t+1) &= \omega(B(s,t),s,t) \nonumber \\
   &\equiv -\frac{1}{2}(s-\mu_{t+1})^T
   \Sigma_{t+1}^{-1}(s-\mu_{t+1}) + R_{t+1} \nonumber \\
   \label{eq:new_Sigma_noy}
@@ -667,7 +688,7 @@ I am confused by counting problems in the models.
 \label{app:decode}
 
 I obtain \eqref{eq:new_Sigma} and \eqref{eq:new_mu} by expanding
-$u'(B(s,t),s,t)$ and completing the square.  I'll abbreviate $B(s,t)$
+$\omega(B(s,t),s,t)$ and completing the square.  I'll abbreviate $B(s,t)$
 with $B$, using the notation (see Eqn.~\eqref{eq:decode_B})
 \begin{align*}
   B &\equiv \left( \Sigma_t^{-1} + A^T \Sigma_D^{-1} A \right)^{-1}
