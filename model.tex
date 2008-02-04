@@ -587,8 +587,8 @@ from each pair drawn from the two clusters, ie,
   \in \cC_3 \\
   \text{Merge}(\cA_{i}, \cA_{j}): \\
   M_k &= \text{concatenate } M_i, M_j \\
-  N_{\text{FA},k} &= N_{\text{FA},i} + N_{\text{FA},k} \\
-  N_{\text{targets},k} &= N_{\text{targets},i} + N_{\text{targets},k}
+  N_{\text{FA},k} &= N_{\text{FA},i} + N_{\text{FA},j} \\
+  N_{\text{targets},k} &= N_{\text{targets},i} + N_{\text{targets},j}
   \\
   \nu_k &= \nu_i +\nu_j
 \end{align}
@@ -615,14 +615,19 @@ particular,
   fragments.
 \item[Q:] How should $\nu$ be apportioned between the fragments?
 \item[A:] $\nu$ should be tied to the explanation of past observation
-  components.  While it clear how to handle targets, there is more
-  than one way to handle false alarms.  I could build a variant of the
-  association class that remembers each false alarm and its associated
-  utility.  Instead, I will discard false alarms as identified by the
-  parent association with the highest utility.  Along with the false
-  alarms, I will subtract their utilities.  Thus, I will discard any
-  parent association that disagrees with the best association about
-  which past observations were false alarms.
+  components.  While it is clear how to handle targets, there is more
+  than one way to handle false alarms.  I try to determine the minimum
+  set of historical observations that is consistent with the set of
+  association fragments that is best in the sense that I retain the
+  possible fragments with highest utility.  Then I calculate the
+  utility for each fragment by its explanation of that set of
+  historical observations.  I discard parent associations that are
+  inconsistent with the chosen fragmenting of historical observations.
+  I discard historical observations that all retained fragments agree
+  were false alarms.  And I archive \emph{dead targets} in the best
+  fragment that are expendable in the sense that none of the
+  associated observations are connected with live targets in any of
+  the other retained fragments.
 \end{description}
 First branch the association with the highest score, then discard all
 associations whose branchings are inconsistent with the first.  A
