@@ -13,8 +13,6 @@ MV4: Targets die if invisible for Invisible_Lifetime.  New targets can
      appear at any time.  Targets may fail to produce hits and hits may
      be false alarms
 
-MV5: Like MV4, but with clustering of observations and targets.
-
 Each model class depends on its own association class, eg, MV4 depends
 on ASSOCIATION4.  There are two target classes: TARGET4 (for MV2, MV3
 and MV4) which can be invisible and TARGET1 (for MV1) which is always
@@ -25,25 +23,20 @@ Here are the family trees most of the classes in this file:
 CAUSE_FA -> TARGET4 -> TARGET1
 
 ASSOCIATION4 -> ASSOCIATION3 -> ASSOCIATION2 -> ASSOCIATION1
-ASSOCIATION4 -> ASSOCIATION5
 
 MV4 -> MV3 -> MV2
        MV3 -> MV1
-MV4 -> MV5
 
-FixMe: To do for MV5:
+FixMe: To do:
 
-1. Figure out join error/death
+1. Figure out why nu_max and track differ depending exhaustive vs
+   Murty for MV2 and MV3.
 
-2. Review use of history in reclustering and in keeping track of nu
+2. Figure out occasional faliure of Murty
 
-3. Figure out mismatch between nu for MV4 and MV5 on simple problems
+3. Flag likely errors correctly.  Places to think about:
 
-4. Use Murty's algorithm and flag big clusters.
-
-5. Flag likely errors correctly, ie, at least look at where I use MaxD
-   and alpha.  Places to think about:
-
+   When Murty's algorithm works on big clusters
    TARGET4.make_children
    ASSOCIATION4.join
    ASSOCIATION4.check_FAs   Should I try false alarms when targets are good? 
@@ -55,41 +48,67 @@ FixMe: To do for MV5:
    Cluster_Flock.recluster  First fragment may not have best utility
    Cluster_Flock.recluster  Consistency check should include dead_targets
    Cluster_Flock.recluster  For which observations should I make newts
-   MV4.decode_prune         Associations should (also?) be pruned in forward
 
 """
-import numpy, scipy, scipy.linalg, random, math, util
-Invisible_Lifetime = 5 # After being invisible 5 times in a row targets die
-Join_Time = 4          # After 4 identical associations in a row, tragets merge
+import numpy, scipy, scipy.linalg, random, math, util, time
 close_calls = None     # Will be list of flags of likely errors
 Target_Counter = 0
+Child_Target_Counter = 0
+hungary_count = 0
+hungary_time = 0
+def dict_2_tuple(tk_dict): # Return tuple made from sorted list of keys
+    tk_list = tk_dict.keys()
+    tk_list.sort()
+    return tuple(tk_list)
 
-class CAUSE_FA: # False Alarm
+def list_2_flat(tk_list): # Map list of tuples to flat tuple
+    tk_list.sort()
+    flat_list = []
+    for pair in tk_list:
+        flat_list += list(pair)
+    return tuple(flat_list)
+
+class CAUSE: # Dummy for subclassing and making Fork() copy association
+    def __init__(self ):
+        self.type = 'void'
+        self.R = 0
+        self.tks = {}
+class FA(CAUSE): # False Alarm
     def __init__(self, y, t, k, Sigma_I, norm ):
         self.type = 'FA'
         self.index = -1
         self.R = norm - float(y.T*Sigma_I*y/2)
+        self.R_sum = self.R
         self.t = t
         self.k = k
-class TARGET4(CAUSE_FA):
+        self.tks = {(t,k):self}
+    def dump(self, #FA
+             ):
+        print 'Dumping %s: R=%6.2f, (t,k)=(%d,%d)'%(self.type,self.R,
+                                                    self.t,self,k)
+        return
+class TARGET4(CAUSE):
     """A TARGET is a possible moving target, eg, a car.  Its values
     are determined by initialization values and a sequence of
     observations that are "Kalman filtered".
     """
-    def __init__(self,
+    def __init__(self,      # TARGET4
                  mod,       # Parent model
-                 m_t,       # History of hit indices used
+                 m_t,       # List of hit indices used
                  mu_t,      # History of means
                  Sigma_t,   # History of variances
                  R,         # Most recent residual
                  y,         # Useful in subclasses
+                 tks,       # Dict of (t,k) pairs explained
                  index=None,# Unique ID 
                  R_sum=None # Accumulation of past R values
                  ):
-        global Target_Counter
+        global Target_Counter, Child_Target_Counter
+        assert type(tks) == type({})
         self.type='target'
         if isinstance(index,type(0)): # Check for int
             self.index = index
+            Child_Target_Counter += 1
         else:
             self.index = Target_Counter
             Target_Counter += 1
@@ -98,6 +117,7 @@ class TARGET4(CAUSE_FA):
         self.mu_t = mu_t
         self.Sigma_t = Sigma_t
         self.R = R
+        self.tks = tks
         self.children = None  # Will be dict of targets at t+1 updated with
                               # hits plausibly caused by this target.
                               # Keys are hit indices k
@@ -105,48 +125,58 @@ class TARGET4(CAUSE_FA):
         if R_sum is None:
             self.R_sum = R
         else:
-            self.R_sum = R_sum            
-    def New(self, *args,**kwargs):
-        if args[-1] is None: # y is None, ie invisible
-            rv = TARGET4(*args,**kwargs)
+            self.R_sum = R_sum
+        self.T0=None
+        self.last=None
+    def New(self,   # TARGET4
+            *args,**kwargs):
+        rv = TARGET4(*args,**kwargs)
+        if rv.m_t[-1] < 0:
             rv.invisible_count = self.invisible_count + 1
-            return rv
-        else:
-            return TARGET4(*args,**kwargs)
+        rv.T0 = self.T0
+        return rv
     def dump(self #TARGET4
              ):
-        print '\n Dump target: m_t=',self.m_t,
-        print '             index=%d, len(mu_t)=%d'%(self.index,len(self.mu_t))
+        print '\n Dump %s: m_t='%self.type,self.m_t
+        tks = self.tks.keys()
+        tks.sort()
+        print '  tks=',tks
+        print '             T0=%d, index=%d, len(mu_t)=%d t_last='%(self.T0,
+               self.index,len(self.mu_t)),self.last
         print '   invisible_count=%d, R=%5.3f, R_sum=%5.3f'%(
             self.invisible_count, self.R,self.R_sum)
-        if self.children is not None:
+        #if self.children is not None: #
+        if False:
             print'  len(self.children)=%d'%len(self.children)
             for child in self.children.values():
                 child.dump()
-    def make_children(self,        # self is a TARGET4
+    def make_children(self,        # TARGET4
                       y_t,         # list of hits at time t
-                      All_children # Dict of children of all associations
+                      t
                       ):
         """ For each of the hits that could plausibly be an
         observation of self, make a child target.  Collect the
         children in a dict and attach it to self.
         """
+        if not self.children is None:
+            return # make_children already called for this target
         self.forecast()
         self.children = {}
-        MD = self.mod.MaxD
+        mlpd = self.mod.log_min_pd
         for k in xrange(len(y_t)):
-            if MD < 0.01 or self.distance(y_t[k]) < MD:
-                # Make child if MaxD is near zero, ie, pruning is off
-                # or hit is closer than MaxD
-                key = tuple(self.m_t+[k])
-                self.children[k] = All_children.setdefault(key,
-                                        self.update(y_t[k],k))
-        key = tuple(self.m_t + [-1]) # Child for invisible y
-        self.children[-1] = All_children.setdefault(key,self.update(None,-1))
-    def forecast(self):
+            key = tuple(self.m_t + [k])
+            if mlpd > self.utility(y_t[k])[0]:
+                continue                 # Candidate utility too small
+            self.children[k] = self.update(y_t[k],k,t)
+            # update() calls utility second time.  Possible time saving
+            assert(self.children[k].m_t[-1]==k)
+        # Child for invisible y
+        self.children[-1] = self.update(None,-1,t)
+    def forecast(self # TARGET4
+                 ):
         """ Calculate forecast mean and covariance for both state and
         observation.  Also calculate K and Sigma_next.  Save all six
-        for use by Update or Distance.
+        for use by Update.
         """
         A = self.mod.A
         O = self.mod.O
@@ -157,29 +187,27 @@ class TARGET4(CAUSE_FA):
         self.Sigma_y_forecast_I = scipy.linalg.inv(Sig_y)
         self.K = self.Sigma_a*self.mod.O.T*self.Sigma_y_forecast_I
         self.Sigma_next = (self.mod.Id-self.K*self.mod.O)*self.Sigma_a
-    def distance(self,y):
-        """ Rather than the Mahalanobis distance of y from forecast
-        y, I generalize to sqrt(-2 Delta_R)
-        """
-        u = self.utility(y)[0]
-        if u < 0:
-            return float(-2*self.utility(y)[0])**.5
-        else:
-            return -(float(2*self.utility(y)[0])**.5)
     def update(self, # Target4
            y,        # The observation of the target at the current time
-           m         # Index of the observation
+           k,        # Index of the observation
+           t         # Present time
            ):
         """ Create a new target with updated m_t, mu_t, Sigma_t, R and
         R_sum for the observation, index pair (y,m)."""
-        m_L = self.m_t+[m]
+        m_L = self.m_t+[k]
         Delta_R,mu_new,Sigma_new = self.utility(y)
         Sigma_L = self.Sigma_t + [Sigma_new]
         mu_L = self.mu_t + [mu_new]
-        return self.New(self.mod,m_L,mu_L,Sigma_L,Delta_R,y,
+        tks = self.tks.copy()
+        if k >= 0:
+            tks[(t,k)] = True
+        return self.New(self.mod,m_L,mu_L,Sigma_L,Delta_R,y,tks,
                              index=self.index,R_sum=self.R_sum+Delta_R)
-    def utility(self,y):
-        """Include log_prob factors for Sig_D and visibility transitions.
+    def utility(self,  # TARGET4
+                y):
+        """Return (log probability density, updated mean, updated
+        covariance).  Include log_prob factors for Sig_D and
+        visibility transitions.
         """
         if self.m_t[-1] is -1:
             v_old = 1
@@ -202,15 +230,22 @@ class TARGET4(CAUSE_FA):
         return (Delta_R,mu_new,Sigma_new)
     def KF(self,     # Target4
            y,        # The observation of the target at the current time
-           m         # Index of the observation
+           k,        # Index of the observation
+           t         # Present time
            ):
         """ Use a Kalman filter to create a new target with a unique
         index, fresh m_t, mu_t, Sigma_t and R for the observation y."""
         self.forecast()
-        r = self.update(y,m)
-        return self.New(self.mod,[r.m_t[-1]],[r.mu_t[-1]],
-                             [r.Sigma_t[-1]],r.R,y)
-    def backtrack(self):
+        r = self.update(y,k,t)
+        tks = {}
+        if k >= 0:
+            tks[(t,k)] = True
+        r = self.New(self.mod,[r.m_t[-1]],[r.mu_t[-1]],
+                             [r.Sigma_t[-1]],r.R,y,tks)
+        r.T0 = t
+        return r
+    def backtrack(self # TARGET4
+                  ):
         T = len(self.mu_t)
         A = self.mod.A
         X = A.T * scipy.linalg.inv(self.mod.Sigma_D) # An intermediate
@@ -221,6 +256,20 @@ class TARGET4(CAUSE_FA):
             mu_t = self.mu_t[t]
             s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
         return s_t
+    def kill(self, # TARGET4
+             t
+             ):
+        self.type = 'dead_target'
+        self.last = t
+        self.children = {}
+def cmp_ass(A,B):
+    """ Compare associations.  Want sort to make high utility come first.
+    """
+    if B.nu - A.nu > 0:
+        return 1
+    if B.nu == A.nu:
+        return 0
+    return -1
 class SUCCESSOR_DB:
     """For each possible successor key, collect candidate predecessors
     and the associated u_prime.
@@ -230,7 +279,7 @@ class SUCCESSOR_DB:
     def enter(self,       
               association  # A candidate predecessor
               ):
-        key = tuple(association.h2c) # An explanation of each component of y_t
+        key = tuple(association.h2c.values()) # Explanation of y_t components
         u_prime = association.nu     # The utility of the candidate
         suc_key = self.successors.setdefault(key,
                       {'associations':[],'u_primes':[]})
@@ -245,12 +294,13 @@ class SUCCESSOR_DB:
     def length(self):
         return len(self.successors)
     def maxes(self):
-        """ For each key, return the association with the largest
-        corresponding u_prime
+        """ Make a sorted list of associations.  For each key, return
+        only the association with the largest corresponding u_prime
         """
         rv = []
         for suc in self.successors.values():
             rv.append(suc['associations'][util.argmax(suc['u_primes'])])
+        rv.sort(cmp_ass)
         return rv
 class ASSOCIATION4:
     """This is the discrete part of the state.  It gives an
@@ -259,11 +309,15 @@ class ASSOCIATION4:
 
     Methods:
 
-     __init__: Called with None or with an existing association and a
-               cause to create a new association with an explanation
-               for an additional observation.
+     __init__:
 
-     New and Fork: Create a child association that explains one more hit
+     NewA: Create an association that has the same dead targets as self
+
+     Fork: Create a child association that explains one more hit
+
+     Spoon: Modify self to explain one more hit
+
+     join: Merge two associations
 
      forward:  Create plausible successor associations
 
@@ -272,162 +326,298 @@ class ASSOCIATION4:
      check_targets, check_FAs and check_newts: Checks in list of
          cause_checks called by forward() that propose causes of hits
 
-    extra_invisible: Entry in list of methods extra_forward that is
+     extra_invisible: Entry in list of methods extra_forward that is
          called by forward().  This methods modifies an association to
          account for invisible targets.
+
+     exhaustive: Find self.mod.Max_NA best next associations by
+         exhaustive search
+
+     Murty: Find self.mod.Max_NA best next associations by Murty's
+         algorithm
+
+     forward:  Create plausible successor associations
     """
     def __init__(self,      # ASSOCIATION4
-                 nu,mod):
+                 nu,mod,t=None):
         self.nu = nu        # Utility of best path ending here
         self.mod = mod      # Model, to convey parameters
-        self.tar_dict = {}  # Dict of targets keys are unique target indices
-        self.targets = []   # List of targets
-        self.h2c = []       # Map from hits to causes.  Will become key
+        self.tar_dict = {}  # Keys: unique target indices. Values: targets
+        self.dead_targets={}# Key is target.index value is target
+        self.FAs = {}       # Dict of FA.Rs indexed by (t,k)
+        self.h2c = {}       # Map from current hits to cause indices.
+        self.Atks = {}      # Dict. Key: (t,k), Value: cause
         self.cause_checks = [self.check_targets,self.check_FAs,
                              self.check_newts]
         self.extra_forward = [self.extra_invisible]
-        self.dead_targets = {} # Key is target.index value is [target,t_last]
+        self.t = t
         self.type='ASSOCIATION4'
-    def New(self, *args,**kwargs):
-        NA = ASSOCIATION4(*args,**kwargs)
-        NA.dead_targets = self.dead_targets.copy()
-        return NA
-    def Fork(self, # ASSOCIATION4
-            cause  # CAUSE of next hit in y_t
+    def NewA(self, # ASSOCIATION4
+             *args,**kwargs):
+        return ASSOCIATION4(*args,**kwargs)
+    def Enter(self, # ASSOCIATION4
+              cause
+              ):
+        #for tk in cause.tks.keys():
+        #    if self.Atks.has_key(tk): # FixMe Why comment this out
+        #        return (False,self)
+        for tk in cause.tks.keys():
+            self.Atks[tk] = cause
+            # self.Atks.update(cause.tks) FixMe: use this?
+        if cause.type is 'target':
+            self.tar_dict[cause.index] = cause
+            return (True,self)
+        if cause.type is 'dead_target':
+            self.dead_targets[cause.index] = cause
+            return (True,self)
+        if cause.type is 'FA':
+            self.FAs[tk] = cause
+            return (True,self)
+        if cause.type is 'void':
+            return (True,self)
+        raise RuntimeError,"Cause type %s not known"%cause.type
+    def Fork(self,  # ASSOCIATION4
+             cause, # CAUSE of next hit in y_t
+             k
             ):
         """ Create a child that extends association by cause
         """
-        CA = self.New(self.nu + cause.R,self.mod) #Child Association
+        CA = self.NewA(self.nu + cause.R,self.mod) #Child Association
         CA.tar_dict = self.tar_dict.copy()
-        CA.h2c = self.h2c + [cause.index]
-        if cause.type is 'target':
-            CA.tar_dict[cause.index] = None # Prevent reuse of target
-            CA.targets = self.targets + [cause]
-            return CA
-        if cause.type is 'FA':
-            CA.targets = self.targets
-            return CA
-        raise RuntimeError,"Cause type %s not known"%cause.type
-    def Spoon(self, # ASSOCIATION4
-            cause   # CAUSE of next hit in y_t
+        CA.dead_targets = self.dead_targets.copy()
+        CA.FAs = self.FAs.copy()
+        CA.h2c = self.h2c.copy()
+        CA.Atks = self.Atks.copy()
+        CA.t = self.t
+        if k >= 0:
+            CA.h2c[k] = cause.index
+        return CA.Enter(cause)
+    def Spoon(self,   # ASSOCIATION4
+              cause,  # CAUSE of next hit in y_t
+              k
             ):
         """ Extend association by cause.  Like Fork but modify self
-        rather than create child
+        rather than create child.  Called by Murty.
         """
         self.nu += cause.R
-        self.h2c.append(cause.index)
-        if cause.type is 'target':
-            self.targets.append(cause)
+        self.h2c[k] = cause.index
+        return self.Enter(cause)
+    def re_nu_A(self, # ASSOCIATION4
+                ):
+        self.nu = 0.0
+        self.Atks = self.FAs.copy()
+        for FA in self.FAs.values():
+            self.nu += FA.R
+        for target in self.tar_dict.values() + self.dead_targets.values():
+            self.nu += target.R_sum
+            for tk in target.tks.keys():
+                self.Atks[tk] = target
+        return list_2_flat(self.Atks.keys())
+        
+    def verify(self,  # ASSOCIATION4
+               k_list
+               ):
+        """ Debugging method to verify:
+        1. h2c does not duplicate causes
+        2. Lenghts of h2c and k_list match
+        3. Number of posiitve h2c entries matches length of tar_dict???
+        4. Each entry in h2c that maps to a target explains the hit
+        5. None of the targets have m_t entries that conflict and
+           target.tks is consistient with target.m_t
+        6. Entries in Atks match entries in causes.tks (causes=targets
+           + dead_targets + FAs)
+        """ 
+        # Do check #6
+        causes = self.tar_dict.values() + self.dead_targets.values()\
+            + self.FAs.values()
+        Ctks = {}
+        for cause in causes:
+            for tk in cause.tks.keys():
+                Ctks[tk] = cause
+                if not self.Atks.has_key(tk):
+                    cause.dump()
+                    raise RuntimeError, ('cause has tk=(%d,%d) but not Atks.'\
+                                             +' Dumped cause')%tk
+        for tk in self.Atks:
+            if not Ctks.has_key(tk):
+                raise RuntimeError, 'Atks has tk=(%d,%d) but no cause has it'%tk
+        # Do check #1
+        c_dict = {}
+        for c in self.h2c.values():
+            if c < 0:
+                continue
+            if c_dict.has_key(c):
+                print 'verify fails on c=%d.  h2c='%c,self.h2c
+                self.dump()
+                raise RuntimeError,'h2c has duplicate'
+            c_dict[c] = True
+        # Do check 5
+        tk_dict = {}
+        for target in self.tar_dict.values() + self.dead_targets.values():
+            T0 = target.T0
+            for t in xrange(len(target.m_t)):
+                k = target.m_t[t]
+                if k < 0:
+                    continue
+                tk = (T0+t,k)
+                if not target.tks.has_key(tk):
+                    print 'At t=%d, T0=%d, target.tks is missing '%(self.t,T0)+\
+                    '(%d,%d).  Dump target'%tk
+                    target.dump()
+                    raise RuntimeError
+                if tk_dict.has_key(tk):
+                    print 'self.h2c=',self.h2c
+                    self.dump()
+                    raise RuntimeError,'target.m_t has duplicate (%d,%d)'%(t,k)
+                else:
+                    tk_dict[tk] = True
+        if k_list == None:
             return
-        if cause.type is 'FA':
-            return
-        raise RuntimeError,"Cause type %s not known"%cause.type
-    def check_targets(self,k,causes,y,t):
-        """ A check method for list cause_checks called by forward().
-        This method appends relevant children to plausible causes.
+        # Do check 2
+        N_k_pos = 0
+        for k in k_list:
+            if k >= 0:
+                N_k_pos += 1
+        if len(self.h2c) != N_k_pos:
+            print 'self.h2c=',self.h2c
+            print 'k_list=',k_list
+            raise RuntimeError,'len(self.h2c)=%d != %d=n_k_pos'%(
+                len(self.h2c),N_k_pos)
+        # Do check 4
+        for k,c in self.h2c.items(): # Check that targets explain hits
+            if c < 0:    # False alarm
+                continue
+            target = self.tar_dict[c]
+            if(target.m_t[-1] != k):
+                self.dump()
+                print 'k=%d, self.h2c='%k,self.h2c
+                print 'k_list=',k_list
+                target.dump()
+                raise RuntimeError,'target %d fails to explain hit %d'%(c,k)
+        return # End of verify
+    def join(self, # ASSOCIATION4
+            other  # ASSOCIATION4
+            ):
+        """ Merge other association into self
         """
-        for target in self.targets:
+        self.nu += other.nu
+        self.tar_dict.update(other.tar_dict)
+        self.h2c.update(other.h2c)
+        self.FAs.update(other.FAs)
+        self.Atks.update(other.Atks)
+        self.dead_targets.update(other.dead_targets)
+    # The next three methods go in the list cause_checks called by
+    # forward().  Each selects causes to put in the list of plausible
+    # causes.
+    def check_targets(self, # ASSOCIATION4
+                  k,causes,y):
+        for target in self.tar_dict.values():
             if target.children.has_key(k):
-                # If has_key(k) then child is plausible cause
                 causes.append(target.children[k])
     def check_FAs(self, # ASSOCIATION4
-                  k,causes,y,t):
-        """ A check in list of cause_checks called by forward().
-        Propose that cause is false alarm
-        """
-        CC = CAUSE_FA(y,t,k,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
-        if self.mod.MaxD < 1e-7 or (-2*CC.R)**.5 < self.mod.MaxD:
+                  k,causes,y):
+        CC = FA(y,self.t,k,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
+        if CC.R > self.mod.log_min_pd:
             causes.append(CC) # False alarm
         else:
-            print 'test failed, self.mod.MaxD=',self.mod.MaxD
-    def check_newts(self, # ASSOCIATION4
-                    k,causes,y,t):
-        """ A check in list of cause_checks called by forward().
-        Propose that cause is false alarm or new target
-        """
+            print 'check_FAs rejects, self.mod.MaxD=',self.mod.MaxD
+    def check_newts(self, # ASSOCIATION4.  Check for new target
+                    k,causes,y):
         if not self.mod.newts.has_key(k):
             return
         CC = self.mod.newts[k]
-        if self.mod.MaxD  > 1e-7 and CC.R <0 and (-2*CC.R)**.5 > self.mod.MaxD:
-            print 'test failed, self.mod.MaxD=%5.3f, CC.R=%5.3f, t=%d, k=%d'%(
-                self.mod.MaxD,CC.R,t,k)
+        if self.mod.log_min_pd > CC.R:
+            print ('check_newts rejects, self.mod.MaxD=%5.3f,'+\
+                  'CC.R=%5.3f, t=%d, k=%d')%(self.mod.MaxD,CC.R,self.t,k)
             return
-        causes.append(CC)  # New target
-    def extra_invisible(self,partial,t):
+        causes.append(CC)
+    def extra_invisible(self,   # ASSOCIATION4
+                        partial # ASSOCIATION4
+                        ):
         """ A method in extra_forward called by forward().  Put
         invisible targets in new association.
         """ 
-        for target in self.targets:
-            if not partial.tar_dict.has_key(target.index) and \
-                   target.children.has_key(-1): # Invisible target
-                child = target.children[-1]
-                partial.targets.append(child)
-                partial.nu += child.R
+        for target in self.tar_dict.values():
+            if partial.tar_dict.has_key(target.index):
+                continue # Skip if child of target in partial
+            if target.children.has_key(-1): # Invisible target
+                partial.Enter(target.children[-1])
     def dump(self # ASSOCIATION4
              ):
         print 'dumping an association of type',self.type,':'
-        print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
+        print '  nu=%f, len(tar_dict)=%d, len(dead_targets)=%d'%(
+            self.nu,len(self.tar_dict),len(self.dead_targets)),
         print 'hits -> causes map=', self.h2c
-        for target in self.targets:
+        print '  Atks.keys()=',dict_2_tuple(self.Atks)
+        for target in self.tar_dict.values()+self.dead_targets.values():
             target.dump()
-        for key,value in self.dead_targets.items():
-            print 'Dump dead target with index=%d, t_last=%d:'%(key,value[1])
-            value[0].dump()
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
-                      cousins, # Dict of children of sibling associations
                       t        # Save time for dead targets
                       ):
-        for target in self.targets:
-            if target.invisible_count < Invisible_Lifetime:
-                target.make_children(y_t,cousins)
+        for target in self.tar_dict.values():
+            if target.invisible_count < self.mod.Invisible_Lifetime:
+                target.make_children(y_t,t)
             else:
+                #print 'target dies after %d invisible steps'%Invisible_Lifetime
                 assert not self.dead_targets.has_key(target.index), \
                        'Dying target appears twice?'
-                self.dead_targets[target.index] = [target,t]
-                target.children = {}
-    def exhaustive(self,     # ASSOCIATION4
-                   k_list,   # Observation indices in this cluster
-                   causes,   # Plausible explanations of each observation
-                   N_max     # Maximum number of associations to return
+                target.kill(t)
+                index = target.index
+                del self.tar_dict[index]
+                self.dead_targets[index] = target
+    def exhaustive(self,      # ASSOCIATION4
+                   k_list,    # Observation indices in this cluster
+                   causes,    # Plausible explanations of each observation
+                   floor      # Minimum utility of associations to return
                    ):
-        """ A service routine for forward that finds the N_max best
-        associations by exhaustive search
+        """ A service routine for forward that returns a list of the
+        self.mod.Max_NA best associations for t+1 by exhaustive search
         """
-        # Initialize list of partial associations.
-        old_list = [self.New(self.nu,self.mod)]
+        assert(len(k_list) > 0)
+        assert(k_list != (-1,))
+        # The seed association is copy of self with empty tar_dict
+        OK,seed = self.Fork(CAUSE(),-1)
+        seed.tar_dict = {}
+        seed.h2c = {}
+        old_list = [seed]
         # Make list of plausible associations.  At level j, each
         # association explains the source of each y_t[k_list[i]] for
         # i<j.
         for j in xrange(len(k_list)):
             if k_list[j] < 0:
                 continue
-            new_list = []
+            new_list = []    # List of partial associations at level j
             for partial in old_list:
                 for cause in causes[j]:
                     # Don't use same target index more than once.
-                    # tar_dict has only targets, not FAs
                     if not partial.tar_dict.has_key(cause.index):
-                        new_list.append(partial.Fork(cause))
+                        OK,child = partial.Fork(cause,k_list[j])
+                        if OK:
+                            new_list.append(child)
                 old_list = new_list
-        if len(old_list) > N_max:   # If too many partials, prune
-            sortlist = []
-            for partial in new_list:
-                sortlist.append([-partial.nu,partial])
-            sortlist.sort()
-            old_list = []
-            for k in xrange(N_max):
-                neg_nu,a = sortlist[k]
-                old_list.append(a)
-        return old_list
-    def Murty(self,     # ASSOCIATION4
-              k_list,   # Observations indices in this cluster
-              causes,   # Plausible explanations of each observation
-              N_max     # Maximum number of associations to return
+            if len(old_list) == 0:
+                return []
+        # Discard low utility associations.  FixMe: doesn't count
+        # extra_invisible utilities
+        new_list.sort(cmp_ass)
+        if floor == None:  # Calculate threshold relative to best association
+            floor = new_list[0].nu-self.mod.A_floor
+        old_list = []
+        for asn in new_list[:self.mod.Max_NA]:
+            if asn.nu < floor:
+                break
+            old_list.append(asn)
+        return old_list  # End of exhaustive()
+    def Murty(self,      # ASSOCIATION4
+              k_list,    # Observations indices in this cluster
+              causes,    # Plausible explanations of each observation
+              floor      # Minimum utility of associations to return
               ):
-        """ A service routine for forward that finds the N_max best
-        associations by Murty's algorithm.
+        """ A service routine for forward that finds the
+        self.mod.Max_NA best associations by Murty's algorithm.
         """
+        global hungary_count, hungary_time
         assert(len(k_list) == len(causes)),\
               'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
         m = len(k_list) # Number of observations
@@ -437,6 +627,7 @@ class ASSOCIATION4:
         w = {}          # Dict of assignement weights
         n = 0           # Number of j values, ie, causes
         for i in xrange(m): # Loop over observations
+            k = k_list[i]
             for cause in causes[i]:
                 index = cause.index
                 if not index_2_j.has_key(index):
@@ -446,6 +637,7 @@ class ASSOCIATION4:
                     n += 1
                 j = index_2_j[index]
                 ij_2_cause[(i,j)] = cause
+                assert(cause.type != 'target' or cause.m_t[-1] == k)
                 w[(i,j)] = cause.R
         # Make each w[key] > (Max-Min) so all solutions have m links
         w_list = w.values()
@@ -454,281 +646,258 @@ class ASSOCIATION4:
             w[key] = w[key] + delta
         #
         X = util.Hungarian(w,m,n,j_gnd=j_mult)
-        floor = -4.0 # FixMe: Use smarter margin than 4.0
+        util_max = 0
         for key in X.keys():
-            floor += w[key]
+            util_max += w[key]
+        if floor != None:
+            if util_max < floor:
+                return []
+        else:  # Calculate threshold relative to best association
+            floor = util_max-self.mod.A_floor
         ML = util.M_LIST(w,m,n,j_gnd=j_mult)
-        ML.till(20,floor) # FixMe: use smarter limit than 20
+        # FixMe: doesn't count extra_invisible utilities
+        ML.till(self.mod.Max_NA,floor)
+        hungary_count += ML.H_count
+        hungary_time += ML.stop_time-ML.start_time
         new_list = []
         for U,X in ML.association_list:
-            new_A = self.New(self.nu,self.mod)
+            # The seed assn is copy of self with empty tar_dict
+            OK,new_A = self.Fork(CAUSE(),-1)
+            new_A.tar_dict = {}
+            new_A.h2c = {}
             for ij in X:
-                new_A.Spoon(ij_2_cause[ij])
+                i,j = ij
+                k = k_list[i]
+                cause = ij_2_cause[ij]
+                OK, temp = new_A.Spoon(cause,k)
+                if not OK:
+                    break
+            if not OK:
+                continue
             new_list.append(new_A)
-        return new_list
+        return new_list     # End of Murty()
     def forward(self,       # ASSOCIATION4
                 successors, # DB of associations and u's for the next time step
                 y_t,        # Hits at this time
                 t,
-                k_list=None # Option for MV5 to identify subset of y_t
-                            # in this cluster
+                k_list,     # Identify subset of y_t in this cluster
+                floor
                 ):
-        """ For each plausible successor S of the ASSOCIATION self,
-        enter the following into the successors DB 1. A key for the
-        explanation that S gives for the observations. 2. The
-        candidate successor association S. 3. The value of
-        u'(self,S,t+1).
+        """ For each plausible successor S of the ASSOCIATION self, enter the
+        following into the successors DB 1. A key for the explanations
+        that S gives for the observations. 2. The candidate successor
+        association S. 3. The value of u'(self,S,t+1).  On entry,
+        self.nu is correct for time t-1.
         """
-        if k_list is None:
-            k_list = range(len(y_t))
-        # For each observation, make a list of plausible causes
-        causes = []
-        N_c =0    # Total number of causes
-        for k in k_list:
-            if k < 0:
-                continue
-            causes_k = []
-            for check in self.cause_checks:
-                check(k,causes_k,y_t[k],t)
-            causes.append(causes_k)
-            N_c += len(causes_k)
+        self.t = t # Make t available to other methods
+        self.verify(None)
         m = len(k_list)
-        if m > 0:
-            N_hat = (float(N_c)/m)**m  # Bound on number of associations
+        assert(m > 0)       # Necessary in N_hat calulations below
+        if k_list == (-1,): # No targets in self have visible children
+            OK,seed = self.Fork(CAUSE(),-1)
+            seed.tar_dict = {}
+            seed.h2c = {}
+            new_list = [seed]
         else:
-            N_hat = 0
-        if N_hat < 200:
-            new_list = self.exhaustive(k_list,causes,200)
-        else:
-            new_list = self.Murty(k_list,causes,N_hat)
-        
+            causes = []
+            N_c =0    # Total number of causes for N_hat calculation
+            # For each observation, make a list of plausible causes
+            for k in k_list:
+                if k < 0:
+                    continue
+                causes_k = []
+                for check in self.cause_checks:
+                    check(k,causes_k,y_t[k])
+                causes.append(causes_k)
+                N_c += len(causes_k)
+            # List of plausible causes complete
+            N_hat = (float(N_c)/m)**m  # Estimated number of associations
+            if N_hat < self.mod.Murty_Ex:
+                new_list = self.exhaustive(k_list,causes,floor)
+            else:
+                new_list = self.Murty(k_list,causes,floor)
+            # FixMe: Made selection w/o knowing utilities required by
+            # extra_forward, eg, extra_invisible
         if len(new_list) == 0:
-            print 'forward returning without any new associations'
+            #print 'forward returning 0 new associations'
             return
-        # For each association, do extra work work required for
-        # nonstandard hit/target combinations
-        for partial in new_list:
-            for method in self.extra_forward:
-                method(partial,t)
-        # Now each entry in new_list is a complete association and
-        # entry.h2c[k] is a plausible CAUSE for hit y_t[k]
-
-        # Map each association in new_list to it's successor key and
-        # propose the present association as the predecessor for that
-        # key.
-        for a in new_list:
-            successors.enter(a)
-def make_history(targets,         # Dict of targets with tuple(m_t) keys
-                 t,               # Time of last observation
-                 dead_targets={}, #
-                 FAs={}
-                 ):
-    """ Return a history dict made from arguments
-    """
-    history = {} # Dict with keys (t,k) where k is index of observation
-    # Make pairs [[tar0,tf],[tar1,tf]...] where each is a final time
-    target_time = map(lambda x: [x,t],targets.values())
-    target_time.extend(dead_targets.values())
-    for target,tf in target_time:
-        ti = tf - len(target.m_t)
-        for k in range(len(target.m_t)):
-            if target.m_t[k] < 0:
-                continue # Only include observations
-            history[(ti+k,target.m_t[k])] = target
-    history.update(FAs)
-    return(history)
-    
+        for asn in new_list:
+            for method in self.extra_forward: # EG extra_invisible
+                method(asn)
+            asn.verify(k_list)  # FixMe delete this
+        # Now each entry in new_list is a complete association that
+        # explains k_list at time t.  Next propose the present
+        # association as the predecessor for each association in
+        # new_list.
+        for asn in new_list:
+            successors.enter(asn)
+        return # End of forward, end of class ASSOCIATION4
 class Cluster:
-    """ A cluster is a set of targets and associations of those
-    targets.  Each association should explain the same past
-    observations.
+    """ A cluster is a set of targets and associations of those targets.
+    Each association in a cluster should explain the same set of
+    observations past and present.
 
     Methods:
-       __init__()     Make self.history and self.As from arguments
-       check()        See if history from argument matches self.history
-       append()       
+       __init__()    Make self.As from arguments
+       Append()     
        merge()
-    
-    Properties: history, As
     """
     def __init__(self,            # Cluster
-                 targets,         # Dict of targets with tuple(m_t) keys
-                 a,               # Association that targets are from
-                 t,               # Time of last observation
-                 dead_targets={}, #
-                 FAs={}
+                 targets,         # Dict with targets as keys
+                 asn              # Association that targets are from
                  ):
-        """ Make first association and history and attach them to self
+        """ Make first association and attach to self
         """
-        self.history = make_history(targets,t,dead_targets,FAs)
         self.As = []
-        self.Append(targets,a,dead_targets,FAs)
+        self.A_dict = {} # Key: mother, value: fragment.  For Append_D
+        self.Append(targets,asn)
     def Append(self,            # Cluster
-               targets,         # Dict of targets with tuple(m_t) keys
-               a,               # Association that targets are from
-               dead_targets={},
-               FAs={}
+               targets,         # Dict with targets as keys
+               asn              # Association that targets are from
                ):
-        """ Create a new association in this cluster.  History match
-        should have already been done.
+        """ Create a new association in this cluster derived from the argument
+        asn.  Copy targets specified in the argument 'targets'.
         """
         nu = 0.0
-        for target in targets.values() + \
-                map(lambda x: x[0], dead_targets.values()):
-            nu += target.R_sum  # FixMe: Add utility of FAs here
-        for R in FAs.values():
-            nu += R
-        new_a = a.New(nu,a.mod)
-        new_a.targets=targets.values()
-        new_a.dead_targets = dead_targets
-        new_a.FAs = FAs
+        for target in targets.keys():
+            nu += target.R_sum
+        new_a = asn.NewA(nu,asn.mod)
+        for target,key in targets.items():
+            assert(not new_a.tar_dict.has_key(key))
+            new_a.Enter(target)
         self.As.append(new_a)
+        assert(not self.A_dict.has_key(asn)),'Tried to append second'+\
+            ' association from same mother association'
+        self.A_dict[asn] = new_a # For Append_D
+        return
+    def Append_D(self,      # Fragment Cluster
+                 tks,       # List of (t,k) tuples required in self
+                 Mother     # Parent Cluster
+                 ):
+        """ Copy dead targets and FAs from As in Mother that each member of
+        self.As needs in order to have a complete history.
+        """
+        in_tuple = list_2_flat(tks)
+        for A_mother in Mother.As:
+            if not self.A_dict.has_key(A_mother):
+                continue
+            A_fragment = self.A_dict[A_mother]
+            if list_2_flat(A_fragment.Atks.keys()) == in_tuple:
+                continue
+            for tk in tks:
+                if not A_mother.Atks.has_key(tk):
+                    print 'A_mother is missing key',tk
+                    print 'A_fragment.Atks.keys=',dict_2_tuple(A_fragment.Atks)
+                    print '  A_mother.Atks.keys=',dict_2_tuple(A_mother.Atks)
+                    print 'Dump A_mother'
+                    A_mother.dump()
+                    print 'Dump A_fragment'
+                    A_fragment.dump()
+                    raise RuntimeError
+                if A_fragment.Atks.has_key(tk):
+                    continue
+                cause = A_mother.Atks[tk]
+                if cause.type == 'FA':
+                    A_fragment.FAs[tk] = cause
+                    A_fragment.Atks[tk] = cause
+                    continue
+                if cause.type != 'target' and cause.type != 'dead_target':
+                    raise RuntimeError,'Unknown cause type: %s'%cause.type
+                for ttk in cause.tks.keys():
+                    A_fragment.Atks[ttk] = cause
+                if cause.type == 'target':
+                    A_fragment.tar_dict[cause.index] = cause
+                if cause.type == 'dead_target':
+                    A_fragment.dead_targets[cause.index] = cause
+            # Now A_fragment.tks has every tk in tks.  Check that
+            # match is exact.
+            if list_2_flat(A_fragment.Atks.keys()) != in_tuple:
+                print 'dict_2_tuple(A_fragment.Atks)=',dict_2_tuple(
+                    A_fragment.Atks)
+                print '                     in_tuple=',in_tuple
+                print 'Dump A_mother'
+                A_mother.dump()
+                print 'Dump A_fragment'
+                A_fragment.dump()
+                raise RuntimeError
+        return # End of Append_D
     def dump(self #Cluster
              ):
         print 'Dumping a cluster with %d associations:'%len(self.As)
         for A in self.As:
             A.dump()
-    def check(self,     # Cluster
-              targets,  # Dict of targets
-              dead_targets,
-              FAs,
-              t
-              ):
-        """ Retrurn True if arguments explain same observations as this
-        cluster
-        """
-        history = make_history(targets,t,dead_targets,FAs)
-        for key in self.history.keys():
-            if not history.has_key(key):
-                return False
-        for key in history.keys():
-            if not self.history.has_key(key):
-                return False
-        return True
     def merge(self,     # Cluster
              other      # Cluster
                ):
-        """ Merge an other cluster with self
+        """ Merge other cluster into self
         """
-        self.history.update(other.history)
         new_As = []
         for OA in other.As:
             for SA in self.As:
-                NA = OA.New(OA.nu+SA.nu,SA.mod)
-                NA.targets = OA.targets + SA.targets
-                NA.dead_targets = OA.dead_targets.copy() # FixMe: OK?
+                NA = OA.NewA(OA.nu+SA.nu,SA.mod)
+                NA.tar_dict = OA.tar_dict.copy()
+                NA.tar_dict.update(SA.tar_dict)
+                NA.dead_targets = OA.dead_targets.copy()
                 NA.dead_targets.update(SA.dead_targets)
                 NA.FAs = OA.FAs.copy()
                 NA.FAs.update(SA.FAs)
                 new_As.append(NA)
         self.As = new_As
-class ASSOCIATION5(ASSOCIATION4):
-    """ Number of targets is fixed.  Allow false alarms and invisibles
-    """
-    def __init__(self,*args,**kwargs):
-        ASSOCIATION4.__init__(self,*args,**kwargs)
-        self.type='ASSOCIATION5'
-        self.FAs = {}
-        self.extra_forward = [self.extra_FA_I]
-    def New(self, *args,**kwargs):
-        NA = ASSOCIATION5(*args,**kwargs)
-        NA.dead_targets = self.dead_targets.copy()
-        return NA
-    def Fork(self, # Create a child that extends association by cause
-            cause  # CAUSE of next hit in y_t
-            ):
-        CA = self.New(self.nu + cause.R,self.mod) #Child Association
-        CA.tar_dict = self.tar_dict.copy()
-        CA.FAs = self.FAs.copy()
-        CA.h2c = self.h2c + [cause.index]
-        if cause.type is 'target':
-            CA.tar_dict[cause.index] = None # Prevent reuse of target
-            CA.targets = self.targets + [cause]
-            return CA
-        if cause.type is 'FA':
-            CA.targets = self.targets
-            CA.FAs[(cause.t,cause.k)] = cause.R
-            CA
-            return CA
-        raise RuntimeError,"Cause type %s not known"%cause.type
-    def join(self, # ASSOCIATION5
-            other  # ASSOCIATION5
-            ):
-        """ Method for MV5.  Merge two associations into one.  This is
-        incomplete.  It does not handle self.h2c.  think it is
-        adequate for the end of MV5.decode_forward.
+        return # End merge()
+    def re_nu_C(self,  # Cluster
+                ):
+        """ Call re_nu_A for each asn in self to bring asn.nu up to date, and
+        verify that all associations explain the same history.
         """
-        self.nu += other.nu
-        self.tar_dict.update(other.tar_dict)
-        self.FAs.update(other.FAs)
-        self.dead_targets.update(other.dead_targets)
-        self.targets += other.targets 
-    def extra_FA_I(self,partial,t):
-        """ A method in extra_forward called by forward().  Put old
-        FAs and invisibles in new association and append to self.h2c.
-        """
-        I_targets = {}
-        for target in self.targets:
-            if partial.tar_dict.has_key(target.index) or \
-                   not target.children.has_key(-1): # Invisible target
-                continue
-            child = target.children[-1]
-            partial.targets.append(child)
-            partial.nu += child.R
-            key = tuple(child.m_t)
-            I_targets[key] = child
-        partial.FAs.update(self.FAs)
-        # Now modify h2c to avoid collisions in successor.maxes()
-        history = make_history(I_targets,t,FAs=partial.FAs)
-        keys = history.keys()
-        keys.sort()
-        for key in keys:
-            if partial.FAs.has_key(key):
-                partial.h2c.append(-1)
-            else:
-                partial.h2c.append(history[key].index)
-    def dump(self # ASSOCIATION5
-             ):
-        print 'Begin dumping an association of type',self.type,':'
-        print '  nu=%f, len(targets)=%d'%(self.nu,len(self.targets)),
-        print 'h2c=', self.h2c, 'FAs=',self.FAs
-        for target in self.targets:
-            target.dump()
-        for key,value in self.dead_targets.items():
-            print 'Dump dead target with index=%d, t_last=%d:'%(key,value[1])
-            value[0].dump()
-        print 'End of association dump\n'
+        tk_tuple_0 = self.As[0].re_nu_A()
+        for asn in self.As[1:]:
+            tk_tuple = asn.re_nu_A()
+            if __debug__:
+                if tk_tuple == tk_tuple_0:
+                    continue
+                for tk,cause in self.As[0].Atks.items():
+                    if not asn.Atks.has_key(tk):
+                        print ('asn missing (%d,%d).  Dumping cause in '+\
+                            'self.As[0]')%tk
+                        cause.dump()
+                        raise RuntimeError,'Histories fail to match'
+                for tk,cause in asn.Atks.items():
+                    if not self.As[0].Atks.has_key(tk):
+                        print ('self.As[0].Atks missing (%d,%d).  Dumping '+\
+                                   'cause in asn')%tk
+                        cause.dump()
+                        raise RuntimeError,'Histories fail to match'
+                raise RuntimeError,'Failed to find mismatch.'
+        return #End re_nu_C(), end class Cluster
 class Cluster_Flock:
-    """ A cluster flock is a set of clusters that partitions all of
-    the targets and all of the observations at a given time.  The key
-    method, recluster(t), implements reorganization from clusters at
-    time t-1 to clusters for time t based on new data Yt at time t.
-    Note that recluster does not update the associations for time t;
-    it only changes the clusters and makes child targets.
+    """ A cluster flock is a set of clusters.  The key method,
+    recluster(t), implements reorganization from clusters at time t-1
+    to clusters for time t based on plausible target-observation links
+    found by make_family().
     
     Variables:
-       parents        Dict of targets; keys are tuple(target.m_t)
-       children       Dict of targets; keys are tuple(target.m_t)
+       parents        Dict of targets; keys are target.index
+       children       Dict of targets; keys are target.index
        k2par          Dict that maps observation index to dict of targets
        ks_and_pars    List of clusters each stored as a dict with keys
                         'ks' and 'tars'.  *['ks'] is a dict of the ks
                         and *['tars'] is a dict of the parents.
-       par_key_2_KTI  Dict that maps parents to index of cluster in ks_and_pars
+       parent_2_NI    Dict that maps parents to index of cluster in ks_and_pars
        old_clusters   List of Clusters
+       dead_targets   List of dead targets that need not be in any cluster
 
     Methods:
-       make_family()
-       find_clusters()
-       recluster()
+       make_family()         recluster()
+       find_clusters()       compat_check()
        
     """
     def __init__(self,               # Cluster_Flock
-                 targets,            # Dict of targets
-                 a,                  # ASSOCIATION4
-                 t
+                 target_dict,        # Keys are targets
+                 a                   # ASSOCIATION4
                  ):
-        self.old_clusters = [Cluster(targets,a,t)]
+        self.old_clusters = [Cluster(target_dict,a)]
         self.mod = a.mod
+        self.dead_targets = []
     def make_family(self,  # Cluster_Flock
                     Yt,
                     t
@@ -738,72 +907,145 @@ class Cluster_Flock:
         self.parents
         self.k2par
         """
-        self.parents = {}   # Dict of targets last time indexed by (m_t)
-        self.children = {}  # Dict of targets this time indexed by Yt index
+        self.parents = {}   # Dict of targets last time indexed by target.index
         self.k2par = {}     # Dict that maps Yt index to dict of parents
-        for k in xrange(len(Yt)):
+        k_list = range(len(Yt))
+        self.mod.make_newts(Yt,t,k_list)
+        for k in k_list:
             self.k2par[k] = {}
         for cluster in self.old_clusters:
             for a in cluster.As:
-                a.make_children(Yt,self.children,t)
-                for target in a.targets:
-                    key = tuple(target.m_t)
-                    self.parents[key] = target
+                a.make_children(Yt,t) # dead_targets made here
+                for target in a.tar_dict.values():
+                    self.parents[target] = target.index
                     for k in target.children.keys():
-                        if k < 0:
-                            continue
-                        self.k2par[k][key] = target
+                        if k >= 0:
+                            self.k2par[k][target] = target.index
+        # Begin debugging code
+        for k,d in self.k2par.items():
+            for target,index in d.items():
+                assert(target.children.has_key(k))
     def find_clusters(self,           # Cluster_Flock
                       len_y
                       ):
-        """ Find clusters of new observations using self.k2par and
-        self.parents[*].children (map from Yt indices to parent
-        targets and map backwards respectively).  Each observation
-        that is too far from all targets is put in a cluster by
-        itself.
+        """ Plausible children of each parent have been made.  Now find
+        clusters of new observations using the following two maps:
+
+        self.k2par: Map from Yt index to dict indexed by parent targets
+
+        for each parent in self.parents.keys(), parent.children is a
+              dict with keys that are indices of Yt
+
+        Each observation that is too far from all targets is put in a
+        cluster by itself even if it is close to other such
+        observations.
         """
-        Opars = self.parents.copy() # Keep track of unclustered parents
-        Oks = dict(map (lambda x: (x,True),range(len_y)))
-        # Need dicts of "old targets" and "old k values" so that
+        old_pars = self.parents.copy() # Unclustered parents
+        old_ks = dict(map (lambda x: (x,True),range(len_y)))
+        # Need dicts of old targets and old k values so that
         # deleting doesn't change keys for remainders
         self.ks_and_pars = [] # Definitive list of clusters
-        while len(Oks) > 0:
-            cluster_k = {Oks.popitem()[0]:True} # Seed with a remaining k
-            cluster_tar = {}
-            # Collect all targets linked to ks and all ks linked to
-            # targets.  self.k2par provides k to target links.  Target
-            # to k links come from the target.children each of which
-            # is a dict with k values as keys
+        while len(old_ks) > 0:
+            cluster_tar = {} # Initialize dict of targets in this cluster
+            cluster_k = {old_ks.popitem()[0]:True}# Seed with a remaining k
+            new_ks = cluster_k.copy()
             length = 0
-            while len(cluster_k) > length:
+            while (len(cluster_k) + len(cluster_tar)) > length:
                 # Stop when iteration doesn't grow cluster
-                length = len(cluster_k)
-                for k in cluster_k.keys():
-                    for tar_key in self.k2par[k].keys():
-                        cluster_tar[tar_key] = self.parents[tar_key]
-                        if Opars.has_key(tar_key):
-                            del Opars[tar_key]
-                for tar_key in cluster_tar.keys():
-                    target = self.parents[tar_key]
+                length = len(cluster_k) + len(cluster_tar)
+                new_tars = {}
+                for k in new_ks.keys():
+                    for parent in self.k2par[k].keys():
+                        cluster_tar[parent] = parent.index
+                        new_tars[parent] = True
+                        if old_pars.has_key(parent):
+                            del old_pars[parent]
+                new_ks = {}
+                for target in new_tars.keys():
                     for k in target.children.keys():
                         if k < 0:
                             continue
-                        cluster_k[k] = True
-                        if Oks.has_key(k):
-                            del Oks[k]
+                        if old_ks.has_key(k):
+                            cluster_k[k] = True
+                            new_ks[k] = True
+                            del old_ks[k]
+                            continue
+                        if cluster_k.has_key(k):
+                            continue
+                        #### Begin diagnostic printing ####
+                        print '###Suspect trouble in find_clusters.'
+                        print 'k=%d, self.k2par entries:'%k
+                        for i,d in self.k2par.items():
+                            print '  %d:'%i,d.keys()
+                        print 'self.parents[*].children keys:'
+                        for key,target in self.parents.items():
+                            c_keys = target.children.keys()
+                            print '  %d,%d:'%(key,target.index),c_keys
+                        print 'Previous clusters:'
+                        for kp_dict in self.ks_and_pars:
+                            print kp_dict['ks'].keys(),\
+                                  kp_dict['pars'].values()
+                        print 'In this cluster far:'
+                        print '  cluster_k=',cluster_k.keys(),\
+                              'and cluster_tar=',cluster_tar.keys()
+                        print ('Trouble is that neither old_ks nor cluster_k'+\
+                              ' has key %d\n')%k,'old_ks=',old_ks.keys()
+                        raise RuntimeError,'###Suspect trouble in find_clusters'
+                        #### End diagnostic printing
             self.ks_and_pars.append({'ks':cluster_k,'pars':cluster_tar})
-        # Put unclustered (only invisible children) targets in
-        # additional cluster
-        if len(Opars) > 0:
-            self.ks_and_pars.append({'ks':{-1:True},'pars':Opars})
-        # Map parent keys to new cluster indices NI
-        self.par_key_2_KTI = {}
-        for I in xrange(len(self.ks_and_pars)):
-            NI = I
-            if self.ks_and_pars[I]['ks'].has_key(-1):
-                NI = -1 # New cluster for otherwise unclustered parents
-            for tar_key in self.ks_and_pars[I]['pars'].keys():
-                self.par_key_2_KTI[tar_key] = NI
+        # The targets that remain in old_pars have only invisible
+        # children.  Put them in an additional cluster.
+        if len(old_pars) > 0:
+            self.ks_and_pars.append({'ks':{-1:True},'pars':old_pars})
+        self.parent_2_NI = {} # Map from parents to new cluster indices NI
+        for NI in xrange(len(self.ks_and_pars)):
+            for parent in self.ks_and_pars[NI]['pars'].keys():
+                self.parent_2_NI[parent] = NI
+        return # End of find_clusters
+    def compat_check(self,     # Cluster_Flock
+                     asn,      # Proposed association
+                     tk_2_NI,  # Map from (t,k) tuples to NI (new index)
+                     tk_2_dead # lists of dead targets indexed by (t,k)
+                     ):
+        """ Check compatibility of asn.  Keys in tk_2_NI are historical hits
+        that must end up in the new cluster NI.  Keys in tk_2_dead may
+        end up in the dead targets list of the cluster self.
+        """
+        proposed_tk_2_NI = tk_2_NI.copy()
+        proposed_tk_2_dead = tk_2_dead.copy()
+        # Check that history of live targets compatible.  Check dead
+        # targets later.
+        for target in asn.tar_dict.values():
+            NI = self.parent_2_NI[target]
+            for tk in target.tks.keys():
+                if not tk_2_NI.has_key(tk):
+                    proposed_tk_2_NI[tk] = NI
+                else:
+                    if not tk_2_NI[tk] == NI:
+                        return (False,tk_2_NI,tk_2_dead)
+        # Begin check that no dead target connects two NIs
+        #   Step 1: Update proposed_tk_2_dead with asn.dead_targets
+        for target in asn.dead_targets.values():
+            for tk in target.tks.keys():
+                if proposed_tk_2_dead.has_key(tk):
+                    proposed_tk_2_dead[tk].append(target)
+                else:
+                    proposed_tk_2_dead[tk] = [target]
+        #   Step 2: For each target in proposed_tk_2_dead that
+        #   intersects proposed_tk_2_NI, use target to augment
+        #   proposed_tk_2_NI and remove the target from
+        #   proposed_tk_2_dead.
+        for tk,NI in proposed_tk_2_NI.items():
+            if proposed_tk_2_dead.has_key(tk):
+                for target in proposed_tk_2_dead[tk]:
+                    for dt_tk in target.tks.keys():
+                        if proposed_tk_2_NI.has_key(dt_tk):
+                            if proposed_tk_2_NI[dt_tk] != NI:
+                                return (False,tk_2_NI,tk_2_dead)
+                        else:
+                            proposed_tk_2_NI[dt_tk] = NI
+                del proposed_tk_2_dead[tk]
+        return (True,proposed_tk_2_NI,proposed_tk_2_dead) # End compat_check
     def recluster(self,   # Cluster_Flock
                   t,
                   Yt
@@ -811,79 +1053,59 @@ class Cluster_Flock:
         """ On the basis of the clusters of observations and targets
         that find_clusters() has identitied, recluster() fragments
         self.old_clusters and merges the parts to form
-        self.new_clusters.  The targets in the associations in the new
-        clusters are _parent targets_, ie, they have not incorporated
-        observations at time t.  Note that hits that don't match any
-        targets get put in clusters of their own.
+        self.new_clusters.  Each new cluster explains a unique set of
+        observations up to the present time t and all associations in
+        the cluster must explain the same set of observations.  The
+        targets in the associations in the new clusters are _parent
+        targets_, ie, they have not incorporated observations at time
+        t.
         """
         fragmentON = {} # Fragment clusters indexed by (Old index, New index)
         for OI in xrange(len(self.old_clusters)):
             cluster = self.old_clusters[OI]
-            # Sort the associations by utility
-            sortkeys = []
-            for i in xrange(len(cluster.As)):
-                sortkeys.append([-cluster.As[i].nu,i,cluster.As[i]])
-            sortkeys.sort()
+            tk_2_NI = {}   # Map from (t,k) tuple to New index
+            tk_2_dead = {} # Dead target candidates for self.dead_targets
+            cluster.As.sort(cmp_ass) # Sort the associations by utility
             fragmentON[OI] = {}
-            # Put compatible fragments of each association in new
-            # fragment clusters
-            first = True
-            for neg_nu,i,a in sortkeys:
-                d = {-1:{}} # Keys are new cluster indices NI; values are
-                # dicts of targets for pair (OI,NI).  Seed with key=-1
-                # for new cluster of dead_targets
-                for target in a.targets:
-                    tar_key = tuple(target.m_t)
-                    NI = self.par_key_2_KTI[tar_key]
-                    if d.has_key(NI):
-                        d[NI][tar_key] = target
+            # Break each association into fragments if it is
+            # compatible with those fragmented so far.  Put pieces in
+            # fragmentON[OI]
+            for asn in cluster.As:
+                OK,tk_2_NI,tk_2_dead = self.compat_check(asn,tk_2_NI,tk_2_dead)
+                if not OK:
+                    delta = cluster.As[0].nu - asn.nu
+                    if delta < 0.4: #FixMe use adjustable threshold
+                        close_calls.append(('At t=%d in recluster(), dropped'+\
+                          ' branch association that is off by %5.3f')%(t,delta))
+                    continue # Drop this association and try the next
+                # Copy live targets to cluster fragments ie, fragmentON[OI][NI]
+                frag_dict = {}
+                for target in asn.tar_dict.values():
+                    NI = self.parent_2_NI[target]
+                    if frag_dict.has_key(NI):
+                        frag_dict[NI][target] = target.index
                     else:
-                        d[NI] = {tar_key:target}
-                if first: # Initialize the fragment clusters using
-                           # association with highest utility
-                    first = False
-                    for NI,targets_f in d.items():
-                        if NI == -1:
-                            if len(a.dead_targets)+len(a.FAs)+\
-                                   len(targets_f) == 0:
-                                continue
-                            fragmentON[OI][NI] = Cluster(targets_f,a,t,
-                                  dead_targets=a.dead_targets,FAs=a.FAs)
-                        else:
-                            fragmentON[OI][NI] = Cluster(targets_f,a,t)
-                else:   # Append fragmentings of other associations only
-                        # if they are consistent with the first
-                    OK = True
-                    for NI,targets_f in d.items():
-                        if not fragmentON[OI].has_key(NI):
-                            OK = False
-                            break
-                        if NI == -1:
-                            DT = a.dead_targets
-                            FAs = a.FAs
-                        else:
-                            DT = {}
-                            FAs = {}
-                        if not fragmentON[OI][NI].check(targets_f,DT,FAs,t):
-                            OK = False
-                            break
-                    if OK:
-                        for NI,targets_f in d.items():
-                            if NI == -1:
-                                DT = a.dead_targets
-                                FAs = a.FAs
-                            else:
-                                DT = {}
-                                FAs = {}
-                            fragmentON[OI][NI].Append(targets_f,a,
-                                                  dead_targets=DT,FAs=FAs)
+                        frag_dict[NI] = {target:target.index}
+                for NI,tar_dict in frag_dict.items():
+                    if fragmentON[OI].has_key(NI):
+                        fragmentON[OI][NI].Append(tar_dict,asn)
                     else:
-                        delta = cluster.As[0].nu - a.nu
-                        if delta < 0:
-                            close_calls.append(
-"At t=%d in recluster(), dropped branch association that is better by %5.3f"%(
-                                t,-delta))
-        # Merge fragments into new clusters
+                        fragmentON[OI][NI] = Cluster(tar_dict,asn)
+            # From each old association in cluster, copy necessary
+            # dead targets and FAs to appropriate associations in
+            # fragments.
+            NI_2_tk = {}
+            for tk,NI in tk_2_NI.items():
+                if not NI_2_tk.has_key(NI):
+                    NI_2_tk[NI] = []
+                NI_2_tk[NI].append(tk)
+            for NI in fragmentON[OI].keys():
+                fragmentON[OI][NI].Append_D(NI_2_tk[NI],cluster)
+            # Save unused dead targets from best old association for backtrack
+            for target in cluster.As[0].dead_targets.values():
+                if not tk_2_NI.has_key(target.tks.keys()[0]):
+                    self.dead_targets.append(target)
+        # End loop over OI.  Next merge fragments into new clusters
         new_clusters = {}
         for OI in fragmentON.keys():
             for NI in fragmentON[OI].keys():
@@ -891,67 +1113,71 @@ class Cluster_Flock:
                     new_clusters[NI] = fragmentON[OI][NI]
                 else:
                     new_clusters[NI].merge(fragmentON[OI][NI])
+        # Prune merged clusters
+        for cluster in new_clusters.values():
+            cluster.As.sort(cmp_ass) # Sort the associations by utility
+            floor = cluster.As[0].nu - self.mod.A_floor
+            NF = min(len(cluster.As),self.mod.Max_NA)
+            for Nf in xrange(1,min(len(cluster.As),self.mod.Max_NA)):
+                if cluster.As[Nf].nu < floor:
+                    NF = Nf
+                    break
+            cluster.As = cluster.As[:NF]
         # Add clusters for observations that no target could have caused
-        k_list = []
-        NI_dict = {}
         for NI in xrange(len(self.ks_and_pars)):
             if len(self.ks_and_pars[NI]['pars']) == 0:
-                assert len(self.ks_and_pars[NI]['ks']) == 1,\
-           'len(self.ks_and_pars[NI]["ks"])=%d'%len(self.ks_and_pars[NI]['ks'])
-                k = self.ks_and_pars[NI]['ks'].keys()[0]
-                k_list.append(k)
-                NI_dict[k] = NI
-        self.mod.make_newts(Yt,k_list) # FixMe: Need newts for ys near
-                                       # targets too?
-        for k in k_list: # The new cluster will find the newt via the k_list
-            a = self.mod.ASSOCIATION(0.0,self.mod)
-            new_clusters[NI_dict[k]] = Cluster({},a,t)
+                a = self.mod.ASSOCIATION(0.0,self.mod)
+                new_clusters[NI] = Cluster({},a)
+                assert len(self.ks_and_pars[NI]['ks']) == 1,('len(self.ks_'+\
+                      'and_pars[NI]["ks"])=%d')%len(self.ks_and_pars[NI]['ks'])
         rv = [] # Return value is [[cluster,k_list],[cluster,k_list],...]
         self.old_clusters = []
         for NI in new_clusters.keys():
-            if NI == -1:
-                k_list = []
-            else:
-                k_list = self.ks_and_pars[NI]['ks'].keys()
+            k_list = self.ks_and_pars[NI]['ks'].keys()
             cluster = new_clusters[NI]
-            rv.append((cluster,k_list))
+            cluster.re_nu_C()
+            rv.append((cluster,tuple(k_list)))
             self.old_clusters.append(cluster)
-        return rv
-
+        return rv # End of recluster.  End of class Cluster_Flock
 class MV4:
-    """ A state consists of: Association; Locations; and Visibilities;
-    (and the derivable N_FA), ie,
-    s = (M,X,V,N_FA)
+    """ Model version four.  A state consists of the following for
+    each cluster: Association; Locations; and Visibilities; (and the
+    derivable N_FA), ie, s = (M,X,V,N_FA)
     """
-    def __init__(self,                         # MVa1
-                 N_tar = 3,                    # Number of targets
-                 A = [[0.81,1],[0,.81]],       # Linear state dynamics
-                 Sigma_D = [[0.01,0],[0,0.4]], # Dynamical noise
-                 O = [[1,0]],                  # Observation projection
-                 Sigma_O = [[0.25]],           # Observational noise
-                 Sigma_init = None,            # Initial state distribution
-                 mu_init = None,               # Initial state distribution
-                 MaxD = 2.5,                   # Threshold for hits
-                 alpha = 0.3, # Associations that are off max by less than
-                              # alpha*MaxD*sqrt(N_tar) are OK
-                 PV_V=[[.9,.1],[.2,.8]],       # Visibility transition matrix
-                 Lambda_new=0.05,              # Avg # of new targets per step
-                 Lambda_FA=0.3                 # Avg # of false alarms per step
-                 ):
+    def __init__(self,                 # MV4
+         N_tar = 3,                    # Number of targets
+         A = [[0.81,1],[0,.81]],       # Linear state dynamics
+         Sigma_D = [[0.01,0],[0,0.4]], # Dynamical noise
+         O = [[1,0]],                  # Observation projection
+         Sigma_O = [[0.25]],           # Observational noise
+         Sigma_init = None,            # Initial state distribution
+         mu_init = None,               # Initial state distribution
+         MaxD = 5.0,                   # Threshold for hits
+         Max_NA = 20,                  # Maximum associations per cluster
+         A_floor = 25.0,               # Drop if max-ass.utility > A_floor
+         Murty_Ex = 100,               # Use exhaustive, if #asn < Murty_Ex
+         T_MM = 5,                     # If two targets match hits T_MM drop 1
+         PV_V=[[.9,.1],[.2,.8]],       # Visibility transition matrix
+         Lambda_new=0.05,              # Avg # of new targets per step
+         Lambda_FA=0.3,                # Avg # of false alarms per step
+         IL = 8                        # Invisible lifetime
+        ):
         self.ASSOCIATION = ASSOCIATION4
         self.TARGET = TARGET4
         self.N_tar = N_tar
         self.A = scipy.matrix(A)
         dim,check = self.A.shape
-        if dim != check:
-            raise RuntimeError,\
-         "A should be square but it's dimensions are (%d,%d)"%(dim,check)
+        assert(dim == check),("A should be square but it's dimensions are "+\
+           "(%d,%d)")%(dim,check)
         self.Id = scipy.matrix(scipy.identity(dim))
         self.Sigma_D = scipy.matrix(Sigma_D)
         self.O = scipy.matrix(O)
+        dim_O,check = self.O.shape
+        assert(check == dim),("Shape of O=(%d,%d) not consistent with shape "+\
+          "of A=(%d,%d))")%(dim_O,check,dim,dim)
         self.Sigma_O = scipy.matrix(Sigma_O)
-        self.log_det_Sig_D = scipy.linalg.det(self.Sigma_D)
-        self.log_det_Sig_O = scipy.linalg.det(self.Sigma_O)
+        self.log_det_Sig_D = math.log(scipy.linalg.det(self.Sigma_D))
+        self.log_det_Sig_O = math.log(scipy.linalg.det(self.Sigma_O))
         if mu_init == None:
             self.mu_init = scipy.matrix(scipy.zeros(dim)).T
         else:
@@ -964,8 +1190,22 @@ class MV4:
         else:
             self.Sigma_init = scipy.matrix(Sigma_init)
         self.MaxD = MaxD
-        self.MaxD_limit = MaxD
-        self.alpha = alpha
+        self.log_min_pd = -(MaxD*MaxD + dim_O*math.log(2*math.pi) +
+                            self.log_det_Sig_O) /2.0
+        """ This is the log of the minimum conditional probability density for
+        a single observation given some cause.  We consider
+        observation/cause pairs that have probability densities lower
+        than this implausible.  The control over this threshold is by
+        MaxD which we think of as ''MaxD sigmas'', but to translate
+        MaxD to probability density requires a scale which we take
+        from Sigma_O.  Since all actual Sigmas are bigger than
+        Sigma_O, the threshold accepts a smaller region than ''MaxD
+        sigmas''.
+        """
+        self.Max_NA = Max_NA
+        self.A_floor = A_floor
+        self.Murty_Ex = Murty_Ex
+        self.T_MM = T_MM
         self.PV_V = scipy.matrix(PV_V)
         self.Lambda_FA = Lambda_FA # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
@@ -974,155 +1214,169 @@ class MV4:
                            - math.log(scipy.linalg.det(Sigma_FA))/2
         self.Sigma_FA_I = scipy.linalg.inv(Sigma_FA)
         self.Lambda_new = Lambda_new # Average number of new targets per frame
-        self.log_new_norm = math.log(Lambda_new)
-        # - math.log(scipy.linalg.det(Sigma_init))/2 Part of target creation
-    def make_newts(self, # MV4
+        self.log_new_norm = math.log(Lambda_new) # For make_newts
+        self.Invisible_Lifetime = IL # If invisible IL times in a row
+                                     # target dies
+        return # End of __init__
+    def make_newts(self, # MV4.  Make new targets
                    Yts,  # List of ys for current time
-                   k_list=None # Option for MV5
-                   ):    # Make new targets
-        if k_list is None:
-            k_list = range(len(Yts))
+                   t,    # Current time
+                   k_list
+                   ):
         self.newts = {}
         for k in k_list:
-            self.newts[k] = self.target_0.KF(Yts[k],k)
-            self.newts[k].R += self.log_new_norm
+            self.newts[k] = self.target_0.KF(Yts[k],k,t)
+            self.newts[k].R += self.log_new_norm + self.log_det_Sig_D/2
+            # FixMe: Sig_D correction because KF has forecast step?
             self.newts[k].R_sum = self.newts[k].R
-    def decode_prune(self, #MV4
+    def decode_prune(self,    #MV4
                      t,
-                     new_As,
-                     len_Y
+                     new_As   # List of associations
                      ):
-        """ Reduce the number of associations by (1) Finding targets that
-        match for Join_Time steps and remove associations that have
-        inferior matching targets and (2) Removing associations that
-        are not within alpha*MaxD*sqrt(N)
+        """ Find targets that match for self.T_MM steps and remove
+        associations from new_As that have inferior matching targets.
         """
-        global Join_Time
-        if t > Join_Time:
-            # Find targets that match for Join_Time steps
-            shorts = {}
-            keepers = {}
-            for k in xrange(len(new_As)):
-                keepers[k] = new_As[k] # copy list to dict
-                for target in new_As[k].targets:
-                    if len(target.m_t) < Join_Time or \
-                           target.m_t[-1] < 0 or target.m_t[-2] < 0:
-                        continue # Don't kill new or invisible targets
-                    short_key = tuple(target.m_t[-Join_Time:])
-                    if not shorts.has_key(short_key):
-                        shorts[short_key] = [[],[]]
-                    shorts[short_key][0].append(k)
-                    shorts[short_key][1].append(new_As[k].nu)
-            # Remove associations that have inferior matching targets
-            for short in shorts.values():
-                i = util.argmax(short[1])
-                nu_max = short[1][i]
-                del short[0][i]
-                for k in short[0]:
-                    if keepers.has_key(k):
-                        if nu_max - keepers[k].nu < 0.4:
-                            close_calls.append(
-                 "At t=%d, drop an association that's only off by %5.3f"%(
-                  t,nu_max - keepers[k].nu))
-                        del keepers[k]
-            new_As = keepers.values()
-            if len(new_As) < 1:
-                raise RuntimeError,\
-                      'Join check in decode_prune killed all As at t=%d'%t
-        if self.alpha < 1e-6 or self.MaxD < 1e-6 or len(new_As) < 2:
-            return new_As
-        else:
-            # Only pass associations that are within alpha*MaxD*sqrt(N+4)
-            Rs = []
-            for A in new_As:
-                Rs.append(A.nu)
-            limit = max(Rs) - (self.alpha*self.MaxD)**2*(len_Y+4)/2
-            old_As = []
-            for A in new_As:
-                if A.nu >= limit:
-                    old_As.append(A)
-        return old_As
-    def decode_init(self,Ys): # Ys is used by subclass
-        self.target_0 = self.TARGET(self,[0],[self.mu_init],
-                                    [self.Sigma_init],0.0,None)
+        assert(len(new_As) > 0),'t=%d: decode_prune() called with empty list'%t
+        if t <= self.T_MM: # Or t%self.T_NN != 0?  Could prune periodically
+            return new_As[:self.Max_NA]
+        # Find targets that match for self.T_MM steps
+        shorts = {}
+        keepers = {}
+        for k in xrange(len(new_As)):
+            keepers[k] = new_As[k] # copy list to dict
+            for target in new_As[k].tar_dict.values():
+                if len(target.m_t) < self.T_MM or \
+                       target.m_t[-1] < 0 or target.m_t[-2] < 0:
+                    continue # Don't kill new or invisible targets
+                short_key = tuple(target.m_t[-self.T_MM:])
+                if not shorts.has_key(short_key):
+                    shorts[short_key] = [[],[]]
+                shorts[short_key][0].append(k)
+                shorts[short_key][1].append(new_As[k].nu)
+        # Remove associations that have inferior matching targets
+        for short in shorts.values():
+            i = util.argmax(short[1])
+            nu_max = short[1][i]
+            del short[0][i]
+            for k in short[0]:
+                if keepers.has_key(k):
+                    if nu_max - keepers[k].nu < 0.4: # Fixme need parameter
+                        close_calls.append(
+             "t=%2d: decode_prune() dropped association. nu off by %5.3f"%(
+              t,nu_max - keepers[k].nu))
+                    del keepers[k]
+        new_As = keepers.values()
+        if len(new_As) < 1:
+            raise RuntimeError,'decode_prune() killed all As at t=%d'%t
+        return new_As[:self.Max_NA]
+    
+    def decode_init(self, # MV4
+                    Ys): # Ys is used by subclass
+        self.target_0 = self.TARGET(self,    # Parent model
+                           [0],              # m_t: history of indices
+                           [self.mu_init],   # History of means
+                           [self.Sigma_init],# History of coavariances
+                           0.0,              # Most recent residual
+                           None,             # y value
+                           {}                # Dict of (t,k) pairs explained
+                                    )
         return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
+    
     def decode_forward(self,   # MV4
                        Ys,     # Observations. Ys[t][k]
-                       old_As, # Initial association or nub
+                       old_As, # [Initial association] or nub
                        t_first,# Starting t for iteration
                        analysis = False
                        ):
-        """Forward pass for decoding.  Return association at final
-        time with highest utility, nu."""
-    
-        debug_string ="""
-No new associations in decode():
-t=%d, len(old_As)=%d, len(child_targets)=%d, len(Ys[t])=%d,MaxD=%g
-successors.length()=%d
-"""
-        global close_calls
+        global close_calls, hungary_count, hungary_time
         close_calls = []
-        T = len(Ys)
-        for t in xrange(t_first,T):
-            self.make_newts(Ys[t])
-            child_targets = {}          # Dict of all targets for time t
-            suc_length = 0 # Just to make the while loop start
-            while suc_length is 0:
-                # For each old target, collect all plausibly
-                # associated hits and create a corresponding child
-                # target by Kalman filtering
-                for A in old_As:  # For t=0 this makes no children
-                    A.make_children(Ys[t],child_targets,t)
-                # Build u' lists for all possible successor
-                # associations at time t.  Put new associations in DB
-                # with u' so many predecessors can find same successor
+        m_dict = {}
+        for target in old_As[0].tar_dict.values():
+            m_dict[target] = target.index
+        flock = Cluster_Flock(m_dict,    # Dict of targets
+                              old_As[0]  # Association
+                              )
+        TC_last = Child_Target_Counter
+        Time_last = time.time()
+        for t in xrange(t_first,len(Ys)):
+            hungary_count = 0
+            hungary_time = 0
+            flock.make_family(Ys[t],t)      # Make parent and child targets
+            flock.find_clusters(len(Ys[t])) # Identify clusters of observations
+            for cluster,k_list in flock.recluster(t,Ys[t]):
+                # k_list is current observations that cluster explains
                 successors = SUCCESSOR_DB()
-                for A in old_As:
-                    A.forward(successors,Ys[t],t)
-                self.MaxD *= 1.5
-                suc_length = successors.length()
-                # Begin debugging check and print
-                if suc_length is 0 and \
-                       (self.MaxD<1e-6 or self.MaxD>1e6):
-                    for A in old_As:
-                        A.dump()
-                    raise RuntimeError,debug_string%(t, len(old_As),
-                          len(child_targets),len(Ys[t]),self.MaxD,
-                          suc_length)
-                     # End debugging check and print
-            # End of while
-            self.MaxD = max(self.MaxD/2.25,self.MaxD_limit)
-            # For each association at time t, find the best predecessor
-            # and the associated targets and collect them in old_As
-            new_As = successors.maxes()
-            old_As = self.decode_prune(t,new_As,len(Ys[t]))
-            if analysis is not False:
-                analysis.append(t,child_targets,new_As,old_As,
-                                successors.count())
-        # End of for loop over t
-        
-        # Find the best last association
-        R = scipy.zeros(len(old_As))
-        for i in xrange(len(old_As)):
-            R[i] = old_As[i].nu
-        A_best = old_As[R.argmax()]
-        print 'nu_max=%f'%A_best.nu
-        for call in close_calls:
-            print call
-        return (A_best,T)
-    def decode_back(self,A_best,T):
+                floor = None
+                for asn_No in xrange(len(cluster.As)):
+                    asn = cluster.As[asn_No]
+                    asn.forward(successors,Ys[t],t,k_list,floor)
+                    # recluster makes newts and forward
+                    # checks/incorporates newts and FAs
+                    suc_max = successors.maxes()
+                    # suc_max is sorted list of successors from best
+                    # predecessors
+                    if len(suc_max) == 0:
+                        continue
+                    if len(suc_max) > 40*self.Max_NA:
+                        print ('Stop: hungary_count=%d, asn_No=%d,' + \
+                          ' suc_count=%d')%(hungary_count, asn_No,len(suc_max))
+                        break
+                    if len(suc_max) > self.Max_NA:
+                        floor = suc_max[self.Max_NA].nu
+                    if suc_max[0].nu-self.A_floor > floor:
+                        floor = suc_max[0].nu-self.A_floor
+                if len(cluster.As) > 0 and len(suc_max) == 0:
+                    print 'Ys[t]=',Ys[t],'No associations explain k_list='\
+                          ,k_list
+                    print ' Clusters in flock.ks_and_pars:'
+                    for kp_dict in flock.ks_and_pars:
+                        print kp_dict['ks'].keys(),kp_dict['pars'].values()
+                    cluster.dump()
+                    raise RuntimeError,('forward killed all %d associations'+\
+                          ' in cluster.  Try bigger MaxD')%len(cluster.As)
+                cluster.As=self.decode_prune(t,suc_max)
+                #cluster.As=suc_max[:self.Max_NA] # For debug w/o prune
+            print ('t %2d: %3d targets, %2d clusters, %5.2f '+\
+                  'seconds, H_time %5.2f, H_count %3d')%(t,
+                   Child_Target_Counter-TC_last, len(flock.old_clusters),
+                   time.time()-Time_last,hungary_time,hungary_count)
+            if Child_Target_Counter-TC_last > 0:
+                for cluster in flock.old_clusters:
+                    print '   Cluster has %d associations with %d targets'%(
+                          len(cluster.As),len(cluster.As[0].tar_dict))
+            TC_last = Child_Target_Counter
+            Time_last = time.time()
+        # Find the best associations at final time
+        empty = self.ASSOCIATION(0,self)
+        A_union = empty
+        for cluster in flock.old_clusters:
+            As = cluster.As
+            if len(As) == 0:
+                print 'At end of decode_forward, found an empty cluster'
+                continue
+            R = scipy.zeros(len(As))
+            for i in xrange(len(As)):
+                R[i] = As[i].nu
+            A_union.join(As[R.argmax()])
+        # Put dead targets from flock into A_union
+        for target in flock.dead_targets:
+            A_union.dead_targets[target.index] = target
+        return (A_union,len(Ys),close_calls)
+
+    def decode_back(self,   # MV4
+                    A_best, # Best association at final time
+                    T):
         """ Backtrack from best association at final time to get MAP
         trajectories.
         """
         targets_times = []
-        for pair in A_best.dead_targets.values():
-            target = pair[0]
-            t_i = pair[1]-len(target.m_t)
-            t_f = pair[1]-Invisible_Lifetime
+        for target in A_best.dead_targets.values():
+            t_i = target.last-len(target.m_t)
+            t_f = target.last-self.Invisible_Lifetime
             for List in target.m_t,target.mu_t,target.Sigma_t:
-                del(List[-Invisible_Lifetime:])
+                del(List[-self.Invisible_Lifetime:])
             targets_times.append([target,t_i,t_f])
-        for target in A_best.targets:
+        for target in A_best.tar_dict.values():
             t_f = T
             t_i = T-len(target.m_t)
             targets_times.append([target,t_i,t_f])
@@ -1146,13 +1400,19 @@ successors.length()=%d
                ):
         """Return MAP state sequence """
         A,t_0 = self.decode_init(Ys)
-        A_best,T = self.decode_forward(Ys,A,t_0,analysis=analysis)
-        return self.decode_back(A_best,T)
+        A_best,T,close_calls = self.decode_forward(Ys,A,t_0,analysis=analysis)
+        d,y_A = self.decode_back(A_best,T)
+        return (d,y_A,A_best.nu,close_calls)
     ############## Begin simulation methods ######################
-    def step_state(self, state, zero_s):
+    def step_state(self, # MV4
+                   state, zero_s):
         epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
         return self.A*state + epsilon
     def observe_states(self, states_t, v_t, zero_y):
+        """ Create observations for this time step from a list of
+        states (states_t) and a list of visibilities (v_t).
+        """
+        assert(len(v_t) == len(states_t))
         v_states = []
         for k in xrange(len(v_t)):
             if v_t[k] is 0:
@@ -1162,7 +1422,10 @@ successors.length()=%d
             eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
             y_t.append(self.O * state + eta)
         return y_t
-    def shuffle(self, things_i):
+    def shuffle(self, # MV4
+                things_i):
+        """ return a random permutation of things_i 
+        """
         N = len(things_i)
         if N is 0:
             return []
@@ -1179,12 +1442,18 @@ successors.length()=%d
         zero_y = scipy.matrix(scipy.zeros(y_dim))
         return (zero_s,zero_y)
     def step_vis(self,v):
+        """ Take observability for a single target from previous time
+        step and return visibility for current time
+        """
         pv = self.PV_V[v,0]
         if pv > random.random():
             return 0
         else:
             return 1
-    def sim_init(self,N):
+    def sim_init(self, # MV4
+                 N):
+        """ Initialize states and visibilities for N targets.
+        """
         x_j = []
         v_j = []
         for j in xrange(N):
@@ -1192,8 +1461,10 @@ successors.length()=%d
             v_j.append(0)
         return (x_j,v_j,0)
     def step_count(self, x, v, c, zero_x):
-        """ Step target vector x and visibility v count of number of
-        times that v != 0 (not visible) in c.
+        """ Step x, v, and c forward one time step.
+        x = target vector x
+        v = visibility
+        c = count of number of times that v != 0 (not visible)
         """
         x = self.step_state(x,zero_x)
         v = self.step_vis(v)
@@ -1203,6 +1474,14 @@ successors.length()=%d
             c += 1
         return (x,v,c)
     def run_state(self,x,v,zero_x,t_0,T):
+        """ Given x and for an initial time t_0, do the following:
+
+        1. Propagate x and v forward till either the state dies or T-1
+              is reached,
+
+        2. Put the simulated x's and v'x in lists that run from 0 to T.
+        """
+        IL = self.Invisible_Lifetime
         s_k = T*[None]
         v_k = T*[None]
         c = 0
@@ -1210,11 +1489,13 @@ successors.length()=%d
             s_k[t] = x
             v_k[t] = v
             x,v,c = self.step_count(x,v,c,zero_x)
-            if c >= Invisible_Lifetime:
-                s_k[t-Invisible_Lifetime:t] = Invisible_Lifetime*[None]
+            if c >= IL:
+                s_k[t-IL+1:t+1] = IL*[None]
+                v_k[t-IL+1:t+1] = IL*[None]
                 break
         return (s_k,v_k)
-    def simulate(self, T): # for MV4
+    def simulate(self, # MV4
+                 T):
         """ Return a sequence of T observations and a sequence of T
         states."""
         x_0,v_0,N_FA = self.sim_init(self.N_tar) # N_tar visible targets
@@ -1249,75 +1530,31 @@ successors.length()=%d
                 y.append(util.normalS(zero_y,self.Sigma_FA))
             obs[t] = self.shuffle(y)
         return obs,stk
-class MV5(MV4):
-    """ Like MV4 but each global association is composed by selecting
-    one association from each cluster in a cluster flock.
-    """
-    def __init__(self,**kwargs):
-        MV4.__init__(self,**kwargs)
-        self.ASSOCIATION = ASSOCIATION5
-    def decode_forward(self,   # MV5
-                       Ys,     # Observations. Ys[t][k]
-                       empty,  # Initial empty association is only element
-                       t_first,# Always 0 for MV5
-                       analysis = False
-                       ):
-        """ Variant on MV4.decode that sets up clusters and cluster
-        flocks.  Arguments are the same as for MV4 to minimize
-        rewriting.
-        """
-        # Start with no targets and blank association
-        assert len(empty) == 1, 'len(empty)=%d, should be 1'%len(empty)
-        assert len(empty[0].targets) == 0, \
-               'empty has %d targets, should have none'%len(empty[0].targets)
-        assert t_first == 0, 't_first=%d, should be 0 for MV5'%t_first
-        global close_calls
-        close_calls = []
-        flock = Cluster_Flock({},empty[0],0)
-        for t in xrange(len(Ys)):
-            flock.make_family(Ys[t],t)       # Make parent and child targets
-            flock.find_clusters(len(Ys[t]))# Identify clusters of observations
-            for cluster,k_list in flock.recluster(t,Ys[t]):
-                # k_list lists the observations that cluster explains
-                successors = SUCCESSOR_DB()
-                for A in cluster.As:
-                    A.forward(successors,Ys[t],t,k_list=k_list)
-                suc_max = successors.maxes()
-                #cluster.As=self.decode_prune(t,suc_max,len(k_list))#FixMe
-                cluster.As=suc_max
-        # Find the best last associations
-        A_union = empty[0]
-        for cluster in flock.old_clusters:
-            As = cluster.As
-            if len(As) == 0:
-                print 'At end of decode_forward, found an empty cluster'
-                continue
-            R = scipy.zeros(len(As))
-            for i in xrange(len(As)):
-                R[i] = As[i].nu
-            A_union.join(As[R.argmax()])
-        print 'nu_max=%f'%A_union.nu
-        for call in close_calls:
-            print call
-        return (A_union,len(Ys))
                 
 class TARGET1(TARGET4):
     def New(self, *args,**kwargs):
-        return TARGET1(*args,**kwargs)
-    def make_children(self, y_t,   # list of hits at time t
-       All_children ): # Dict of children of this and other associations
+        rv = TARGET1(*args,**kwargs)
+        rv.T0 = self.T0
+        return rv
+    def make_children(self, # TARGET1
+           y_t,             # list of hits at time t
+           t                # Present time
+                      ):
         """ Like TARGET4 make_children but no invisible targets
         """
+        if not self.children is None and len(self.children) > 0:
+            return # make_children already called for this target
         self.forecast()
         self.children = {}
-        MD = self.mod.MaxD
+        mlpd = self.mod.log_min_pd
         for k in xrange(len(y_t)):
-            if MD < 0.01 or self.distance(y_t[k]) < MD:
-                key = tuple(self.m_t+[k])
-                if not All_children.has_key(key):
-                    All_children[key] = self.update(y_t[k],k)
-                self.children[k] = All_children[key]
-    def utility(self,y,R0=0.0):
+            if mlpd > self.utility(y_t[k])[0]:
+                continue                 # Candidate utility too small
+            self.children[k] = self.update(y_t[k],k,t)
+            # update() calls utility second time.  Possible time saving
+            assert(self.children[k].m_t[-1]==k)
+    def utility(self,   # TARGET1
+                y,R0=0.0):
         """ Like TARGET4.utility but no visibility probabilities.
         """
         Delta_y = y - self.y_forecast
@@ -1333,22 +1570,20 @@ class ASSOCIATION3(ASSOCIATION4):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets,self.check_FAs]
         self.type='ASSOCIATION3'
-    def New(self, *args,**kwargs):
+    def NewA(self, *args,**kwargs):
         return ASSOCIATION3(*args,**kwargs)
     def make_children(self, # ASSOCIATION3
-                      y_t, cousins, t ):
+                      y_t, t ):
         """ No dead targets for ASSOCIATION3. """
-        for target in self.targets:
-            target.make_children(y_t,cousins)
-    def make_newts(self,*args,**kwargs): # No new targets for ASSOCIATION3
-        pass
+        for target in self.tar_dict.values():
+            target.make_children(y_t,t)
 class ASSOCIATION2(ASSOCIATION3):
     """ Allow invisibles, ie, targets that fail to generate hits. """
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets]
         self.type='ASSOCIATION2'
-    def New(self, *args,**kwargs):
+    def NewA(self, *args,**kwargs):
         return ASSOCIATION2(*args,**kwargs)
 class ASSOCIATION1(ASSOCIATION3):
     """ No extra_forward methods.  Targets and only targets generate hits. """
@@ -1357,8 +1592,7 @@ class ASSOCIATION1(ASSOCIATION3):
         self.extra_forward = []
         self.cause_checks = [self.check_targets]
         self.type='ASSOCIATION1'
-        mod = self.mod
-    def New(self, *args,**kwargs):
+    def NewA(self, *args,**kwargs):
         return ASSOCIATION1(*args,**kwargs)
 class MV3(MV4):
     """ Number of targets is fixed    
@@ -1374,15 +1608,17 @@ class MV3(MV4):
         must return N_tar initial targets.  It makes a target for each
         of the hits at t=0 and tells decode_forward() to start at t=1.
         """
-        self.target_0 = self.TARGET(self,[0],[self.mu_init],
-                                    [self.Sigma_init],0.0,None)
+        self.target_0 = self.TARGET(self,[0],[self.mu_init], # mod,m_t,mu_t
+                             [self.Sigma_init],0.0,None,{} # Sigma_t,R,y,tks
+                                    )
         T = len(Ys)
-        partial = self.ASSOCIATION(0.0,self)
+        partial = self.ASSOCIATION(0.0,self,t=0)
         for k in xrange(self.N_tar):
-            target_k = self.target_0.KF(Ys[0][k],k)
-            partial = partial.Fork(target_k)
+            target_k = self.target_0.KF(Ys[0][k],k,0)
+            partial.Spoon(target_k,k)
         return ([partial],1)
-    def simulate(self, T):
+    def simulate(self, #MV3
+                 T):
         """ Return a sequence of T observations and a sequence of T
         states."""
         x_j,v_j,N_FA = self.sim_init(self.N_tar)
@@ -1407,7 +1643,8 @@ class MV2(MV3):
         MV4.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION2
         self.TARGET = TARGET4    
-    def simulate(self, T):
+    def simulate(self, # MV2
+                 T):
         """ Return a sequence of T observations and a sequence of T
         states."""
         x_j,v_j,N_FA = self.sim_init(self.N_tar)
@@ -1425,7 +1662,8 @@ class MV1(MV3):
         MV4.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION1
         self.TARGET = TARGET1
-    def simulate(self, T):
+    def simulate(self, # MV1
+                 T):
         """ Return a sequence of T observations and a sequence of T
         states."""
         s_j,v_j,N_FA = self.sim_init(self.N_tar)
@@ -1437,6 +1675,41 @@ class MV1(MV3):
             obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
             s_j = map(lambda x: self.step_state(x,zero_s),s_j)
         return obs,states
+    
+class ASS_ABQ(ASSOCIATION4):
+    def __init__(self,*args,**kwargs):
+        ASSOCIATION4.__init__(self,*args,**kwargs)
+        self.type='ASS_ABQ'
+        self.cause_checks = [self.check_targets, #No self.check_FAs for ABQ
+                             self.check_newts]
+        # self.extra_forward = [] need invisibles to kill targets
+    def NewA(self, *args,**kwargs):
+        return ASS_ABQ(*args,**kwargs)
+class MV_ABQ(MV4):
+    """ Like MV4 but associations are ASS_ABQ.
+    """
+    def __init__(self,**kwargs):
+        MV4.__init__(self,**kwargs)
+        self.Invisible_Lifetime=1
+        self.ASSOCIATION = ASS_ABQ
+        self.PV_V = scipy.matrix([[.9,.1],[1e-7,1-1e-7]])
+        self.Lambda_FA=0.000001 # No FAs in ABQ
+        self.Lambda_new=0.5
+    def dump(self  # MV_ABQ
+             ):
+        print 'MV_ABQ model dump: N_tar=%d, A=\n'%(
+            self.N_tar),self.A
+        print 'Sigma_D=\n',self.Sigma_D
+        print 'O=\n',self.O
+        print 'Sigma_O=\n',self.Sigma_O
+        print 'mu_init=\n',self.mu_init
+        print 'Sigma_init=\n',self.Sigma_init
+        print 'Sigma_FA=\n',self.Sigma_FA
+        print 'PV_V=\n',self.PV_V
+        print 'Lambda_new=%5.3f,  Lambda_FA=%5.3f'%(self.Lambda_new,
+                                                    self.Lambda_FA)
+        return
+
 class analysis:
     def __init__(self):
         self.records = {}
@@ -1476,20 +1749,20 @@ class analysis:
             print 't=%2d, index_count='%t,self.records[t]['index_count']
 if __name__ == '__main__':  # Test code
     import time
-    # The following parameters are for 4-d MV5 model with 2-d observation
+    # The following parameters are for 4-d MV4 model with 2-d observation
     A = [[.95,1,0,0],[0,.95,0,0],[0,0,.95,1],[0,0,0,.95]]
     Sigma_D = [[0.01,0,0,0],[0,0.04,0,0],[0,0,0.01,0],[0,0,0,0.04]]
     O = [[1,0,0,0],[0,0,1,0]]
     Sigma_O = [[0.0025,0],[0,0.0025]]
     PV_V=[[.95,0.05],[0.2,.8]]
-    # Loop over models (all except MV5 have 2-d states and 1-d observations)
+    # Loop over models (all except MV4_4d have 2-d states and 1-d observations)
     for pair in (
-       [MV1(N_tar=8),'MV1',0.1],
-       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',0.05],
-       [MV5(N_tar=4,PV_V=PV_V,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
-            MaxD=5.0,alpha=2.0,Lambda_FA=.01),'MV5',0.11],
-       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.08],
-       [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.07]
+       [MV1(N_tar=4),'MV1',1.31],
+       [MV2(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV2',0.15],
+       [MV3(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV3',0.36],
+       [MV4(N_tar=4,PV_V=[[.5,0.5],[0.5,.5]]),'MV4',0.65],
+       [MV4(N_tar=12,PV_V=PV_V,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+            MaxD=6.0,Lambda_FA=.01),'MV4_4d',0.61],
        ):
         random.seed(3)
         scipy.random.seed(3)
@@ -1500,8 +1773,8 @@ if __name__ == '__main__':  # Test code
         print 'Begin decode; expect %4.2f seconds on AMD Sempron 3000'%pair[2]
         ts = time.time()
         A = analysis()
-        d,tmp = M.decode(y,analysis=A)
-        print 'Elapsed time = %4.2f seconds.  '%(time.time()-ts)
+        d,y_A,nu,close_calls = M.decode(y,analysis=A)
+        print '     Elapsed time =  %4.2f seconds.  '%(time.time()-ts)
         print 'len(y)=',len(y), 'len(s)=',len(s),'len(d)=',len(d)
         dim_s = s[0][0].shape[0]
         dim_y = y[0][0].shape[0]

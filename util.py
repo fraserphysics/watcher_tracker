@@ -2,7 +2,7 @@
 util.py utilities for persistent surveillance tracking
 
 """
-import numpy, scipy, scipy.linalg, random, math
+import numpy, scipy, scipy.linalg, random, math, time
 
 debug = False
 
@@ -357,6 +357,7 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.n = n
         if len(X) < m:        # Some source vertices (hits) have no links
             self.ij_max = None
+            self.u_max = None
             return
         self.ij_max = X
         u_max = u_in
@@ -471,6 +472,8 @@ class M_LIST:
 
       association_list
 
+      H_count           Count of number of calls to Hungarian
+
     Methods:
 
       __init__
@@ -490,9 +493,14 @@ class M_LIST:
         """
         """
         node_0 = M_NODE([],[],0.0,w,m,n,j_gnd=j_gnd)
-        self.node_list = [(node_0.u_max,node_0)]
         self.association_list = []
         self.j_gnd=j_gnd
+        if node_0.u_max == None:
+            self.node_list = []
+            return
+        self.node_list = [(node_0.u_max,node_0)]
+        self.H_count = 1
+        self.start_time = time.time()
         self.next()
         return
     def next(self,    # M_LIST
@@ -507,6 +515,7 @@ class M_LIST:
             A.append((node.Ri_2_Oi[Ri],node.Rj_2_Oj[Rj]))
         self.association_list.append((u,A))
         children,pairs = node.partition()
+        self.H_count += len(children)
         self.node_list += pairs
         self.node_list.sort()
         return
@@ -518,10 +527,12 @@ class M_LIST:
         utility(association_list[-1]) <= U or no more associations are
         possible.
         """
-        while len(self.association_list) < N \
-              and self.association_list[-1][0] > U\
-              and len(self.node_list) > 0:       
+        while len(self.association_list) < N and len(self.node_list) > 0:       
             self.next()
+            if self.association_list[-1][0] < U:
+                self.stop_time = time.time()
+                return
+        self.stop_time = time.time()
         return
 if __name__ == '__main__':  # Test code
     # This is tests noninteger, negative and missing entries

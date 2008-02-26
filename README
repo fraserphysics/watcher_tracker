@@ -1,0 +1,76 @@
+This is the README file for the watcher-tracker package.  The package
+provides a self contained platform for demonstrating and experimenting
+with algorithms for multi-target tracking.  The software runs on any
+system that provides a python interpreter and the following additional
+python packages: wx-python, scipy and matplotlib.  The code also
+requires the packages numpy and scipy.linalg which are part of any
+complete scipy distribution.
+
+To start the GUI, type "python View.py" at a command line.
+
+The package consists of the following files:
+
+View.py:   GUI wrapper for tracking algorithms
+mvx.py:    The models for simulating tracks and code for recovering
+              tracks from simulated observations.
+util.py:   Support functions.  In particular the Hungarian and Murty's
+              algorithm for assignment problems.
+demo.py:   Code for plotting in a wx GUI
+model.pdf: Describes models and tracking algorithms implemented in the
+           package
+model.tex, ha2.ckt, ha2.pdf, ha.ckt, ha.pdf and ha.png: Source files
+              for model.pdf.  To modify model.pdf, edit model.tex and
+              then type "pdflatex model.tex"
+README:     This file
+SeqKeys.el: Emacs lisp commands that may help editing model.tex
+
+The GUI created by View.py has buttons and sliders to do the
+following:
+
+                                   Buttons
+
+Save:            Saves the current plots as figA.png and figB.png
+
+MV1:             Cycles through the model classes described in model.pdf
+
+Analyze is off:  Pressing turns on more diagnostic out put
+
+Simulate:        Runs a simulation of the model that appears in the GUI
+
+Track:           Estimates tracks from the observations of the last simulation
+
+
+                                  Sliders
+
+a_x:             Linear dynamics for position
+
+a_v:             Linear dynamics for velocity
+
+N:               Number of targets at t=0
+
+T:               Duration of simulation
+
+t:               Time step marked in plots
+
+sig_x:           Position noise
+
+sig_v:           Velocity noise
+
+sig_O:           Observation noise
+
+MD:              Maximum distance (in "sigmas") from forecast target
+                 to observation to consider plausible
+
+MA:              Maximum number of associations per cluster
+
+AF:              Floor for difference from best association in a
+                 cluster.  Drop associations with utility below the
+                 floor
+
+MX:              Maximum number of association to find via exhaustive
+                 search.  If there are more than MX associations, use
+                 Murty's algorithm.
+
+TM:              Maximum matching time.  If two targets match the same
+                 observations for TM, drop the one with the lower
+                 utility.

@@ -1,60 +1,45 @@
 """
+
+python ABQ_track.py --test|less
+   points to the three lines 2029, 4222, and 5161 in
+   groundTruthTracks.txt where tracks are not sequential.  Since the
+   class ASS_ABQ assumes tracks are sequential, ie,
+   targets are always visible and there are no false alarms, it will
+   make errors at those three points.  Oh well.
+
+python ABQ_track.py --fit |grep -v targets
+   prints the reestimated Sigma_D, Sigma_O, mu_init, and Sigma_init
+
+time python ABQ_track.py --track > temp
+   Creates AMF_tracks.txt, estimated tracks
+   
 """
-import scipy
+import scipy, mvx
 def parse_tracks(file):
-    t_2_hits = {}     
-    track_2_hits = {}
+    t_2_hits = {}     # Key: t, Value: [[x,y,track#], ...] 
+    track_2_hits = {} # Key: track#, Value: [[x,y,t], ...]
     track = 0
+    line_no = -1
     # Read and parse the tracks
     for line in file.readlines():
+        line_no += 1
         if line[0:5] == 'START':
+            old_t = None
             continue
         if line[0:3] == 'END':
             track += 1
             continue
-        t,x,y = map(lambda x:int(x),line.split())
+        dum,t,x,y = map(lambda x:int(x),line.split())
         if not t_2_hits.has_key(t):
             t_2_hits[t] = []
         t_2_hits[t].append([x,y,track])
         if not track_2_hits.has_key(track):
             track_2_hits[track] = []
         track_2_hits[track].append([x,y,t])
+        if not (old_t == None or old_t + 1 == t):
+            print 'non-sequential track at line %d'%line_no
+        old_t = t
     return (t_2_hits,track_2_hits)
-import mvx
-class ASS_ABQ(mvx.ASSOCIATION5):
-    def __init__(self,*args,**kwargs):
-        mvx.ASSOCIATION5.__init__(self,*args,**kwargs)
-        self.type='ASS_ABQ'
-        self.cause_checks = [self.check_targets, #No self.check_FAs for ABQ
-                             self.check_newts]
-    def New(self, *args,**kwargs):
-        NA = ASS_ABQ(*args,**kwargs)
-        NA.dead_targets = self.dead_targets.copy()
-        return NA
-class MV_ABQ(mvx.MV5):
-    """ Like MV4 but each global association is composed by selecting
-    one association from each cluster in a cluster flock.
-    """
-    def __init__(self,**kwargs):
-        mvx.MV5.__init__(self,**kwargs)
-        self.ASSOCIATION = ASS_ABQ
-        self.PV_V = scipy.matrix([[.9,.1],[.1,.9]])
-        self.Lambda_FA=0.001 # No FAs in ABQ
-        self.O = scipy.matrix([[1,0,0,0],[0,0,1,0]])
-    def dump(self  # MV_ABQ
-             ):
-        print 'MV_ABQ model dump: N_tar=%d, alpha=%5.3f A=\n'%(
-            self.N_tar,self.alpha),self.A
-        print 'Sigma_D=\n',self.Sigma_D
-        print 'O=\n',self.O
-        print 'Sigma_O=\n',self.Sigma_O
-        print 'mu_init=\n',self.mu_init
-        print 'Sigma_init=\n',self.Sigma_init
-        print 'Sigma_FA=\n',self.Sigma_FA
-        print 'PV_V=\n',self.PV_V
-        print 'Lambda_new=%5.3f,  Lambda_FA=%5.3f'%(self.Lambda_new,
-                                                    self.Lambda_FA)
-        return
 def extract_yts(track):
     yts = []
     for triple in track:
@@ -88,7 +73,7 @@ Lambda_new = 3.0
 def reestimate(track_2_hits):
     global Sigma_D, Sigma_O,mu_init,Sigma_init
     Mod = mvx.MV1(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
-                  mu_init=mu_init,Sigma_init=Sigma_init)
+                  mu_init=mu_init,Sigma_init=Sigma_init,MaxD=10)
     # Now reestimate using decoded states as truth
     N=0
     N_i=0
@@ -100,7 +85,7 @@ def reestimate(track_2_hits):
         if len(track) < 10:
             continue
         Yts = extract_yts(track)
-        d,tmp = Mod.decode(Yts)
+        d,tmp0,tmp1,tmp2 = Mod.decode(Yts)
         N_i += 1
         x_i = scipy.concatenate((x_i,d[0][0]),1)
         for t in xrange(0,len(track)-1):
@@ -140,42 +125,50 @@ if __name__ == '__main__':  # Test code
     t_2_hits,track_2_hits = parse_tracks(file)
     
     if opt_dict.has_key('--track'):
-        for I in xrange(2):
-            print 'I=%d, mu_init=\n'%I,mu_init
-            reestimate(track_2_hits)
+        Mod = mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+                     MaxD=3.0,Max_NA=40,mu_init=mu_init,Sigma_init=Sigma_init,
+                     Lambda_new=Lambda_new,Murty_Ex=150)
         # Recall: t_2_hits[t].append([x,y,track])
-        yts = []
-        for t1 in t_2_hits.keys():
-            t = t1-1 # FixMe
-            yts.append([])
-            for triple in t_2_hits[t1]:
-                yts[t].append(scipy.matrix(triple[0:2]).T)
-        Mod = MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,MaxD=4.0,
-               mu_init=mu_init,Sigma_init=Sigma_init,Lambda_new=Lambda_new)
-        d,tmp = Mod.decode(yts)
-        file = open('AMF_tracks.txt','w')
-        print >>file,'START_FILE'
-        for track in d:
-            print >>file,'START_TRACK'
-            t=0
-            for hit in track:
-                t += 1
-                if not hit is None:
-                    print >>file,'%2d %3d %3d'%(t,int(hit[0]),int(hit[2]))
-            print >>file,'END_TRACK'
-        print >>file,'END_FILE'
-        file.close
+        times = t_2_hits.keys()
+        times.sort()
+        def get_third(r):
+            name = 'AMF_tracks'+str(r)+'.txt'
+            file = open(name,'w')
+            yts = []
+            for t in xrange(len(times)):
+                t1 = times[t]
+                assert t == t1-1,'times not sequential'
+                yts.append([])
+                for triple in t_2_hits[t1]:
+                    if triple[2]%3 == r:
+                        yts[t].append(scipy.matrix(triple[0:2]).T) # FixMe
+            print 'calling decode for real'
+            d,tmp0,tmp1,tmp2 = Mod.decode(yts)
+            print >>file,'START_FILE'
+            for track in d:
+                print >>file,'START_TRACK'
+                t=0
+                for hit in track:
+                    t += 1
+                    if not hit is None:
+                        print >>file,'%2d %3d %3d'%(t,int(hit[0]),int(hit[2]))
+                print >>file,'END_TRACK'
+            print >>file,'END_FILE'
+            file.close
+        for r in xrange(3):
+            get_third(r)
     if opt_dict.has_key('--fit'): # Fit model parameters
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)
         Lambda_new = float(N_tracks)/float(T)
-        Mods = [MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+        Mods = [mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
               mu_init=mu_init,Sigma_init=Sigma_init,Lambda_new=Lambda_new)]
         for I in xrange(2):
             print 'I=%d, mu_init=\n'%I,mu_init
             reestimate(track_2_hits)
-            Mods.append(MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
-               mu_init=mu_init,Sigma_init=Sigma_init,Lambda_new=Lambda_new))
+            Mods.append(mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,
+                Sigma_O=Sigma_O,mu_init=mu_init,Sigma_init=Sigma_init,
+                Lambda_new=Lambda_new))
         for I in xrange(len(Mods)):
             print '\n\nDumping model %d'%I
             Mods[I].dump()

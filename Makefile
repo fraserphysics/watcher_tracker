@@ -1,6 +1,10 @@
-
+distribution: model.pdf
+	mkdir -p distribution
+	for file in SeqKeys.el View.py ha* mvx.py util.py model.pdf model.tex README demo.py; do cp $$file distribution/$$file; done
+ABQ_prof: mvx.py util.py ABQ_track.py
+	python -m cProfile -o $@ ABQ_track.py --track
 groundTruthTracks.txt: data/ABQ_Intersection
-	cp data/ABQ_Intersection/groundTruthTracks.txt $@
+	cp data/ABQ_Intersection/abqGroundTruth.trx $@
 
 data/ABQ_Intersection:
 	mkdir -p data

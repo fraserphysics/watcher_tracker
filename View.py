@@ -1,4 +1,4 @@
-import wx, mv1a, mv2, mv3, mvx, demo, random, scipy, time
+import wx, mvx, demo, random, scipy, time
 import matplotlib
 #matplotlib.interactive(False)
 #matplotlib.interactive(True)
@@ -14,7 +14,10 @@ sig_x = 0.1
 sig_v = 0.2
 sig_O = 0.3
 MaxD   = 4.0   # Maximum Malhabonobis distance from forecast to y
-alpha = 0.5    # Cutoff for associations in terms of MaxD
+Max_NA = 20    # Maximum number of associations per cluster
+A_floor = 4.0  # Drop associations with utility less than max - A_floor
+Murty_Ex = 50  # If there are less that Murty_Ex associations use exhaustive()
+T_MM = 5       # If two targets match hits more than T_MM in a row, kill one
 Analyze = False
 Model_No = 0
 
@@ -29,7 +32,7 @@ class FloatSlider(wx.Slider):
         wx.Slider.__init__(self, parent, id=ID, value=V, minValue=0,
                            maxValue=int((Max-Min)/Step), **kwargs)
         parent.Bind(wx.EVT_SLIDER, self.scale, self)
-    def scale(self,event):
+    def scale(self,event):    
         Ivalue = self.GetValue()
         self.Fvalue = self.FMin + Ivalue*self.FStep
         self.Call_Back(event)
@@ -171,12 +174,13 @@ def Vlab_slider(binder, parent, label, call_back, **kwargs):
     return frame,Slider
 
 def VFlab_slider(binder, parent, label, Min, Max, Step, Value, call_back,
-                 **kwargs):
+                 style=0, **kwargs):
     # Vertical Float Slider
+    style += wx.SL_VERTICAL
     frame = wx.Panel(parent,-1)
     Label = wx.StaticText(frame,-1,' '+label+' ')
     Slider = FloatSlider(frame, -1, Min, Max, Step, Value, call_back,
-                         style=wx.SL_VERTICAL, **kwargs)
+                         style=style, **kwargs)
     layout(frame,[Label,Slider])
     return frame,Slider
 
@@ -207,11 +211,11 @@ class view_mv1_frame(wx.Frame):
 
     def ModelClicked(self, event):
         global Model_No, Model_Class
-        Model_Classes = [mvx.MV1,mvx.MV2,mvx.MV3,mvx.MV4,mvx.MV5]
-        label = ['MV1','MV2','MV3','MV4','MV5']
+        Model_Classes = [mvx.MV1,mvx.MV2,mvx.MV3,mvx.MV4,mvx.MV_ABQ]
+        label = ['MV1','MV2','MV3','MV4','ABQ']
         random.seed(3)
         scipy.random.seed(3)
-        Model_No = (Model_No+1)%5
+        Model_No = (Model_No+1)%len(label)
         Model_Class = Model_Classes[Model_No]
         self.controlPanel.ModelButton.SetLabel(label[Model_No])
         
@@ -225,10 +229,12 @@ class view_mv1_frame(wx.Frame):
             self.controlPanel.AnalButton.SetLabel('Analyze is off')
         
     def OnSimClicked(self, event):
-        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Model_Class
+        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,M,yo,s,MaxD,Max_NA
+        global A_floor, Murty_Ex, T_MM, Model_Class
 
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,alpha=alpha)
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD, Max_NA=Max_NA,
+            A_floor=A_floor, Murty_Ex=Murty_Ex, T_MM=T_MM)
         yo,s = M.simulate(T)
         self.plot_panelA.A=None
         self.plot_panelA.y=yo
@@ -244,15 +250,20 @@ class view_mv1_frame(wx.Frame):
         print "Save clicked"
         
     def OnTrackClicked(self, event):
-        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD,alpha
+        global T,N_obj,M,yo,s,a_x,a_v,sig_O,sig_x,sig_v,MaxD
         global Model_Class, Analyze
 
         M = Model_Class(N_tar=N_obj,A = [[a_x,1],[0,a_v]],Sigma_O=[[sig_O**2]],
-            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD,alpha=alpha)
+            Sigma_D = [[sig_x**2,0],[0,sig_v**2]],MaxD=MaxD, Max_NA=Max_NA,
+            A_floor=A_floor, Murty_Ex=Murty_Ex, T_MM=T_MM)
         t_start = time.time()
-        d,yd = M.decode(yo,analysis=Analyze)
-        print 'decode time = %f'%(time.time()-t_start)
+        d,yd,nu,close_calls = M.decode(yo,analysis=Analyze)
+        print 'decode time = %f  Number of close calls=%d'%(
+            time.time()-t_start, len(close_calls))
+        print 'nu_max=%f'%nu
         if Analyze:
+            for call in close_calls:
+                print call
             Analyze.dump()
         self.plot_panelA.A=yd
         self.plot_panelA._forceDraw()
@@ -291,12 +302,32 @@ class view_mv1_frame(wx.Frame):
             MaxD = 1.0/V
         else:
             MaxD = 0
-        self.statusbar.SetStatusText('MaxD=%5.3f'%MaxD)
+        self.statusbar.SetStatusText('Max D in sigmas, MaxD=%5.3f'%MaxD)
 
-    def alpha_sliderUpdate(self, event):
-        global alpha
-        alpha = self.controlPanel.alpha_Slider.Fvalue
-        self.statusbar.SetStatusText('alpha=%f'%alpha)
+    def Max_NA_sliderUpdate(self, event):
+        global Max_NA
+        Max_NA = self.controlPanel.Max_NA_Slider.GetValue()
+        self.statusbar.SetStatusText(
+            'Max number of associations per cluster, Max_NA=%d'%Max_NA)
+
+    def A_floor_sliderUpdate(self, event):
+        global A_floor
+        A_floor = self.controlPanel.A_floor_Slider.Fvalue
+        self.statusbar.SetStatusText(
+            'Threshold for utility of assocaition in cluster, A_Floor=%5.3f'\
+            %A_floor)
+
+    def Murty_Ex_sliderUpdate(self, event):
+        global Murty_Ex
+        Murty_Ex = self.controlPanel.Murty_Ex_Slider.GetValue()
+        self.statusbar.SetStatusText(
+            'Threshold for exhaustive search not Murty, Murty_Ex=%d'%Murty_Ex)
+
+    def T_MM_sliderUpdate(self, event):
+        global T_MM
+        T_MM = self.controlPanel.T_MM_Slider.GetValue()
+        self.statusbar.SetStatusText(
+            'Time match max for two trajectories, T_MM=%d'%T_MM)
 
     def t_sliderUpdate(self, event):
         global N_obj,s,yo,foo_t
@@ -331,7 +362,8 @@ class ControlPanel(wx.Panel):
     maxThickness = 16
 
     def __init__(self, parent, ID):
-        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,MaxD,alpha
+        global T,N_obj,a_x,a_v,sig_x,sig_v,sig_O,MaxD,Max_NA,A_floor
+        global Murty_Ex,T_MM
         global Model_No, Model_Class
         wx.Panel.__init__(self, parent, ID, style=wx.RAISED_BORDER)
         buttonSize = (self.BMP_SIZE + 2 * self.BMP_BORDER,
@@ -369,7 +401,9 @@ class ControlPanel(wx.Panel):
         T_frame,self.T_Slider = Vlab_slider(self, row_A, "T",
                                 parent.T_sliderUpdate, value=T, minValue=1,
                                 maxValue=100, size=(-1, 200))
-        layout(row_A,[a_x_frame,a_v_frame,N_frame,T_frame],
+        t_frame,self.t_Slider = VFlab_slider(self, row_A, "t", 0.0, 1.0,
+                    0.005, 0, parent.t_sliderUpdate, size=(-1, 200))
+        layout(row_A,[a_x_frame,a_v_frame,N_frame,T_frame,t_frame],
                orient=wx.HORIZONTAL)
 
         row_B = wx.Panel(sim_frame,-1)
@@ -392,13 +426,24 @@ class ControlPanel(wx.Panel):
         self.Bind(wx.EVT_BUTTON, parent.OnTrackClicked, trackButtonA)
 
         row_C = wx.Panel(track_frame,-1)
-        t_frame,self.t_Slider = VFlab_slider(self, row_C, "t", 0.0, 1.0,
-                    0.005, 0, parent.t_sliderUpdate, size=(-1, 200))
-        MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MaxD",
-            0.0, 2.0, 0.002, 1/MaxD, parent.MaxD_sliderUpdate, size=(-1, 200))
-        alpha_frame,self.alpha_Slider = VFlab_slider(self, row_C,"alpha",
-            0.0, 5.0, 0.05, alpha, parent.alpha_sliderUpdate, size=(-1, 200))
-        layout(row_C,[t_frame,MaxD_frame,alpha_frame],orient=wx.HORIZONTAL)
+        MaxD_frame,self.MaxD_Slider = VFlab_slider(self, row_C,"MD",
+            0.0, 1.0, 0.002, 1/MaxD, parent.MaxD_sliderUpdate, size=(-1, 200),
+                                                   style=wx.SL_INVERSE)
+        Max_NA_frame,self.Max_NA_Slider = Vlab_slider(self, row_C, "MA",
+                     parent.Max_NA_sliderUpdate, value=Max_NA, minValue=1,
+                                maxValue=100, size=(-1, 200))
+        A_floor_frame,self.A_floor_Slider = VFlab_slider(self, row_C,"Af",
+            0.0, 20.0, 0.1, 4, parent.A_floor_sliderUpdate, size=(-1, 200))
+        Murty_Ex_frame,self.Murty_Ex_Slider = Vlab_slider(self, row_C,
+                 "MX", parent.Murty_Ex_sliderUpdate,
+                 value=Murty_Ex, minValue=0, maxValue=199, size=(-1, 200))
+        T_MM_frame,self.T_MM_Slider = Vlab_slider(self, row_C, "TM",
+                     parent.T_MM_sliderUpdate, value=T_MM, minValue=2,
+                                maxValue=10, size=(-1, 200))
+        layout(row_C,
+               [MaxD_frame,Max_NA_frame,A_floor_frame,
+                Murty_Ex_frame,T_MM_frame],
+               orient=wx.HORIZONTAL)
         
         layout(track_frame,[trackButtonA,row_C])
         #--------------------
