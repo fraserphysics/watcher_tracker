@@ -19,6 +19,8 @@ ha.png: hackt.ckt
 model.pdf: model.tex ha.pdf ha2.pdf
 	pdflatex model.tex
 
+%.pdf: %.tex
+	pdflatex $<
 # Local Variables:
 # mode: makefile
 # folded-file: t
