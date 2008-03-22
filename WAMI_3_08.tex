@@ -19,10 +19,10 @@
 \frame{
   \frametitle{Big Picture}
   \begin{description}
-  \item[Goal:] Low Framerate Video $\Rightarrow$ Vehicle Tracks
+  \item[Goal:] Low Frame-rate Video $\Rightarrow$ Vehicle Tracks
   \item[Method:] \hspace{1em}
     \begin{itemize}
-    \item Detector applied to frame  $\Rightarrow$ \emph{hits}$(t)$
+    \item Apply detector to frame  $\Rightarrow$ \emph{hits}$(t)$
     \item Connect \emph{hits} $\Rightarrow$ \emph{tracks}
     \end{itemize}
   \end{description}
@@ -36,12 +36,13 @@
     \begin{equation*}
       y_i(t) = \text{Position \& Attributes}
     \end{equation*}
-  \item[Output:] List of \textbf{trajectories}
+  \item[Output:] List of \textbf{trajectories} for each
+    \textbf{target}
     \begin{equation*}
       \left\{ x_j(t): T_i
         \leq t \leq T_f \right\}
     \end{equation*}
-    for each \textbf{target}
+    where
     \begin{equation*}
       x_j(t) = \text{Position \& Velocity}
     \end{equation*}
@@ -52,8 +53,8 @@
 \frame{
   \frametitle{Solution Strategy}
   \begin{description}
-  \item[State space model:] Linear dynamics, Gaussian accelerations:
-    $x_j(t+1) = A \cdot x_j(t) + \eta(t)$.  Want \textbf{M.A.P:}
+  \item[State space model:] Linear target dynamics, Gaussian accelerations:
+    $x_j(t+1) = A \cdot x_j(t) + \eta(t)$.  Seek \textbf{M.A.P:}
     \begin{equation*}
       \bf{\hat x}_1^T = \argmax_{\bf{x}_1^T} P(\bf{x}_1^T|\bf{y}_1^T)
     \end{equation*}
@@ -69,8 +70,7 @@
   \frametitle{Novelty?}
   \begin{itemize}
   \item Variant of Viterbi algorithm, ie, dynamic programming
-  \item Optimal use of entire sequence $\bf{y}_1^T$ in guessing
-    $\bf{\hat x}_1^T$
+  \item Use entire sequence $\bf{y}_1^T$ to guess $\bf{\hat x}_1^T$
   \item At time $t$, \emph{state} $\bf{s}(t)$ has two components:
     \begin{description}
     \item[continuous $\bf{x}(t)$:] (position, velocity) of each target
@@ -84,7 +84,7 @@
 \begin{align*}
   u(\ts{s}{1}{t}) & \quad \text{Utility of state sequence }
   \ts{s}{1}{t}\\
-  & \quad \equiv \log \left( P(\ts{y}{1}{t},\ts{s}{1}{t} \right)
+  & \quad \equiv \log \left( P(\ts{y}{1}{t},\ts{s}{1}{t}) \right)
   \\
   \nu(s,t) & \quad \text{Utility of best sequence ending with }
   \ti{s}{t} = s \\
@@ -95,15 +95,38 @@
 \end{align*}
 Insights:
 \begin{itemize}
-\item Calculate $\nu(s,t)$ and $B(s,t)$ recursively
+\item Calculate $\nu(s,t)$ and $B(s,t)$ $\forall s \& t$ recursively
 \item For most $\ts{s}{1}{t}$, never calculate $u(\ts{s}{1}{t})$
 \item Complexity linear in number of frames $T$
 \end{itemize}
-
 }
 
 \frame{
   \frametitle{Viterbi Algorithm Picture}
+  \begin{columns}
+    \begin{column}[l]{0.5\textwidth}
+      At $t=0$:
+      \begin{equation*}
+        \vspace{2cm}
+        \nu(s,0) = \log\left( P(s) P(y(0)|s) \right)
+      \end{equation*}
+    \end{column}
+    \begin{column}[r]{0.3\textwidth}
+      \resizebox{0.99\textwidth}{!}{\includegraphics{viterbi.pdf}}
+    \end{column}
+  \end{columns}
+      At $t=1$:
+      \begin{align*}
+        \nu(s,1) &= {\color{red}{\max_{s'}}} \left( \nu(s',0) +
+          \log\left( P(s|s') 
+            P(y(1)|s) \right) \right) \\
+        B(s,1) &=  {\color{red}{\argmax_{s'}}} \left( \nu(s',0) +
+          \log\left( P(s|s') 
+            P(y(1)|s) \right) \right)
+      \end{align*}
+      Need {\color{magenta}{only keep}} {\color{cyan}{$\nu(s,t)$}} and
+      {\color{cyan}{$B(s,t)$}} $\forall~s,t$
+
 }
 
 \frame{ \frametitle{Pruning and Approximation}
@@ -116,39 +139,72 @@ Insights:
     \item $N_{\bf a} < N_{\text{max}}$
     \item $\nu({\bf a}) > \nu_{\text{best}} - \Delta_{\text{max}}$
     \end{itemize}
-  \end{itemize}
-
-}
-
-\frame{
-  \frametitle{Extreme Pruning:}
-  Use only best association (hits $\mapsto$ targets) for each frame
-  \vspace{1cm}\\ \framebox[\textwidth]{\rule{0cm}{4cm}Easy Movie Here}
-}
-
-\frame{
-  \frametitle{Confusing Complex Clusters:} \framebox[\textwidth]{\rule{0cm}{6cm}Hard Movie Here}
-}
-
-\frame{
-  \frametitle{Pruning Techniques}
-  \begin{itemize}
-  \item Cluster hits and set threshold distance
-  \item 10 best associations for each cluster
   \item Prune sequences that match for 5 frames
   \end{itemize}
-  \newcommand{\fudgeA}{0.4}
-  \parbox{\fudgeA\textwidth}{\center{Hits vs Time}\\
-    \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figA3.png}}}
-  \hspace{-0.02\textwidth}
-  \parbox{\fudgeA\textwidth}{\center{Trajectories}\\
-    \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figB3.png}}}
+
 }
+
+\frame{
+  \frametitle{Code Demo}
+  \newcommand{\entrywidth}{4em}
+  \begin{center}
+    \begin{tabular}[t]
+      {|p{\entrywidth}|p{\entrywidth}|p{\entrywidth}|p{\entrywidth}|}
+      \hline
+      Models & Variable Visibility & False Alarms & Variable Num.\ Targets \\
+      \hline 1   &   &   & \\
+      \hline 2   & Y &   & \\
+      \hline 3   & Y & Y & \\
+      \hline 4   & Y & Y & Y \\
+      \hline ABQ &   &   & Y \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \href{run:start_View.sh}{\color{red}{Start GUI}}
+}
+
+\frame{
+  \frametitle{Challenging Scene}
+  \href{run:movie_script.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}ABQ movie here}
+  }
+}
+
+\frame{ \frametitle{Reduce density by $\frac{1}{3}$,
+    greedy assignment}
+  \href{run:movie_script.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}ABQ movie here}
+  }
+}
+
+\frame{
+  \frametitle{Reduce density by $\frac{1}{3}$, MHT}
+  \href{run:movie_script.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}ABQ movie here}
+  }
+}
+
+% \frame{
+%   \frametitle{Pruning Techniques}
+%   \begin{itemize}
+%   \item Cluster hits, and set threshold distance
+%   \item 10 best associations for each cluster
+%   \item Prune sequences that match for 5 frames
+%   \end{itemize}
+%   \newcommand{\fudgeA}{0.4}
+%   \parbox{\fudgeA\textwidth}{\center{Hits vs Time}\\
+%     \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figA3.png}}}
+%   \hspace{-0.02\textwidth}
+%   \parbox{\fudgeA\textwidth}{\center{Trajectories}\\
+%     \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figB3.png}}}
+% }
 
 \frame{
   \frametitle{Status:}
   \begin{itemize}
   \item Good results for sparse traffic from extreme pruning
+  \item For moderate traffic, MHT helpful
+  \item Can't do dense traffic
   \item Current code implements Hungarian/Murty algorithm and
     clustering; \emph{usually} runs and \emph{often} finds
     \emph{plausible} tracks
@@ -161,43 +217,28 @@ Insights:
   \item Debug: (\emph{usually/often} $\rightarrow$ \emph{always})
   \item Make model parameters depend on position
   \item Exploit attributes, eg, color/size
+  \item Flag difficult decisions
+  \item Spend computational budget on \emph{important} tracks
   \end{itemize}
-}
-\frame{
-  \frametitle{Method:  Model assumptions}
-Functions that specify a state space model:
-\begin{description}
-\item[State transition probability:] $P(\ti{s}{t+1}|\ti{s}{t})$
-\item[Conditional observation probability:] $P(\ti{y}{t}|\ti{s}{t})$
-\item[Initial state distribution] $P(\ti{s}{1})$
-\end{description}
-
-Note:
-\begin{equation*}
-  \argmax_{s_1^T} P(s_1^T|y_1^T) = \argmax_{s_1^T} P(y_1^T,s_1^T)
-\end{equation*}
-}
-
-\frame{
-  \frametitle{Viterbi algorithm}
-Evaluate $B(*,t)$ and $\nu(*,t)$ recursively (Kalman filtering):
-\begin{align*}
-  u'(s,s',t) &= \nu(s,t) + \log\left( P_{\ti{s}{t+1}|}(s'|s) \right)
-  \\
-  & \quad + \log\left( P_{\ti{y}{t+1}|\ti{s}{t+1}}(\ti{y}{t+1}|s') \right) \\
-  \nu(s,t+1) &= u'(B(s,t),s,t)
-\end{align*}
-
-Given $B(*,t)$ and $\nu(*,t)$ $\forall t\in[1,\ldots,T]$, find $
-\ts{\hat s}{1}{T}$ as follows:
-\begin{align*}
-  {\ti{{\hat s}}{T}} &= \argmax_s \nu(s,T) \\
-  & \text{for } t \text{ from } T-1 \text{ to } 1: \\
-  & \quad \ti{\hat s}{t} = B( \ti{\hat s}{t+1},t)
-\end{align*}
 }
 
 \end{document}
+
+% To get evince to run shell scripts put this line in
+% ~/.local/share/applications/mimeinfo.cache:
+
+% application/x-shellscript=bash-usercreated.desktop
+
+% In bash-usercreated.desktop put:
+
+%[Desktop Entry]
+%Encoding=UTF-8
+%Name=bash
+%MimeType=application/x-shellscript;
+%Exec=/bin/bash %f
+%Type=Application
+%Terminal=false
+%NoDisplay=true
 
 
 %%%---------------
