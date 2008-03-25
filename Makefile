@@ -6,6 +6,8 @@ ABQ_prof: mvx.py util.py ABQ_track.py
 groundTruthTracks.txt: data/ABQ_Intersection
 	cp data/ABQ_Intersection/abqGroundTruth.trx $@
 
+AMF_tracks0.txt AMF_tracks1.txt AMF_tracks2.txt:
+	python ABQ_track.py --track
 data/ABQ_Intersection:
 	mkdir -p data
 	sudo sshfs afraser@yks.lanl.gov:/n/projects/watcher/data data -o uid=1000 -o allow_other -o gid=1000

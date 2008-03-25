@@ -151,7 +151,9 @@ if __name__ == '__main__':  # Test code
                 for hit in track:
                     t += 1
                     if not hit is None:
-                        print >>file,'%2d %3d %3d'%(t,int(hit[0]),int(hit[2]))
+                        print >>file,'0 %2d %3d %3d 0 0'%(t,int(hit[0]),
+                                                          int(hit[2]))
+                        # confdence, frame#, x, y, x_dot, y_dot
                 print >>file,'END_TRACK'
             print >>file,'END_FILE'
             file.close
