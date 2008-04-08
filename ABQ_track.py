@@ -70,7 +70,9 @@ mu_init=scipy.matrix([
     [250],
     [ 0]]).T
 Lambda_new = 3.0
-def reestimate(track_2_hits):
+def reestimate(track_2_hits,    # dict of tracks read by parse_tracks()
+               track_only=False # Just report tracks from MV1.decode()
+               ):
     global Sigma_D, Sigma_O,mu_init,Sigma_init
     Mod = mvx.MV1(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
                   mu_init=mu_init,Sigma_init=Sigma_init,MaxD=10)
@@ -85,9 +87,11 @@ def reestimate(track_2_hits):
         if len(track) < 10:
             continue
         Yts = extract_yts(track)
-        d,tmp0,tmp1,tmp2 = Mod.decode(Yts)
+        d,tmp0,tmp1,tmp2 = Mod.decode(Yts) # d[k][t] is decoded x for
+                                           # target k at time t
         N_i += 1
         x_i = scipy.concatenate((x_i,d[0][0]),1)
+        # Initial x; concatenate along axis #1 rather than axis #0
         for t in xrange(0,len(track)-1):
             N += 1
             y0 = scipy.concatenate((y0,Yts[t][0]),1)
@@ -96,6 +100,18 @@ def reestimate(track_2_hits):
     # A,resids,rank,s = scipy.linalg.lstsq(x0.T,x1.T)
     # A = A.T
     e = x1-A*x0
+    if track_only:
+        # x0.shape = (4,3603)
+        N,T = x0.shape
+        rv = scipy.zeros((T,6))
+        for t in xrange(T):
+            rv[t,0] = x0[1,t]
+            rv[t,1] = x0[3,t]
+            rv[t,2] = e[0,t]
+            rv[t,3] = e[1,t]
+            rv[t,4] = e[2,t]
+            rv[t,5] = e[3,t]
+        return rv
     Sigma_D = e*e.T/N
     e = y0 - O*x0
     Sigma_O = e*e.T/N
@@ -110,6 +126,7 @@ if __name__ == '__main__':  # Test code
                                 'fit',
                                 'track',
                                 'test',
+                                'accel',
                                 'In_File='
                                 ])
     opt_dict ={}
@@ -159,21 +176,29 @@ if __name__ == '__main__':  # Test code
             file.close
         for r in xrange(3):
             get_third(r)
-    if opt_dict.has_key('--fit'): # Fit model parameters
+    if opt_dict.has_key('--fit') or opt_dict.has_key('--accel'):
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)
         Lambda_new = float(N_tracks)/float(T)
         Mods = [mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
               mu_init=mu_init,Sigma_init=Sigma_init,Lambda_new=Lambda_new)]
-        for I in xrange(2):
-            print 'I=%d, mu_init=\n'%I,mu_init
-            reestimate(track_2_hits)
-            Mods.append(mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,
-                Sigma_O=Sigma_O,mu_init=mu_init,Sigma_init=Sigma_init,
-                Lambda_new=Lambda_new))
-        for I in xrange(len(Mods)):
-            print '\n\nDumping model %d'%I
-            Mods[I].dump()
+        if opt_dict.has_key('--accel'): # Print estimated states/accelerations
+            file = open('AMF_accel.txt','w')
+            v_a = reestimate(track_2_hits,track_only=True)
+            T,N = v_a.shape
+            for t in xrange(T):
+                print >>file, (6*'%6.2f ')%(v_a[t,0],v_a[t,1],v_a[t,2],
+                           v_a[t,3],v_a[t,4],v_a[t,5])
+        if opt_dict.has_key('--fit'):   # Fit model parameters
+            for I in xrange(2):
+                print 'I=%d, mu_init=\n'%I,mu_init
+                reestimate(track_2_hits)
+                Mods.append(mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,
+                    Sigma_O=Sigma_O,mu_init=mu_init,Sigma_init=Sigma_init,
+                    Lambda_new=Lambda_new))
+            for I in xrange(len(Mods)):
+                print '\n\nDumping model %d'%I
+                Mods[I].dump()
             
     if opt_dict.has_key('--test'):
         # Check for missed hits in each track
