@@ -4,7 +4,7 @@
 \newcommand{\argmax}{\operatorname*{argmax}}
 \newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
 \newcommand{\ts}[3]{{#1}_{#2}^{#3}} % Time series
-\title{Multi-Target Tracking}
+\title{Multi-Target Tracking from Dynamic Programming}
 \author{Andy Fraser}
 \date{March 27, 2008}
 
@@ -165,22 +165,21 @@ Insights:
 
 \frame{
   \frametitle{Challenging Scene}
-  \href{run:movie_script.sh}{
-    \framebox[\textwidth]{\rule{0cm}{6cm}ABQ movie here}
+  \href{run:movie_script1.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}orig.mpg here}
   }
 }
 
-\frame{ \frametitle{Reduce density by $\frac{1}{3}$,
-    greedy assignment}
-  \href{run:movie_script.sh}{
-    \framebox[\textwidth]{\rule{0cm}{6cm}ABQ movie here}
+\frame{ \frametitle{Grade Against Marked Ground Truth}
+  \href{run:movie_script2.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}markup.mpg here}
   }
 }
 
 \frame{
   \frametitle{Reduce density by $\frac{1}{3}$, MHT}
-  \href{run:movie_script.sh}{
-    \framebox[\textwidth]{\rule{0cm}{6cm}ABQ movie here}
+  \href{run:movie_script3.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}track1.mpg here}
   }
 }
 
@@ -216,7 +215,7 @@ Insights:
   \begin{itemize}
   \item Debug: (\emph{usually/often} $\rightarrow$ \emph{always})
   \item Make model parameters depend on position
-  \item Exploit attributes, eg, color/size
+  \item Exploit attributes, eg, size/shape
   \item Flag difficult decisions
   \item Spend computational budget on \emph{important} tracks
   \end{itemize}
