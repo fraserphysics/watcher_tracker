@@ -9,7 +9,7 @@ groundTruthTracks.txt: data/ABQ_Intersection
 AMF_tracks0.txt AMF_tracks1.txt AMF_tracks2.txt:
 	python ABQ_track.py --track
 
-AMF_accel.txt:
+AMF_accel.txt: ABQ_track.py
 	python ABQ_track.py --accel
 
 data/ABQ_Intersection:

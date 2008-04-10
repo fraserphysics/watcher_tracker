@@ -24,6 +24,7 @@ for line in file.readlines():
 T = len(v)
 
 # calculate vectors to plot: (v_mag, e_v_parallel, e_v_perpendicular)
+debug = open('debug','w') # debug
 vecs = scipy.matrix(scipy.zeros((T,3)))
 for t in xrange(T):
     vv = scipy.dot(v[t],v[t])
@@ -35,24 +36,46 @@ for t in xrange(T):
         unit_vec = v[t]/mag
     par = scipy.dot(unit_vec,e_v[t])
     perp = unit_vec[0]*e_v[t][1] - unit_vec[1]*e_v[t][0]
-    vecs[t,0] = mag
-    vecs[t,1] = par
-    vecs[t,2] = perp
+    vecs[t,0] = par
+    vecs[t,1
+         ] = perp
+    vecs[t,2] = mag
+    print >>debug, (3*'%6.2f ')%(par,perp,mag)
+
+v_mag = scipy.matrix([[0,0,0],[0,0,100]])
+a_par = scipy.matrix([[0,0,0],[100,0,0]])
+a_perp = scipy.matrix([[0,0,0],[0,100,0]])
+
+plot_data = {'data':vecs, 'A_z':v_mag,'A_x':a_par,'A_y':a_perp}
+plot_color = {'data':'k.','A_z':'r-', 'A_x':'b-', 'A_y':'c-'}
+#             data:black   v_mag:red   e_par:blue  e_perp:cyan
 
 theta_matrix = scipy.matrix(scipy.diag([1.0,1,1])) # rotation matrix 
 phi_matrix = scipy.matrix(scipy.diag([1.0,1,1]))   # rotation matrix 
 
+plot_line = False
 def plot_vecs():
-    global theta_matrix, phi_matrix, plot_line,vecs
+    global theta_matrix, phi_matrix, plot_line, plot_data, plot_color
+
+    plot_line = []
     pylab.hold(False)
-    plot_line = [] # Holds data and "line", ie, connection to plot
-    dots = vecs*theta_matrix*phi_matrix
-    line, = pylab.plot(dots[:,0],dots[:,1],plot_color[0])
-    pylab.hold(True)
+    for key in plot_data.keys():
+        try:
+            dots = plot_data[key]*theta_matrix*phi_matrix
+        except:
+            print 'plot_data[%s].shape='%key,plot_data[key].shape
+            raise RuntimeError
+        line, = pylab.plot(dots[:,0],dots[:,1],plot_color[key])
+        pylab.hold(True)
+        pylab.axis([-100,100,-100,100])
+        plot_line.append([plot_data[key],line])
     pylab.draw()
 def update():
     # Called by new_theta() or new_phi() to redraw
     global plot_line
+    if not plot_line:
+        plot_vecs()
+        return
     for [vec,line] in plot_line:
         dots = vec*theta_matrix*phi_matrix
         line.set_xdata(dots[:,0])
