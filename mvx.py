@@ -94,23 +94,35 @@ class TARGET5(CAUSE):
     The multiple models will be discrete states of a HMM.  After this
     class works, I may make TARGET4 a subclass.
 
-    Private variables:
+    Private variables (t for time, i for IMM state):
         modT             Model, eg MV4.  Provides access to parameters
         mu_t             List of previous means. mu_t[t][i]
         Sigma_t          List of previous covariances
         invisible_count  Count of sequential hit failures
         T0               Time that corresponds to mu_t[0]
-        y_forecast       Means of observation forecasts. y_forecast[i]
-        Sigma_y_forecast Forecast observation covariances
-        K                Kalman gain matrices calculated in self.forecast
-        Sigma_next       Covariances of updated estimate
         last             For dead target, time corresponding to mu_t[-1]
-        __nu             nu values for IMMs
-        __best           Best predecessors for IMMs
+        ij_max           unravel_index(D_nu.argmax(),D_nu.shape)
+        nu               Utility of best path to i is nu[i]
+        best             Best predecessor for i at t is best[t][i]
+        
+    The following private arrays are indexed by a tuple (ij) where i
+    is the predecessor IMM state and j is the successor IMM state:
+                 Calculated in forecast()
+        mu_fs            The forecast state mean
+        Sigma_fs         The forecast state covariance
+        mu_fO            The forecast observation mean
+        Sigma_fOI        The forecast observation inverse covariance
+        K                Kalman gain matrix
+        D_nu_f           The partial utility of the forecast
+        Sigma_us0        The updated state covariance if visible
+                 Calculated in utility()
+        mu_us            The updated state mean
+        Sigma_us         The updated state covariance
+        D_nu             The updated utility of the step from i to j
         
     Externally accessed variables:
-        R                R_sum(t) - R_sum(t-1)
         R_sum            Max of nu
+        R                R_sum(t) - R_sum(t-1)
         tks              Dict. key=(time,index), value=self
         index            Unique ID
         children         Dict indexed by hit with child targets as values
@@ -119,17 +131,17 @@ class TARGET5(CAUSE):
                              index of hit at present time.
 
     Private methods:
-        kill             'target' --> 'dead_target' after invisible too long
-        utility           Update and calculate utility of y
-        forecast          Forecast state and observation
-        New               Create a new target of this class
+        forecast      Forecast state and observation
+        utility       Update and calculate utility of y
+        spawn         Create child target. Preceded by forecast() utility(y)
+        New           Create a new target of this class
+        kill          'target' --> 'dead_target' after invisible too long
         
     Public methods:
-        backtrack         Calculate and return MAP trajectory
-        Launch            Launch a new target for observation y
-        update            Create a child target using y and the forecast
-        make_children     Make plausible children from list of ys
-        dump              For debugging
+        backtrack     Calculate and return MAP trajectory
+        Launch        Launch a new target for observation y
+        make_children Make plausible children from list of ys
+        dump          For debugging
         
     """
     def __init__(self,      # TARGET5
@@ -204,57 +216,40 @@ class TARGET5(CAUSE):
         self.children = {}
         mlpd = self.modT.log_min_pd
         for k in xrange(len(y_t)):
-            key = tuple(self.m_t + [k])
-            if mlpd > self.utility(y_t[k])[0]:
+            if mlpd > self.utility(y_t[k]):
                 continue                 # Candidate utility too small
             self.children[k] = self.update(y_t[k],k,t)
-            # update() calls utility second time.  Possible time saving
             assert(self.children[k].m_t[-1]==k)
         # Child for invisible y
-        self.children[-1] = self.update(None,-1,t)
+        self.children[-1] = self.update(None,-1,t) # FixMe: check this
     def forecast(self # TARGET5
                  ):
-        """ For each component, calculate forecast mean and covariance
-        for both state and observation.  Also calculate K and
-        Sigma_next.  Save all for use by Update.
+        """ For each ij, calculate forecast mean and covariance for
+        both state and observation, the Kalman gain K, the partial
+        utility of the transition, and the updated state covariance
+        Sigma_us.
         """
         Id = self.modT.Id
-        for i in xrange(len(self.modT.IMM)):
+        for i in xrange(len(self.modT.IMM)): # Loop over last state
             A = self.modT.IMM[i].A
-            O = self.modT.IMM[i].O
             Sigma_D = self.modT.IMM[i].Sigma_D
-            Sigma_O = self.modT.IMM[i].Sigma_O
-            #
-            self.mu_a[i] = A*self.mu_t[-1][i]
-            self.Sigma_a[i] = A*self.Sigma_t[-1][i]*A.T + Sigma_D
-            self.y_forecast[i] = O*self.mu_a[i]
-            Sig_y = O*self.Sigma_a[i]*O.T + Sigma_O
-            self.Sigma_y_forecast_I[i] = scipy.linalg.inv(Sig_y)
-            self.K[i] = self.Sigma_a[i]*O.T*self.Sigma_y_forecast_I[i]
-            self.Sigma_next[i] = (Id-self.K[i]*O)*self.Sigma_a[i]
+            for j in xrange(len(self.modT.IMM)): # Loop over next state
+                O = self.modT.IMM[j].O
+                Sigma_O = self.modT.IMM[j].Sigma_O
+                #
+                self.mu_fs[i,j] = A*self.mu_t[-1][i]
+                self.Sigma_fs[i,j] = A*self.Sigma_t[-1][i]*A.T + Sigma_D
+                self.mu_fO[i,j] = O*self.mu_fs[i,j]
+                Sig_y = O*self.Sigma_fs[i,j]*O.T + Sigma_O
+                self.Sigma_fOI[i,j] = scipy.linalg.inv(Sig_y)
+                self.K[i,j] = self.Sigma_fs[i,j]*O.T*self.Sigma_fOI[i,j]
+                self.Sigma_us[i,j] = (Id-self.K[i,j]*O)*self.Sigma_fs[i,j]
         return
-    def update(self, # TARGET5
-           y,        # The observation of the target at the current time
-           k,        # Index of the observation
-           t         # Present time
-           ):
-        """ Create a new target with updated m_t, __mu, __Sigma, __nu,
-        __best, __oldR_sum, R and R_sum for the observation, index
-        pair (y,m)."""
-        m_L = self.m_t+[k]
-        Delta_R,mu_new,Sigma_new = self.utility(y)
-        Sigma_L = self.Sigma_t + [Sigma_new]
-        mu_L = self.mu_t + [mu_new]
-        tks = self.tks.copy()
-        if k >= 0:
-            tks[(t,k)] = True
-        return self.New(self.modT,m_L,mu_L,Sigma_L,Delta_R,y,tks,
-                             index=self.index,R_sum=self.R_sum+Delta_R)
     def utility(self,  # TARGET5
                 y):
-        """Return (log probability density, updated mean, updated
-        covariance).  Include log_prob factors for Sig_D and
-        visibility transitions.
+        """Return the maximum (over (x(t-1),i(t-1),x(t),i(t)) of the
+        utility increment given y(t).  Include log_prob factors for
+        Sig_D and visibility transitions.
         """
         if self.m_t[-1] is -1:
             v_old = 1
@@ -264,18 +259,52 @@ class TARGET5(CAUSE):
             v_new = 1 # This time the target is invisible
         else:
             v_new = 0
-        Delta_R = math.log(self.modT.PV_V[v_old,v_new]) \
+        D_nu_v = math.log(self.modT.PV_V[v_old,v_new]) \
                   -self.modT.log_det_Sig_D/2
-        if y is None:
-            Sigma_new = self.Sigma_a
-            mu_new = self.mu_a
-            return (Delta_R,mu_new,Sigma_new)
-        Delta_y = y - self.y_forecast    # Error of forecast observation
-        Sigma_new = self.Sigma_next
-        mu_new = self.mu_a + self.K*Delta_y
-        Delta_R += -float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
-                           -self.modT.log_det_Sig_O)/2
-        return (Delta_R,mu_new,Sigma_new)
+        for i in xrange(len(self.modT.IMM)): # Loop over last state
+            for j in xrange(len(self.modT.IMM)): # Loop over next state
+                log_det_O = self.modT.IMM[j].log_det_Sig_O
+                D_nu_ij = math.log(self.modT.IMM[i].P_tran[j])
+                if y is None:
+                    Sigma_new = self.Sigma_fs[i,j]
+                    mu_new = self.mu_fs[i,j]
+                    D_nu = D_nu_v + D_nu_ij
+                else:
+                    Sigma_new = self.Sigma_us0[i,j]
+                    Delta_y = y - self.mfO[i,j]
+                    mu_new = self.mu_fs[i,j] + self.K[i,j]*Delta_y
+                    D_nu = D_nu_v + D_nu_ij - float(
+                        Delta_y.T*self.Sigma_fOI[i,j]*Delta_y-log_det_O)/2
+                self.mu_us[i,j] = mu_new
+                self.Sigma_us[i,j] = Sigma_new
+                self.D_nu[i,j] = D_nu
+                if i==0 and j==0:
+                    self.ij_max = (0,0)
+                    D_nu_max = D_nu
+                    continue
+                if D_nu > D_nu_max:
+                    self.ij_max = (i,j)
+                    D_nu_max = D_nu
+        #self.ij_max = unravel_index(self.D_nu.argmax(),self.D_nu.shape)
+        return D_nu_max
+    def spawn(self, # TARGET5
+           k,        # Index of the observation
+           t         # Present time
+           ):
+        """ Called by make_children if utility(y) is OK.  Creates a
+        new target using information in self from preceding calls to
+        forecast() and utility(y).  The new target incorporates the
+        observation y into its state.
+        """
+        # For each IMM j, find best predecessor i and corresponding nu
+        nu_ij = (self.D_nu.T+self.nu).T  # NxN array of possiblen nu values
+        temp = nu_ij.argmax(0)           # temp[j] is best i for j
+        best = self.best + [temp]
+        temp = scipy.choose(temp,nu_ij)  # temp[j] is util of best path to j
+        nu   = self.nu + [temp]
+        return self.New(mu_L,Sigma_L,nu,best,
+                        t,k,
+                        index=self.index)
     def Launch(self, # TARGET5
            y,        # The observation of the target at the current time
            k,        # Index of the observation
@@ -397,7 +426,6 @@ class TARGET4(CAUSE):
         self.children = {}
         mlpd = self.modT.log_min_pd
         for k in xrange(len(y_t)):
-            key = tuple(self.m_t + [k])
             if mlpd > self.utility(y_t[k])[0]:
                 continue                 # Candidate utility too small
             self.children[k] = self.update(y_t[k],k,t)
