@@ -99,7 +99,6 @@ class TARGET5(CAUSE):
         __mu_t             List of previous means. mu_t[t][i]
         __Sigma_t          List of previous covariances
         __invisible_count  Count of sequential hit failures
-        __T0               Time that corresponds to mu_t[0]
         __last             For dead target, time corresponding to mu_t[-1]
         __ij_max           unravel_index(D_nu.argmax(),D_nu.shape)
         __nu               Utility of best path to i is nu[i]
@@ -113,7 +112,6 @@ class TARGET5(CAUSE):
         __mu_fO            The forecast observation mean
         __Sigma_fOI        The forecast observation inverse covariance
         __K                Kalman gain matrix
-        __D_nu_f           The partial utility of the forecast
         __Sigma_us0        The updated state covariance if visible
                  Calculated in utility()
         __mu_us            The updated state mean
@@ -121,6 +119,7 @@ class TARGET5(CAUSE):
         __D_nu             The updated utility of the step from i to j
         
     Externally accessed variables:
+        T0               Time that corresponds to mu_t[0] (mostly private)
         R_sum            Max of nu
         R                R_sum(t) - R_sum(t-1)
         tks              Dict. key=(time,index), value=self
@@ -158,37 +157,59 @@ class TARGET5(CAUSE):
         3. Spawn a target from an existing target with history
         """
         global Target_Counter
+        # Determine mode, ie source of initialization information
         mode = None
         if mod != None and par_tar == None and copy_index == False:
             mode = 1
+            N = len(mod.IMM.mus)
         if mod == None and par_tar != None and copy_index == False:
             mode = 2
+            N = len(par_tar.__mod.IMM.mus)
         if mod == None and par_tar != None and copy_index == True:
             mode = 3
+            N = len(par_tar.__mod.IMM.mus)
         assert (mode != None),"Inconsistent arguments in TARGET5.__init__()"
+        # Do initialization that is same for all modes
         self.type = 'target'
+        # The following ugly lines initialize several NxN lists of lists
+        self.__mu_fs, self.__Sigma_fs, self.__mu_fO, self.__Sigma_fOI, \
+                   self.__K, self.__mu_us, self.__Sigma_us, \
+                   self.__Sigma_us0 = ([],[],[],[],[],[],[],[])
+        for A in (self.__mu_fs, self.__Sigma_fs, self.__mu_fO,
+                  self.__Sigma_fOI, self.__K, self.__mu_us, self.__Sigma_us,
+                  self.__Sigma_us0):
+            for i in xrange(N):
+                A.append(N*[None])
+        # Begin mode dependent initialization
         if mode == 1: # Make traget_0
-            N = len(mod.IMM.mus)
             self.__mod = mod
             self.__mu_t = [mod.IMM.mus]
             self.__Sigma_t = [mod.IMM.Sigmas]
             self.__invisible_count = 0
             self.__nu = N*[0]
-            self.__best = N*[[]]
+            self.__best = []
             self.R_sum = 0
             self.R = 0
             self.tks = {}
             self.index = 0
             self.m_t = []
             return
-        N = len(par_tar.__mod.IMM.mus)
         t,k = tk
+        mu = []
+        Sigma = []
+        for j in xrange(N):
+            try:
+                mu.append(par_tar.__mu_us[best[-1][j]][j])
+            except:
+                print 'j=',j,'best=',best,'\par_tar.__mu_us',par_tar.__mu_us
+                mu.append(par_tar.__mu_us[best[-1][j]][j])
+            Sigma.append(par_tar.__Sigma_us[best[-1][j]][j])
         if mode == 2: # target_0 + y => new target
             self.__mu_t = [mu]
             self.__Sigma_t = [Sigma]
             self.__invisible_count = 0
-            self.__T0 = t
-            self.__best = N*[[]]
+            self.T0 = t
+            self.__best = []
             self.tks = {}
             self.index = Target_Counter
             Target_Counter += 1
@@ -200,7 +221,7 @@ class TARGET5(CAUSE):
                 self.__invisible_count += 1
             else:
                 self.__invisible_count = 0
-            self.__T0 = par_tar.__T0
+            self.T0 = par_tar.T0
             self.__best = par_tar.__best + [best]
             self.tks = par_tar.tks.copy()
             self.index = par_tar.index
@@ -211,11 +232,7 @@ class TARGET5(CAUSE):
         self.tks[tk] = self
         self.R_sum = max(nu)
         self.R = self.R_sum - par_tar.R_sum
-        mu = []
-        Sigma = []
-        for j in xrange(N):
-            mu.append(par_tar.__mu_us[best[j]][j])
-            Sigma.append(par_tar.__Sigma_us[best[j]][j])
+        self.children = None
         return # End of __init__
     def __New(self,   # TARGET5
             *args,**kwargs):
@@ -229,7 +246,7 @@ class TARGET5(CAUSE):
         tks = self.tks.keys()
         tks.sort()
         print '  tks=',tks
-        print '             T0=%d, index=%d, len(mu_t)=%d t_last='%(self.__T0,
+        print '             T0=%d, index=%d, len(mu_t)=%d t_last='%(self.T0,
                self.index,len(self.__mu_t)),self.__last
         print '   invisible_count=%d, R=%5.3f, R_sum=%5.3f'%(
             self.__invisible_count, self.R,self.R_sum)
@@ -266,20 +283,20 @@ class TARGET5(CAUSE):
         Sigma_us.
         """
         Id = self.__mod.Id
-        for i in xrange(len(self.__mod.IMM)): # Loop over last state
-            A = self.__mod.IMM[i].A
-            Sigma_D = self.__mod.IMM[i].Sigma_D
-            for j in xrange(len(self.__mod.IMM)): # Loop over next state
-                O = self.__mod.IMM[j].O
-                Sigma_O = self.__mod.IMM[j].Sigma_O
+        for i in xrange(len(self.__mod.IMM.A)): # Loop over last state
+            A = self.__mod.IMM.A[i]
+            Sigma_D = self.__mod.IMM.Sigma_D[i]
+            for j in xrange(len(self.__mod.IMM.O)): # Loop over next state
+                O = self.__mod.IMM.O[j]
+                Sigma_O = self.__mod.IMM.Sigma_O[j]
                 #
-                self.__mu_fs[i,j] = A*self.__mu_t[-1][i]
-                self.__Sigma_fs[i,j] = A*self.__Sigma_t[-1][i]*A.T + Sigma_D
-                self.__mu_fO[i,j] = O*self.__mu_fs[i,j]
-                Sig_y = O*self.__Sigma_fs[i,j]*O.T + Sigma_O
-                self.__Sigma_fOI[i,j] = scipy.linalg.inv(Sig_y)
-                self.__K[i,j] = self.__Sigma_fs[i,j]*O.T*self.__Sigma_fOI[i,j]
-                self.__Sigma_us[i,j] = (Id-self.__K[i,j]*O)*self.__Sigma_fs[i,j]
+                self.__mu_fs[i][j] = A*self.__mu_t[-1][i]
+                self.__Sigma_fs[i][j] = A*self.__Sigma_t[-1][i]*A.T + Sigma_D
+                self.__mu_fO[i][j] = O*self.__mu_fs[i][j]
+                Sig_y = O*self.__Sigma_fs[i][j]*O.T + Sigma_O
+                self.__Sigma_fOI[i][j] = scipy.linalg.inv(Sig_y)
+                self.__K[i][j] = self.__Sigma_fs[i][j]*O.T*self.__Sigma_fOI[i][j]
+                self.__Sigma_us[i][j] = (Id-self.__K[i][j]*O)*self.__Sigma_fs[i][j]
         return
     def __utility(self,  # TARGET5
                 y):
@@ -287,32 +304,34 @@ class TARGET5(CAUSE):
         utility increment given y(t).  Include log_prob factors for
         Sig_D and visibility transitions.
         """
-        if self.m_t[-1] is -1:
-            v_old = 1
+        if len(self.m_t) == 0 or self.m_t[-1] >= 0:
+            v_old = 0 # Last time target was visible or no last time
         else:
-            v_old = 0 # Last time target was visible
+            v_old = 1
         if y is None:
             v_new = 1 # This time the target is invisible
         else:
             v_new = 0
         D_nu_v = math.log(self.__mod.PV_V[v_old,v_new]) \
                   -self.__mod.log_det_Sig_D/2
-        for i in xrange(len(self.__mod.IMM)): # Loop over last state
-            for j in xrange(len(self.__mod.IMM)): # Loop over next state
-                log_det_O = self.__mod.IMM[j].log_det_Sig_O
-                D_nu_ij = math.log(self.__mod.IMM[i].P_tran[j])
+        N = len(self.__mod.IMM.A)
+        self.__D_nu = scipy.zeros((N,N))
+        for i in xrange(N): # Loop over last state
+            for j in xrange(N): # Loop over next state
+                log_det_O = self.__mod.IMM.log_det_Sig_O[j]
+                D_nu_ij = math.log(self.__mod.IMM.Pij[i,j])
                 if y is None:
-                    Sigma_new = self.__Sigma_fs[i,j]
-                    mu_new = self.__mu_fs[i,j]
+                    Sigma_new = self.__Sigma_fs[i][j]
+                    mu_new = self.__mu_fs[i][j]
                     D_nu = D_nu_v + D_nu_ij
                 else:
-                    Sigma_new = self.__Sigma_us0[i,j]
-                    Delta_y = y - self.mu_fO[i,j]
-                    mu_new = self.__mu_fs[i,j] + self.__K[i,j]*Delta_y
+                    Sigma_new = self.__Sigma_us0[i][j]
+                    Delta_y = y - self.__mu_fO[i][j]
+                    mu_new = self.__mu_fs[i][j] + self.__K[i][j]*Delta_y
                     D_nu = D_nu_v + D_nu_ij - float(
-                        Delta_y.T*self.__Sigma_fOI[i,j]*Delta_y-log_det_O)/2
-                self.__mu_us[i,j] = mu_new
-                self.__Sigma_us[i,j] = Sigma_new
+                        Delta_y.T*self.__Sigma_fOI[i][j]*Delta_y-log_det_O)/2
+                self.__mu_us[i][j] = mu_new
+                self.__Sigma_us[i][j] = Sigma_new
                 self.__D_nu[i,j] = D_nu
                 if i==0 and j==0:
                     self.__ij_max = (0,0)
@@ -333,11 +352,11 @@ class TARGET5(CAUSE):
         observation y into its state.
         """
         # For each IMM j, find best predecessor i and corresponding nu
-        nu_ij = (self.__D_nu.T+self.__nu).T  # NxN array of possible nu values
-        temp = nu_ij.argmax(0)           # temp[j] is best i for j
+        nu_ij = (self.__D_nu.T+self.__nu).T # NxN array of possible nu values
+        temp = nu_ij.argmax(0)              # temp[j] is best i for j
         best = self.__best + [temp]
-        temp = scipy.choose(temp,nu_ij)  # temp[j] is util of best path to j
-        nu   = self.__nu + [temp]
+        nu = scipy.choose(temp,nu_ij)  # temp[j] is util of best path to j
+        nu   = self.__nu + nu
         return self.__New(par_tar=self,copy_index=True,nu=nu,best=best,tk=(t,k))
     def Launch(self, # TARGET5
            y,        # The observation of the target at the current time
@@ -351,9 +370,9 @@ class TARGET5(CAUSE):
         D_nu = self.__utility(y)
         # The following mimics spawn()
         temp = self.__D_nu.argmax(0)          # temp[j] is best i for j
+        best = [temp]
         temp = scipy.choose(temp,self.__D_nu) # temp[j] is util of best path to j
-        nu   = [nu_aug + temp]
-        best = []
+        nu   = nu_aug + temp
         return self.__New(par_tar=self,copy_index=False,nu=nu,best=best,tk=(t,k))
     def backtrack(self # TARGET5
                   ):
@@ -1982,7 +2001,32 @@ class MV1(MV3):
             obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
             s_j = map(lambda x: self.step_state(x,zero_s),s_j)
         return obs,states
+class IMM:
+    def __init__(self, mod):
+        self.mus = [mod.mu_init, mod.mu_init]
+        self.Sigmas = [mod.Sigma_init, mod.Sigma_init]
+        self.A = [mod.A, mod.A]
+        self.Sigma_D = [mod.Sigma_D, mod.Sigma_D]
+        self.O = [mod.O,mod.O]
+        self.Sigma_O = [mod.Sigma_O, mod.Sigma_O]
+        self.log_det_Sig_O = [mod.log_det_Sig_O,mod.log_det_Sig_O]
+        self.Pij = scipy.array([[.9,.1],[.2,.8]])
+        self.Pi = scipy.array([.67,.33])
+        return # End of IMM.__init__()
+class MV5(MV4):
+    """ Number of targets is fixed    
+    """
+    def __init__(self,**kwargs):
+        MV4.__init__(self,**kwargs) 
+        self.IMM = IMM(self) 
+        self.TARGET = TARGET5
+    def decode_init(self,  # MV5
+                    Ys     # Dummy for subclasses of MV4
+                    ):
+        self.target_0 = self.TARGET(mod=self)
+        return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
     
+        
 class ASS_ABQ(ASSOCIATION4):
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
