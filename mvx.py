@@ -81,14 +81,19 @@ class CAUSE: # Dummy for subclassing and making Fork() copy association
         self.R = 0
         self.tks = {}
 class FA(CAUSE): # False Alarm
-    def __init__(self, y, t, k, Sigma_I, norm ):
+    def __init__(self, y, t, k, Sigma_I, mod ):
         self.type = 'FA'
         self.index = -1
-        self.R = norm - float(y.T*Sigma_I*y/2)
+        QF = -float(y.T*Sigma_I*y/2)
+        CC = math.log(mod.Lambda_FA)
+        norm = -math.log(scipy.linalg.det(mod.Sigma_FA))/2
+        self.R = norm + CC + QF
         self.R_sum = self.R
         self.t = t
         self.k = k
         self.tks = {(t,k):self}
+        #print 'Utility of FA is   %5.2f, QF=%5.2f, CC=%5.2f, norm=%5.2f'%(self.R,
+        #              QF, CC, norm)
     def dump(self, #FA
              ):
         print 'Dumping %s: R=%6.2f, (t,k)=(%d,%d)'%(self.type,self.R,
@@ -194,7 +199,7 @@ class TARGET5(CAUSE):
             for i in xrange(N):
                 A.append(N*[None])
         # Begin mode dependent initialization
-        if mode == 1: # Make traget_0
+        if mode == 1: # Make target_0
             self._mod = mod
             self._mu_t = [mod.IMM.mus]
             self._Sigma_t = [mod.IMM.Sigmas]
@@ -439,7 +444,6 @@ class TARGET4(CAUSE):
                  mod=None,         # Parent model
                  par_tar=None,     # Parent target
                  copy_index=False, # Copy index from par_tar
-                 nu=None,          # initial nu
                  tk=None           # (time, hit index)
                  ):
         """ Can create a new TARGET4 instance in each of the following modes:
@@ -451,42 +455,38 @@ class TARGET4(CAUSE):
         # Determine mode, ie source of initialization information
         mode = None
         if mod != None and par_tar == None and copy_index == False:
-            mode = 1
+            mode = 1 # Make target_0
         if mod == None and par_tar != None and copy_index == False:
-            mode = 2
+            mode = 2 # Make new target from target_0 and y
         if mod == None and par_tar != None and copy_index == True:
-            mode = 3
+            mode = 3 # Make child from existing target
         assert (mode != None),"Inconsistent arguments in TARGET4.__init__()"
         # Do initialization that is same for all modes
         self.type = 'target'
         self._last = None
+        self._invisible_count = 0
+        self.tks = {}
         # Begin mode dependent initialization
-        if mode == 1: # Make traget_0
+        if mode == 1: # Make target_0
             self._mod = mod
             self._mu_t = [mod.mu_init]
             self._Sigma_t = [mod.Sigma_init]
-            self._invisible_count = 0
-            self._nu = 0
-            self.R_sum = 0
-            self.R = 0
-            self.tks = {}
             self.index = 0
             self.m_t = []
+            self.R_sum = 0
+            self.R = 0
             return
+        self._mod = par_tar._mod
         t,k = tk
         mu = par_tar._mu_us        # Updated state mu from _utility()
         Sigma = par_tar._Sigma_us  # Updated state Sigma from _utility()
         if mode == 2: # target_0 + y => new target
             self._mu_t = [mu]
             self._Sigma_t = [Sigma]
-            self._invisible_count = 0
             self.T0 = t
-            self.tks = {}
             self.index = Target_Counter
             Target_Counter += 1
             self.m_t = [k]
-            self.R_sum = par_tar._D_nu
-            self.R = self.R_sum
         if mode == 3: # old target + y => new target
             self._mu_t = par_tar._mu_t + [mu]
             self._Sigma_t = par_tar._Sigma_t+ [Sigma]
@@ -499,10 +499,9 @@ class TARGET4(CAUSE):
             self.tks = par_tar.tks.copy()
             self.index = par_tar.index
             self.m_t = par_tar.m_t + [k]
-            self.R_sum = par_tar.R_sum + par_tar._D_nu
-            self.R = par_tar._D_nu
         # Start common code for mode 2 and 3
-        self._mod = par_tar._mod
+        self.R_sum = par_tar.R_sum + par_tar._D_nu
+        self.R = par_tar._D_nu
         if k >= 0:                # Don't enter invisibles into tks
             self.tks[tk] = self
         self.children = None
@@ -532,6 +531,7 @@ class TARGET4(CAUSE):
 
         Return False if target killed
         """
+        assert (self.type is 'target'),'self.type=%s'%self.type
         if not self.children is None:
             return True  # make_children already called for this target
         if self._invisible_count >= self._mod.Invisible_Lifetime:
@@ -545,13 +545,11 @@ class TARGET4(CAUSE):
             if threshold > D_nu:
                 continue                 # Candidate utility too small
             # Return a new instance of self's class (could be a subclass)
-            self.children[k] = self.__class__(par_tar=self,copy_index=True,
-                                          nu=self.R+D_nu,tk=(t,k))
+            self.children[k] = self.__class__(par_tar=self,copy_index=True,tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         # Child for invisible y
         D_nu = self._utility(None)
-        self.children[-1] = self.__class__(par_tar=self,copy_index=True,
-                                       nu=self.R+D_nu,tk=(t,-1))
+        self.children[-1] = self.__class__(par_tar=self,copy_index=True,tk=(t,-1))
         return True
     def _forecast(self # TARGET4
                  ):
@@ -568,6 +566,7 @@ class TARGET4(CAUSE):
         self._Sigma_fOI = scipy.linalg.inv(Sig_y)
         self._K = self._Sigma_fs*O.T*self._Sigma_fOI
         self._Sigma_us0 = (self._mod.Id-self._K*O)*self._Sigma_fs
+        # _Sigma_us0 is updated state covariance if y is visible
         return
     def _utility(self,  # TARGET4
                 y):
@@ -584,18 +583,17 @@ class TARGET4(CAUSE):
             v_new = 1 # This time the target is invisible
         else:
             v_new = 0
-        D_nu_v = math.log(self._mod.PV_V[v_old,v_new]) \
-                  -self._mod.log_det_Sig_D/2
+        D_nu_v = math.log(self._mod.PV_V[v_old,v_new])
         if y is None:
             Sigma_new = self._Sigma_fs
             mu_new = self._mu_fs
             D_nu = D_nu_v
         else:
+            norm = math.log(scipy.linalg.det(self._Sigma_fOI))/2
             Delta_y = y - self._mu_fO
             Sigma_new = self._Sigma_us0
             mu_new = self._mu_fs + self._K*Delta_y
-            D_nu = D_nu_v - float(Delta_y.T*self._Sigma_fOI*Delta_y
-                                  -self._mod.log_det_Sig_O)/2
+            D_nu = D_nu_v + norm - float(Delta_y.T*self._Sigma_fOI*Delta_y)/2
         self._mu_us = mu_new
         self._Sigma_us = Sigma_new
         self._D_nu = D_nu
@@ -603,15 +601,22 @@ class TARGET4(CAUSE):
     def Launch(self, # TARGET4
            y,        # The observation of the target at the current time
            k,        # Index of the observation
-           t,        # Present time
-           R_aug     # Utility to add
+           t         # Present time
            ):
         """ Use a Kalman filter to create a new target with a unique
         index, fresh m_t, mu_t, Sigma_t and R for the observation y."""
         self._forecast()        # Calculate forecast parmeters in self
-        D_nu = self._utility(y)
+        Delta_y = y - self._mu_fO
+        QF = -float(Delta_y.T*self._Sigma_fOI*Delta_y)/2
+        CC =  math.log(self._mod.Lambda_new) # Creation cost
+        norm = math.log(scipy.linalg.det(self._Sigma_fOI))/2
+        self._D_nu = norm + CC + QF
+        self._mu_us = self._mu_fs + self._K*Delta_y
+        self._Sigma_us = self._Sigma_us0
+        #print 'Utility of newt is %5.2f, QF=%5.2f, CC=%5.2f, norm=%5.2f'%(self._D_nu,
+        #              QF, CC, norm)
         # Return a new instance of self's class (could be a subclass)
-        return self.__class__(par_tar=self,copy_index=False,nu=self.R+D_nu,tk=(t,k))
+        return self.__class__(par_tar=self,copy_index=False,tk=(t,k))
     def backtrack(self # TARGET4
                   ):
         T = len(self._mu_t)
@@ -677,19 +682,19 @@ class TARGET1(TARGET3):
             D_nu = self._utility(y_t[k])
             if threshold > D_nu:
                 continue                 # Candidate utility too small
-            self.children[k] = self.__class__(par_tar=self,copy_index=True,
-                                          nu=self.R+D_nu,tk=(t,k))
+            print 't=%d, k=%d, making child for index=%d'%(t,k,self.index)
+            self.children[k] = self.__class__(par_tar=self,copy_index=True,tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         return True
     def _utility(self,   # TARGET1
                 y):
         """ Like TARGET4.utility but no visibility probabilities.
         """
+        norm = math.log(scipy.linalg.det(self._Sigma_fOI))/2
         Delta_y = y - self._mu_fO
         Sigma_new = self._Sigma_us0
         mu_new = self._mu_fs + self._K*Delta_y
-        D_nu = -float(Delta_y.T*self._Sigma_fOI*Delta_y
-                           +self._mod.log_det_Sig_O)/2
+        D_nu = norm + float(Delta_y.T*self._Sigma_fOI*Delta_y)/2
         self._mu_us = mu_new
         self._Sigma_us = Sigma_new
         self._D_nu = D_nu
@@ -954,7 +959,7 @@ class ASSOCIATION4:
                 causes.append(target.children[k])
     def check_FAs(self, # ASSOCIATION4
                   k,causes,y):
-        CC = FA(y,self.t,k,self.mod.Sigma_FA_I, self.mod.log_FA_norm)
+        CC = FA(y,self.t,k,self.mod.Sigma_FA_I, self.mod)
         if CC.R > self.mod.log_min_pd:
             causes.append(CC) # False alarm
         else:
@@ -994,8 +999,8 @@ class ASSOCIATION4:
                       t        # Save time for dead targets
                       ):
         for target in self.tar_dict.values():
-            if target.make_children(y_t,t):
-                continue
+            if target.type is 'target' and target.make_children(y_t,t):
+                continue # Target could have been killed in other association
             else:  # target died after too many invisible steps
                 assert not self.dead_targets.has_key(target.index), \
                        'Dying target appears twice?'
@@ -1660,9 +1665,8 @@ class MV4:
                    k_list
                    ):
         self.newts = {}
-        R_aug = self.log_new_norm + self.log_det_Sig_D/2
         for k in k_list:
-            self.newts[k] = self.target_0.Launch(Yts[k],k,t,R_aug)
+            self.newts[k] = self.target_0.Launch(Yts[k],k,t)
             # FixMe: Sig_D correction because KF has forecast step?
     def decode_prune(self,    #MV4
                      t,
@@ -1767,7 +1771,6 @@ class MV4:
                   'seconds, H_time %5.2f, H_count %3d')%(t,
                    Child_Target_Counter-TC_last, len(flock.old_clusters),
                    time.time()-Time_last,hungary_time,hungary_count),
-            print 'TC=',Target_Counter
             if Child_Target_Counter-TC_last > 50:
                 for cluster in flock.old_clusters:
                     print '   Cluster has %d associations with %d targets'%(
@@ -1999,7 +2002,8 @@ class MV3(MV4):
                    k_list
                    ):
         return
-    def decode_init(self, Ys ):
+    def decode_init(self, # MV3
+                    Ys ):
         """Since MV4 allows generation of new targets at any time,
         MV4.decode_init() can return zero initial targets and let
         decode_forward() create targets for t=0.  This decode_init()
@@ -2009,7 +2013,7 @@ class MV3(MV4):
         T = len(Ys)
         partial = self.ASSOCIATION(0.0,self,t=0)
         for k in xrange(self.N_tar):
-            target_k = self.target_0.Launch(Ys[0][k],k,0,0)
+            target_k = self.target_0.Launch(Ys[0][k],k,0)
             partial.Spoon(target_k,k)
         return ([partial],1)
     def simulate(self, #MV3
