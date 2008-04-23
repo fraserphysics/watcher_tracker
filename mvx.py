@@ -52,7 +52,7 @@ FixMe: To do:
 """
 import numpy, scipy, scipy.linalg, random, math, util, time
 close_calls = None     # Will be list of flags of likely errors
-Target_Counter = 0
+Target_Counter = 1
 Child_Target_Counter = 0
 hungary_count = 0
 hungary_time = 0
@@ -141,6 +141,7 @@ class TARGET5(CAUSE):
         Launch        Launch a new target for observation y
         make_children Make plausible children from list of ys
         dump          For debugging
+        target_time
         
     """
     def __init__(self,             # TARGET5
@@ -156,7 +157,7 @@ class TARGET5(CAUSE):
         2. New target by applying target_0 to a hit
         3. Spawn a target from an existing target with history
         """
-        global Target_Counter
+        global Target_Counter, Child_Target_Counter
         # Determine mode, ie source of initialization information
         mode = None
         if mod != None and par_tar == None and copy_index == False:
@@ -171,6 +172,7 @@ class TARGET5(CAUSE):
         assert (mode != None),"Inconsistent arguments in TARGET5.__init__()"
         # Do initialization that is same for all modes
         self.type = 'target'
+        self.__last = None
         # The following ugly lines initialize several NxN lists of lists
         self.__mu_fs, self.__Sigma_fs, self.__mu_fO, self.__Sigma_fOI, \
                    self.__K, self.__mu_us, self.__Sigma_us, \
@@ -218,9 +220,10 @@ class TARGET5(CAUSE):
             self.__mu_t = par_tar.__mu_t + [mu]
             self.__Sigma_t = par_tar.__Sigma_t+ [Sigma]
             if k < 0:
-                self.__invisible_count += 1
+                self.__invisible_count = par_tar.__invisible_count + 1
             else:
                 self.__invisible_count = 0
+            Child_Target_Counter += 1   # Inc child counter for debugging
             self.T0 = par_tar.T0
             self.__best = par_tar.__best + [best]
             self.tks = par_tar.tks.copy()
@@ -229,7 +232,8 @@ class TARGET5(CAUSE):
         # Start common code for mode 2 and 3
         self.__mod = par_tar.__mod
         self.__nu = nu
-        self.tks[tk] = self
+        if k >= 0:                # Don't enter invisibles into tks
+            self.tks[tk] = self
         self.R_sum = max(nu)
         self.R = self.R_sum - par_tar.R_sum
         self.children = None
@@ -242,7 +246,8 @@ class TARGET5(CAUSE):
         return TARGET5(*args,**kwargs)
     def dump(self #TARGET5
              ):
-        print '\n Dump %s: m_t='%self.type,self.m_t
+        print 'Dumping TARGET5 %s #'%self.type,self.index
+        print '\nm_t=',self.m_t
         tks = self.tks.keys()
         tks.sort()
         print '  tks=',tks
@@ -291,12 +296,16 @@ class TARGET5(CAUSE):
                 Sigma_O = self.__mod.IMM.Sigma_O[j]
                 #
                 self.__mu_fs[i][j] = A*self.__mu_t[-1][i]
-                self.__Sigma_fs[i][j] = A*self.__Sigma_t[-1][i]*A.T + Sigma_D
+                try:
+                    self.__Sigma_fs[i][j] = A*self.__Sigma_t[-1][i]*A.T + Sigma_D
+                except:
+                    self.dump()
+                    self.__Sigma_fs[i][j] = A*self.__Sigma_t[-1][i]*A.T + Sigma_D
                 self.__mu_fO[i][j] = O*self.__mu_fs[i][j]
                 Sig_y = O*self.__Sigma_fs[i][j]*O.T + Sigma_O
                 self.__Sigma_fOI[i][j] = scipy.linalg.inv(Sig_y)
                 self.__K[i][j] = self.__Sigma_fs[i][j]*O.T*self.__Sigma_fOI[i][j]
-                self.__Sigma_us[i][j] = (Id-self.__K[i][j]*O)*self.__Sigma_fs[i][j]
+                self.__Sigma_us0[i][j] = (Id-self.__K[i][j]*O)*self.__Sigma_fs[i][j]
         return
     def __utility(self,  # TARGET5
                 y):
@@ -395,55 +404,113 @@ class TARGET5(CAUSE):
             del(List[-self.__mod.Invisible_Lifetime:])
         self.__last = t-self.Invisible_Lifetime
         return
+    def target_time(self, # TARGET5
+                    T):
+        """ To give MV*.decode_back the starting and ending times for
+        self.
+        """
+        print 'target_time: %s, index=%d'%(self.type,self.index),
+        if self.type is 'target':
+            print 'T=%d, len(m_t)=%d'%(T,len(self.m_t))
+            return [self,T-len(self.m_t),T]
+        if self.type is 'dead_target':
+            print 'last=%d, len(m_t)=%d'%(self.__last,len(self.m_t))
+            return [self,self.__last-len(self.m_t),self.__last]
+        else:
+            raise RuntimeError,'unrecognized target type %s'%self.type
 # End of class TARGET5
 class TARGET4(CAUSE):
     """A TARGET is a possible moving target, eg, a car.  Its values
     are determined by initialization values and a sequence of
     observations that are "Kalman filtered".
+
+    2008-4-21 Rewrite to match broken TARGET5.  Goal: to understand
+    Target_Counter values printed during run and to understand
+    __init__ and New calls.
     """
-    def __init__(self,      # TARGET4
-                 mod,       # Parent model
-                 m_t,       # List of hit indices used
-                 mu_t,      # History of means
-                 Sigma_t,   # History of variances
-                 R,         # Most recent residual
-                 y,         # Useful in subclasses
-                 tks,       # Dict of (t,k) pairs explained
-                 index=None,# Unique ID 
-                 R_sum=None # Accumulation of past R values
+    def __init__(self,             # TARGET4
+                 mod=None,         # Parent model
+                 par_tar=None,     # Parent target
+                 copy_index=False, # Copy index from par_tar
+                 nu=None,          # initial nu
+                 tk=None           # (time, hit index)
                  ):
+        """ Can create a new TARGET4 instance in each of the following modes:
+        1. Make target_0 from info in parent model called by MV*.decode_init
+        2. New target by applying target_0 to a hit
+        3. Spawn a target from an existing target with history
+        """
         global Target_Counter, Child_Target_Counter
-        assert type(tks) == type({})
-        self.type='target'
-        if isinstance(index,type(0)):   # Check for int
-            self.index = index          # Keep parent index
-            Child_Target_Counter += 1   # Inc child counter for debugging
-        else:
-            self.index = Target_Counter # This is a new target
+        # Determine mode, ie source of initialization information
+        mode = None
+        if mod != None and par_tar == None and copy_index == False:
+            mode = 1
+        if mod == None and par_tar != None and copy_index == False:
+            mode = 2
+            raise RuntimeError
+        if mod == None and par_tar != None and copy_index == True:
+            mode = 3
+            raise RuntimeError
+        assert (mode != None),"Inconsistent arguments in TARGET4.__init__()"
+        # Do initialization that is same for all modes
+        self.type = 'target'
+        self.__last = None
+        # Begin mode dependent initialization
+        if mode == 1: # Make traget_0
+            self.__mod = mod
+            self.__mu_t = [mod.mu_init]
+            self.__Sigma_t = [mod.Sigma_init]
+            self.__invisible_count = 0
+            self.__nu = 0
+            self.R_sum = 0
+            self.R = 0
+            self.tks = {}
+            self.index = 0
+            self.m_t = []
+            print 'making a target with mode 1'
+            return
+        t,k = tk
+        mu = par_tar.__mu_us        # Updated state mu from __utility()
+        Sigma = par_tar.__Sigma_us  # Updated state Sigma from __utility()
+        if mode == 2: # target_0 + y => new target
+            self.__mu_t = [mu]
+            self.__Sigma_t = [Sigma]
+            self.__invisible_count = 0
+            self.T0 = t
+            self.tks = {}
+            self.index = Target_Counter
             Target_Counter += 1
-        self.modT = mod
-        self.m_t = m_t
-        self.mu_t = mu_t
-        self.Sigma_t = Sigma_t
-        self.R = R
-        self.tks = tks
-        self.children = None  # Will be dict of targets at t+1 updated with
-                              # hits plausibly caused by this target.
-                              # Keys are hit indices k
-        self.invisible_count=0# Number of time steps target has been invisible
-        if R_sum is None:
-            self.R_sum = R
-        else:
-            self.R_sum = R_sum
-        self.T0=None
-        self.last=None
-    def New(self,   # TARGET4
+            self.m_t = [k]
+            print 'making a target with mode 2, index=%d'%self.index
+            self.R_sum = par_tar.__D_nu
+            self.R = self.R_sum
+        if mode == 3: # old target + y => new target
+            self.__mu_t = par_tar.__mu_t + [mu]
+            self.__Sigma_t = par_tar.__Sigma_t+ [Sigma]
+            if k < 0:
+                self.__invisible_count = par_tar.__invisible_count + 1
+            else:
+                self.__invisible_count = 0
+            Child_Target_Counter += 1   # Inc child counter for debugging
+            self.T0 = par_tar.T0
+            self.tks = par_tar.tks.copy()
+            self.index = par_tar.index
+            self.m_t = par_tar.m_t + [k]
+            print 'making a target with mode 3, index=%d, len(self.m_t)=%d'%(self.index, len(self.m_t))
+            self.R_sum = par_tar.R_sum + par_tar.__D_nu
+            self.R = par_tar.__D_nu
+        # Start common code for mode 2 and 3
+        self.__mod = par_tar.__mod
+        if k >= 0:                # Don't enter invisibles into tks
+            self.tks[tk] = self
+        self.children = None
+        return # End of __init__
+    def __New(self,   # TARGET4
             *args,**kwargs):
-        rv = TARGET4(*args,**kwargs)
-        if rv.m_t[-1] < 0:
-            rv.invisible_count = self.invisible_count + 1
-        rv.T0 = self.T0
-        return rv
+        """ I think that I need this to let subclass instances know
+        how to make another one of their own.
+        """
+        return TARGET4(*args,**kwargs)
     def dump(self #TARGET4
              ):
         print '\n Dump %s: m_t='%self.type,self.m_t
@@ -451,9 +518,9 @@ class TARGET4(CAUSE):
         tks.sort()
         print '  tks=',tks
         print '             T0=%d, index=%d, len(mu_t)=%d t_last='%(self.T0,
-               self.index,len(self.mu_t)),self.last
+               self.index,len(self.__mu_t)),self.__last
         print '   invisible_count=%d, R=%5.3f, R_sum=%5.3f'%(
-            self.invisible_count, self.R,self.R_sum)
+            self.__invisible_count, self.R,self.R_sum)
         #if self.children is not None: #
         if False:
             print'  len(self.children)=%d'%len(self.children)
@@ -466,81 +533,76 @@ class TARGET4(CAUSE):
         """ For each of the hits that could plausibly be an
         observation of self, make a child target.  Collect the
         children in a dict and attach it to self.
+
+        Return False if target killed
         """
-        if (not self.children is None) or (self.type is 'dead_target'):
-            return True # make_children already called for this target
-        if self.modT.Invisible_Lifetime > 0 and not \
-               self.invisible_count < self.modT.Invisible_Lifetime:
-            self.kill(t)
-            return False
-        self.forecast()
+        if not self.children is None:
+            return True  # make_children already called for this target
+        if self.__invisible_count >= self.__mod.Invisible_Lifetime:
+            self.__kill(t)
+            return False # Have calling routine move this to dead_targets
+        self.__forecast()
         self.children = {}
-        mlpd = self.modT.log_min_pd
+        threshold = self.__mod.log_min_pd
         for k in xrange(len(y_t)):
-            if mlpd > self.utility(y_t[k])[0]:
+            D_nu = self.__utility(y_t[k])
+            if threshold > D_nu:
                 continue                 # Candidate utility too small
-            self.children[k] = self.update(y_t[k],k,t)
-            # update() calls utility second time.  Possible time saving
+            self.children[k] = self.__New(par_tar=self,copy_index=True,
+                                          nu=self.R+D_nu,tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         # Child for invisible y
-        self.children[-1] = self.update(None,-1,t)
+        D_nu = self.__utility(None)
+        self.children[-1] = self.__New(par_tar=self,copy_index=True,
+                                       nu=self.R+D_nu,tk=(t,-1))
         return True
-    def forecast(self # TARGET4
+    def __forecast(self # TARGET4
                  ):
         """ Calculate forecast mean and covariance for both state and
-        observation.  Also calculate K and Sigma_next.  Save all six
+        observation.  Also calculate K and Sigma_us0.  Save all six
         for use by Update.
         """
-        A = self.modT.A
-        O = self.modT.O
-        self.mu_a = A*self.mu_t[-1]
-        self.Sigma_a = A*self.Sigma_t[-1]*A.T + self.modT.Sigma_D
-        self.y_forecast = O*self.mu_a
-        Sig_y = O*self.Sigma_a*O.T + self.modT.Sigma_O
-        self.Sigma_y_forecast_I = scipy.linalg.inv(Sig_y)
-        self.K = self.Sigma_a*self.modT.O.T*self.Sigma_y_forecast_I
-        self.Sigma_next = (self.modT.Id-self.K*self.modT.O)*self.Sigma_a
-    def update(self, # TARGET4
-           y,        # The observation of the target at the current time
-           k,        # Index of the observation
-           t         # Present time
-           ):
-        """ Create a new target with updated m_t, mu_t, Sigma_t, R and
-        R_sum for the observation, index pair (y,m)."""
-        m_L = self.m_t+[k]
-        Delta_R,mu_new,Sigma_new = self.utility(y)
-        Sigma_L = self.Sigma_t + [Sigma_new]
-        mu_L = self.mu_t + [mu_new]
-        tks = self.tks.copy()
-        if k >= 0:
-            tks[(t,k)] = True
-        return self.New(self.modT,m_L,mu_L,Sigma_L,Delta_R,y,tks,
-                             index=self.index,R_sum=self.R_sum+Delta_R)
-    def utility(self,  # TARGET4
+        A = self.__mod.A
+        O = self.__mod.O
+        self.__mu_fs = A*self.__mu_t[-1] # _fs is forecast state
+        self.__Sigma_fs = A*self.__Sigma_t[-1]*A.T + self.__mod.Sigma_D
+        self.__mu_fO = O*self.__mu_fs # _fO is forecast observation
+        Sig_y = O*self.__Sigma_fs*O.T + self.__mod.Sigma_O
+        self.__Sigma_fOI = scipy.linalg.inv(Sig_y)
+        self.__K = self.__Sigma_fs*O.T*self.__Sigma_fOI
+        self.__Sigma_us0 = (self.__mod.Id-self.__K*O)*self.__Sigma_fs
+        return
+    def __utility(self,  # TARGET4
                 y):
-        """Return (log probability density, updated mean, updated
-        covariance).  Include log_prob factors for Sig_D and
-        visibility transitions.
+        """Calcualte log probability density, updated mean, updated
+        covariance.  Include log_prob factors for Sig_D and visibility
+        transitions.  Save updated values for making child target if
+        desired.  Return D_nu.
         """
-        if self.m_t[-1] is -1:
-            v_old = 1
+        if len(self.m_t) == 0 or self.m_t[-1] >= 0:
+            v_old = 0 # Last time target was visible or no last time
         else:
-            v_old = 0 # Last time target was visible
+            v_old = 1
         if y is None:
             v_new = 1 # This time the target is invisible
         else:
             v_new = 0
-        Delta_R = math.log(self.modT.PV_V[v_old,v_new])-self.modT.log_det_Sig_D/2
+        D_nu_v = math.log(self.__mod.PV_V[v_old,v_new]) \
+                  -self.__mod.log_det_Sig_D/2
         if y is None:
-            Sigma_new = self.Sigma_a
-            mu_new = self.mu_a
-            return (Delta_R,mu_new,Sigma_new)
-        Delta_y = y - self.y_forecast    # Error of forecast observation
-        Sigma_new = self.Sigma_next
-        mu_new = self.mu_a + self.K*Delta_y
-        Delta_R += -float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
-                           -self.modT.log_det_Sig_O)/2
-        return (Delta_R,mu_new,Sigma_new)
+            Sigma_new = self.__Sigma_fs
+            mu_new = self.__mu_fs
+            D_nu = D_nu_v
+        else:
+            Delta_y = y - self.__mu_fO
+            Sigma_new = self.__Sigma_us0
+            mu_new = self.__mu_fs + self.__K*Delta_y
+            D_nu = D_nu_v - float(Delta_y.T*self.__Sigma_fOI*Delta_y
+                                  -self.__mod.log_det_Sig_O)/2
+        self.__mu_us = mu_new
+        self.__Sigma_us = Sigma_new
+        self.__D_nu = D_nu
+        return D_nu
     def Launch(self, # TARGET4
            y,        # The observation of the target at the current time
            k,        # Index of the observation
@@ -549,45 +611,44 @@ class TARGET4(CAUSE):
            ):
         """ Use a Kalman filter to create a new target with a unique
         index, fresh m_t, mu_t, Sigma_t and R for the observation y."""
-        self.forecast()        # Calculate forecast parmeters in self
-        r = self.update(y,k,t) # Create new target, updated parameters for y
-        r.R += R_aug
-        tks = {}
-        if k >= 0:
-            tks[(t,k)] = True
-        r = self.New(self.modT,[r.m_t[-1]],[r.mu_t[-1]], # New target with
-                     [r.Sigma_t[-1]],r.R,y,tks) # new index and no history
-        r.T0 = t
-        return r
+        self.__forecast()        # Calculate forecast parmeters in self
+        D_nu = self.__utility(y)
+        return self.__New(par_tar=self,copy_index=False,nu=self.R+D_nu,tk=(t,k))
     def backtrack(self # TARGET4
                   ):
-        T = len(self.mu_t)
-        A = self.modT.A
-        X = A.T * scipy.linalg.inv(self.modT.Sigma_D) # An intermediate
+        T = len(self.__mu_t)
+        A = self.__mod.A
+        X = A.T * scipy.linalg.inv(self.__mod.Sigma_D) # An intermediate
         s_t = range(T)
-        s_t[T-1] = self.mu_t[T-1]
+        s_t[T-1] = self.__mu_t[T-1]
         for t in xrange(T-2,-1,-1):
-            Sig_t_I = scipy.linalg.inv(self.Sigma_t[t])
-            mu_t = self.mu_t[t]
+            Sig_t_I = scipy.linalg.inv(self.__Sigma_t[t])
+            mu_t = self.__mu_t[t]
             s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
         return s_t
-    def kill(self, # TARGET4
+    def __kill(self, # TARGET4
              t
              ):
+        print 'TARGET4.__kill index=%d'%self.index
+        raise RuntimeError
         self.type = 'dead_target'
         self.children = {}
-        for List in self.m_t,self.mu_t,self.Sigma_t:
-            del(List[-self.modT.Invisible_Lifetime:])
-        self.last = t-self.modT.Invisible_Lifetime
+        for List in self.m_t,self.__mu_t,self.__Sigma_t:
+            del(List[-self.__mod.Invisible_Lifetime:])
+        self.__last = t-self.__mod.Invisible_Lifetime
         return
     def target_time(self,T):
         """ To give MV*.decode_back the starting and ending times for
         self.
         """
+        print 'target_time: %s, index=%d, len(m_t)=%d'%(self.type,self.index,
+                                                        len(self.m_t)),
         if self.type is 'target':
+            print 'T=%d'%(T,)
             return [self,T-len(self.m_t),T]
         if self.type is 'dead_target':
-            return [self,self.last-len(self.m_t),self.last]
+            print 'last=',self.__last
+            return [self,self.__last-len(self.m_t),self.__last]
         else:
             raise RuntimeError,'unrecognized target type %s'%self.type
 # End of class TARGET4
@@ -1603,13 +1664,7 @@ class MV4:
     
     def decode_init(self, # MV4
                     Ys): # Ys is used by subclass
-        self.target_0 = self.TARGET(self,    # Parent model
-                           [0],              # m_t: history of indices
-                           [self.mu_init],   # History of means
-                           [self.Sigma_init],# History of coavariances
-                           0.0,              # Most recent residual
-                           None,             # y value
-                           {}                # Dict of (t,k) pairs explained
+        self.target_0 = self.TARGET(mod=self    # Parent model
                                     )
         return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
     
@@ -1670,8 +1725,9 @@ class MV4:
             print ('t %2d: %3d targets, %2d clusters, %5.2f '+\
                   'seconds, H_time %5.2f, H_count %3d')%(t,
                    Child_Target_Counter-TC_last, len(flock.old_clusters),
-                   time.time()-Time_last,hungary_time,hungary_count)
-            if Child_Target_Counter-TC_last > 0:
+                   time.time()-Time_last,hungary_time,hungary_count),
+            print 'TC=',Target_Counter
+            if Child_Target_Counter-TC_last > 50:
                 for cluster in flock.old_clusters:
                     print '   Cluster has %d associations with %d targets'%(
                           len(cluster.As),len(cluster.As[0].tar_dict))
@@ -1703,18 +1759,20 @@ class MV4:
         targets_times = [] # Elements have form [target,t_i,t_f])
         for target in A_best.dead_targets.values() + A_best.tar_dict.values():
             targets_times.append(target.target_time(T))
-        y_A = [] # y_A[t] is a dict.  y_A[t][k] gives the index of
-                 # y[t] associated with target k.  So y[t][A[t][k]] is
-                 # associated with target k.
+        print 'in decode_back, len(targets_times) =  %d'%len(targets_times)
+        y_A = [] # y_A[t] is a dict.  y_A[t][j] gives the index of
+                 # y[t] associated with target j.  So y[t][y_A[t][j]] is
+                 # associated with target j.
         for t in xrange(T):
             y_A.append({}) # Initialize association dicts
-        d = [] #If not None, d[k][t] is the x vector for target_k at time t
-        for k in xrange(len(targets_times)):
+        d = [] #If not None, d[j][t] is the x vector for target_j at time t
+        for j in xrange(len(targets_times)):
             d.append(T*[None])# Initialize list of decoded states with Nones
-            target,start,stop = targets_times[k]
-            d[k][start:stop] = target.backtrack()# Set decoded values
+            target,start,stop = targets_times[j]
+            print 'target start, stop = ',start,stop
+            d[j][start:stop] = target.backtrack()# Set decoded values
             for t in xrange(start,stop):
-                y_A[t][k] = target.m_t[t-start] # y[t][y_A[t][k]] is
+                y_A[t][j] = target.m_t[t-start] # y[t][y_A[t][j]] is
                                                 # associated with target k.
         return (d,y_A)
     def decode(self, # MV4
@@ -1725,6 +1783,7 @@ class MV4:
         A,t_0 = self.decode_init(Ys)
         A_best,T,close_calls = self.decode_forward(Ys,A,t_0,analysis=analysis)
         d,y_A = self.decode_back(A_best,T)
+        print 'decode returning y_A=',y_A
         return (d,y_A,A_best.nu,close_calls)
     ############## Begin simulation methods ######################
     def step_state(self, # MV4
@@ -1855,9 +1914,12 @@ class MV4:
         return obs,stk
                 
 class TARGET1(TARGET4):
-    def New(self, *args,**kwargs):
+    def __New(self, *args,**kwargs):
+        print "making a TARGET1"
         rv = TARGET1(*args,**kwargs)
-        rv.T0 = self.T0
+        rv.T0 = 0 # all targets start at 0
+        self.__invisible_count = 0
+        print "made a TARGET1"
         return rv
     def make_children(self, # TARGET1
            y_t,             # list of hits at time t
@@ -1867,26 +1929,30 @@ class TARGET1(TARGET4):
         """
         if not self.children is None and len(self.children) > 0:
             return True # make_children already called for this target
-        self.forecast()
+        self.__forecast()
         self.children = {}
-        mlpd = self.modT.log_min_pd
+        threshold = self.modT.log_min_pd
         for k in xrange(len(y_t)):
-            if mlpd > self.utility(y_t[k])[0]:
+            D_nu = self.__utility(y_t[k])
+            if threshold > D_nu:
                 continue                 # Candidate utility too small
-            self.children[k] = self.update(y_t[k],k,t)
-            # update() calls utility second time.  Possible time saving
+            self.children[k] = self.__New(par_tar=self,copy_index=True,
+                                          nu=self.R+D_nu,tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         return True
-    def utility(self,   # TARGET1
-                y,R0=0.0):
+    def __utility(self,   # TARGET1
+                y):
         """ Like TARGET4.utility but no visibility probabilities.
         """
         Delta_y = y - self.y_forecast
         Sigma_new = self.Sigma_next
         mu_new = self.mu_a + self.K*Delta_y
-        Delta_R = R0-float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
+        D_nu = R0-float(Delta_y.T*self.Sigma_y_forecast_I*Delta_y
                            +self.modT.log_det_Sig_O)/2
-        return (Delta_R,mu_new,Sigma_new)
+        self.__mu_us = mu_new
+        self.__Sigma_us = Sigma_new
+        self.__D_nu = D_nu
+        return D_nu
 class ASSOCIATION3(ASSOCIATION4):
     """ Number of targets is fixed.  Allow false alarms and invisibles
     """
@@ -1925,6 +1991,12 @@ class MV3(MV4):
         MV4.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION3   
         self.TARGET = TARGET4 
+    def make_newts(self, # MV3.  Make no new targets
+                   Yts,  # List of ys for current time
+                   t,    # Current time
+                   k_list
+                   ):
+        return
     def decode_init(self, Ys ):
         """Since MV4 allows generation of new targets at any time,
         MV4.decode_init() can return zero initial targets and let
@@ -1932,8 +2004,7 @@ class MV3(MV4):
         must return N_tar initial targets.  It makes a target for each
         of the hits at t=0 and tells decode_forward() to start at t=1.
         """
-        self.target_0 = self.TARGET(self,[0],[self.mu_init], # mod,m_t,mu_t
-                             [self.Sigma_init],0.0,None,{} # Sigma_t,R,y,tks
+        self.target_0 = self.TARGET(mod=self # MV3
                                     )
         T = len(Ys)
         partial = self.ASSOCIATION(0.0,self,t=0)
@@ -1988,6 +2059,7 @@ class MV1(MV3):
         self.ASSOCIATION = ASSOCIATION1
         self.TARGET = TARGET1
         self.Invisible_Lifetime = -1
+        print 'Made an MV1'
     def simulate(self, # MV1
                  T):
         """ Return a sequence of T observations and a sequence of T
