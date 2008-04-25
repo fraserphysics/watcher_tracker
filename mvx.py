@@ -545,7 +545,8 @@ class TARGET4(CAUSE):
             if threshold > D_nu:
                 continue                 # Candidate utility too small
             # Return a new instance of self's class (could be a subclass)
-            self.children[k] = self.__class__(par_tar=self,copy_index=True,tk=(t,k))
+            self.children[k] = self.__class__(par_tar=self,copy_index=True,
+                                              tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         # Child for invisible y
         D_nu = self._utility(None)
@@ -632,7 +633,6 @@ class TARGET4(CAUSE):
     def _kill(self, # TARGET4
              t
              ):
-        print 'In TARGET4._kill index=%d self.__class__='%self.index, self.__class__
         self.type = 'dead_target'
         self.children = {}
         for List in self.m_t,self._mu_t,self._Sigma_t:
@@ -643,13 +643,9 @@ class TARGET4(CAUSE):
         """ To give MV*.decode_back the starting and ending times for
         self.
         """
-        print 'target_time: %s, index=%d, len(m_t)=%d'%(self.type,self.index,
-                                                        len(self.m_t)),
         if self.type is 'target':
-            print 'T=%d'%(T,)
             return [self,T-len(self.m_t),T]
         if self.type is 'dead_target':
-            print 'last=',self._last
             return [self,self._last-len(self.m_t),self._last]
         else:
             raise RuntimeError,'unrecognized target type %s'%self.type
@@ -683,7 +679,8 @@ class TARGET1(TARGET3):
             if threshold > D_nu:
                 continue                 # Candidate utility too small
             print 't=%d, k=%d, making child for index=%d'%(t,k,self.index)
-            self.children[k] = self.__class__(par_tar=self,copy_index=True,tk=(t,k))
+            self.children[k] = self.__class__(par_tar=self,copy_index=True,
+                                              tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         return True
     def _utility(self,   # TARGET1
@@ -694,7 +691,7 @@ class TARGET1(TARGET3):
         Delta_y = y - self._mu_fO
         Sigma_new = self._Sigma_us0
         mu_new = self._mu_fs + self._K*Delta_y
-        D_nu = norm + float(Delta_y.T*self._Sigma_fOI*Delta_y)/2
+        D_nu = norm - float(Delta_y.T*self._Sigma_fOI*Delta_y)/2
         self._mu_us = mu_new
         self._Sigma_us = Sigma_new
         self._D_nu = D_nu
@@ -748,6 +745,8 @@ class ASSOCIATION4:
     Methods:
 
      __init__:
+
+     Enter: Put cause in association
 
      NewA: Create an association that has the same dead targets as self
 
@@ -1172,11 +1171,36 @@ class ASSOCIATION4:
         # new_list.
         for asn in new_list:
             successors.enter(asn)
-        return # End of forward, end of class ASSOCIATION4
+        return # End of forward
+    def residual(self,   # ASSOCIATION4
+                 Etks    # Dict tks explained by offspring
+                 ):
+        """ Calculate the utility of the causes of all the tks
+        explained by self but not in Etks and collect dead targets
+        used
+        """
+        utility = 0
+        dead_list = []
+        causes = {}
+        for tk,cause in self.Atks.items():
+            if Etks.has_key(tk):
+                continue
+            for ctk in cause.tks.keys():  # Ensure all tks from cause not explained
+                if Etks.has_key(ctk):
+                    raise RuntimeError,'First tk in Etks, subsequent tk not.'
+            causes[cause] = tk
+        for cause in causes.keys():
+            utility += cause.R_sum
+            if cause.type is 'dead_target':
+                dead_list.append(cause)
+        if len(self.Atks) > len(Etks):
+            for target in dead_list:
+                print '  len(target.tks)=%d'%len(target.tks)
+        return (utility, dead_list) # End of residual, end of class ASSOCIATION4
 class Cluster:
-    """ A cluster is a set of targets and associations of those targets.
-    Each association in a cluster should explain the same set of
-    observations past and present.
+    """ A cluster is a set of targets and associations containing
+    those targets and other causes.  Each association in a cluster
+    should explain the same set of observations past and present.
 
     Methods:
        __init__()    Make self.As from arguments
@@ -1184,84 +1208,32 @@ class Cluster:
        merge()
     """
     def __init__(self,            # Cluster
-                 targets,         # Dict with targets as keys
-                 asn              # Association that targets are from
+                 asn=None         # Association
                  ):
         """ Make first association and attach to self
         """
-        self.As = []
-        self.A_dict = {} # Key: mother, value: fragment.  For Append_D
-        self.Append(targets,asn)
+        if asn is None:
+            self.As = []
+        else:
+            self.As = [asn]
     def Append(self,            # Cluster
-               targets,         # Dict with targets as keys
-               asn              # Association that targets are from
+               tks,             # Dict tks[tk] == True
+               asn              # Association that causes are from
                ):
         """ Create a new association in this cluster derived from the argument
-        asn.  Copy targets specified in the argument 'targets'.
+        asn.  Copy causes in asn that explain tks into the new association.
         """
         nu = 0.0
-        for target in targets.keys():
-            nu += target.R_sum
         new_a = asn.NewA(nu,asn.mod)
-        for target,key in targets.items():
-            assert(not new_a.tar_dict.has_key(key))
-            new_a.Enter(target)
+        for cause in asn.tar_dict.values() + asn.dead_targets.values() + \
+                asn.FAs.values():
+            if tks.has_key(cause.tks.keys()[0]):
+                new_a.Enter(cause)
+        in_tuple = dict_2_tuple(tks)
+        out_tuple = dict_2_tuple(new_a.Atks)
+        assert (in_tuple == out_tuple)
         self.As.append(new_a)
-        assert(not self.A_dict.has_key(asn)),'Tried to append second'+\
-            ' association from same mother association'
-        self.A_dict[asn] = new_a # For Append_D
         return
-    def Append_D(self,      # Fragment Cluster
-                 tks,       # List of (t,k) tuples required in self
-                 Mother     # Parent Cluster
-                 ):
-        """ Copy dead targets and FAs from As in Mother that each member of
-        self.As needs in order to have a complete history.
-        """
-        in_tuple = list_2_flat(tks)
-        for A_mother in Mother.As:
-            if not self.A_dict.has_key(A_mother):
-                continue
-            A_fragment = self.A_dict[A_mother]
-            if list_2_flat(A_fragment.Atks.keys()) == in_tuple:
-                continue
-            for tk in tks:
-                if not A_mother.Atks.has_key(tk):
-                    print 'A_mother is missing key',tk
-                    print 'A_fragment.Atks.keys=',dict_2_tuple(A_fragment.Atks)
-                    print '  A_mother.Atks.keys=',dict_2_tuple(A_mother.Atks)
-                    print 'Dump A_mother'
-                    A_mother.dump()
-                    print 'Dump A_fragment'
-                    A_fragment.dump()
-                    raise RuntimeError
-                if A_fragment.Atks.has_key(tk):
-                    continue
-                cause = A_mother.Atks[tk]
-                if cause.type == 'FA':
-                    A_fragment.FAs[tk] = cause
-                    A_fragment.Atks[tk] = cause
-                    continue
-                if cause.type != 'target' and cause.type != 'dead_target':
-                    raise RuntimeError,'Unknown cause type: %s'%cause.type
-                for ttk in cause.tks.keys():
-                    A_fragment.Atks[ttk] = cause
-                if cause.type == 'target':
-                    A_fragment.tar_dict[cause.index] = cause
-                if cause.type == 'dead_target':
-                    A_fragment.dead_targets[cause.index] = cause
-            # Now A_fragment.tks has every tk in tks.  Check that
-            # match is exact.
-            if list_2_flat(A_fragment.Atks.keys()) != in_tuple:
-                print 'dict_2_tuple(A_fragment.Atks)=',dict_2_tuple(
-                    A_fragment.Atks)
-                print '                     in_tuple=',in_tuple
-                print 'Dump A_mother'
-                A_mother.dump()
-                print 'Dump A_fragment'
-                A_fragment.dump()
-                raise RuntimeError
-        return # End of Append_D
     def dump(self #Cluster
              ):
         print 'Dumping a cluster with %d associations:'%len(self.As)
@@ -1333,10 +1305,9 @@ class Cluster_Flock:
        
     """
     def __init__(self,               # Cluster_Flock
-                 target_dict,        # Keys are targets
                  a                   # ASSOCIATION4
                  ):
-        self.old_clusters = [Cluster(target_dict,a)]
+        self.old_clusters = [Cluster(a)]
         self.mod = a.mod
         self.dead_targets = []
     def make_family(self,  # Cluster_Flock
@@ -1444,13 +1415,16 @@ class Cluster_Flock:
                 self.parent_2_NI[parent] = NI
         return # End of find_clusters
     def compat_check(self,     # Cluster_Flock
-                     asn,      # Proposed association
+                     asn,      # Proposed parent association
                      tk_2_NI,  # Map from (t,k) tuples to NI (new index)
                      tk_2_dead # lists of dead targets indexed by (t,k)
                      ):
-        """ Check compatibility of asn.  Keys in tk_2_NI are historical hits
-        that must end up in the new cluster NI.  Keys in tk_2_dead may
-        end up in the dead targets list of the cluster self.
+        """ Check compatibility of asn.  Answers question, is
+        fragmentation of this association possible that is consistent
+        with fragmentations of previous (higher utility) associations.
+        Keys in tk_2_NI are historical hits that must end up in the
+        new cluster NI.  Keys in tk_2_dead may end up in the dead
+        targets list of the cluster self.
         """
         proposed_tk_2_NI = tk_2_NI.copy()
         proposed_tk_2_dead = tk_2_dead.copy()
@@ -1505,47 +1479,48 @@ class Cluster_Flock:
         for OI in xrange(len(self.old_clusters)):
             cluster = self.old_clusters[OI]
             tk_2_NI = {}   # Map from (t,k) tuple to New index
-            tk_2_dead = {} # Dead target candidates for self.dead_targets
+            tk_2_dead = {} # Dead target candidates for
+                           # self.dead_targets.  Keys (t,k).  Values
+                           # [tara,tarb,etc]
             cluster.As.sort(cmp_ass) # Sort the associations by utility
-            fragmentON[OI] = {}
-            # Break each association into fragments if it is
-            # compatible with those fragmented so far.  Put pieces in
-            # fragmentON[OI]
+            # Find associations with highest utility that can be
+            # fragmented consistently
+            OK_As = []
             for asn in cluster.As:
                 OK,tk_2_NI,tk_2_dead = self.compat_check(asn,tk_2_NI,tk_2_dead)
-                if not OK:
+                if OK:
+                    OK_As.append(asn)
+                else:
                     delta = cluster.As[0].nu - asn.nu
                     if delta < 0.4: #FixMe use adjustable threshold
                         close_calls.append(('At t=%d in recluster(), dropped'+\
                           ' branch association that is off by %5.3f')%(t,delta))
-                    continue # Drop this association and try the next
-                # Copy live targets to cluster fragments ie, fragmentON[OI][NI]
-                frag_dict = {}
-                for target in asn.tar_dict.values():
-                    NI = self.parent_2_NI[target]
-                    if frag_dict.has_key(NI):
-                        frag_dict[NI][target] = target.index
-                    else:
-                        frag_dict[NI] = {target:target.index}
-                for NI,tar_dict in frag_dict.items():
-                    if fragmentON[OI].has_key(NI):
-                        fragmentON[OI][NI].Append(tar_dict,asn)
-                    else:
-                        fragmentON[OI][NI] = Cluster(tar_dict,asn)
-            # From each old association in cluster, copy necessary
-            # dead targets and FAs to appropriate associations in
-            # fragments.
+            # Invert tk_2_NI to get NI_2_tk with NI_2_tk[NI][tk] = True if it exists
             NI_2_tk = {}
             for tk,NI in tk_2_NI.items():
-                if not NI_2_tk.has_key(NI):
-                    NI_2_tk[NI] = []
-                NI_2_tk[NI].append(tk)
-            for NI in fragmentON[OI].keys():
-                fragmentON[OI][NI].Append_D(NI_2_tk[NI],cluster)
-            # Save unused dead targets from best old association for backtrack
-            for target in cluster.As[0].dead_targets.values():
-                if not tk_2_NI.has_key(target.tks.keys()[0]):
-                    self.dead_targets.append(target)
+                if NI_2_tk.has_key(NI):
+                    NI_2_tk[NI][tk] = True
+                else:
+                    NI_2_tk[NI] = {tk:True}
+            # Break compatible associations into fragments.  Put
+            # pieces in fragmentON[OI]
+            fragmentON[OI] = {}
+            for NI,tks in NI_2_tk.items():
+                fragmentON[OI][NI] = Cluster()
+                for asn in OK_As: # Copy necessary causes to cluster fragments
+                    fragmentON[OI][NI].Append(tks,asn)
+            # Save dead targets from best explanation of (all - tk_2_NI)
+            for i in xrange(len(cluster.As)):
+                asn = cluster.As[i]
+                if i == 0:
+                    util_max,dead_max = asn.residual(tk_2_NI)
+                    continue
+                util_try,dead_try = asn.residual(tk_2_NI)
+                if util_try > util_max:
+                    util_max = util_try
+                    dead_max = dead_try
+            for target in dead_max:
+                self.dead_targets.append(target)
         # End loop over OI.  Next merge fragments into new clusters
         new_clusters = {}
         for OI in fragmentON.keys():
@@ -1568,7 +1543,7 @@ class Cluster_Flock:
         for NI in xrange(len(self.ks_and_pars)):
             if len(self.ks_and_pars[NI]['pars']) == 0:
                 a = self.mod.ASSOCIATION(0.0,self.mod)
-                new_clusters[NI] = Cluster({},a)
+                new_clusters[NI] = Cluster(a)
                 assert len(self.ks_and_pars[NI]['ks']) == 1,('len(self.ks_'+\
                       'and_pars[NI]["ks"])=%d')%len(self.ks_and_pars[NI]['ks'])
         rv = [] # Return value is [[cluster,k_list],[cluster,k_list],...]
@@ -1667,7 +1642,6 @@ class MV4:
         self.newts = {}
         for k in k_list:
             self.newts[k] = self.target_0.Launch(Yts[k],k,t)
-            # FixMe: Sig_D correction because KF has forecast step?
     def decode_prune(self,    #MV4
                      t,
                      new_As   # List of associations
@@ -1721,12 +1695,7 @@ class MV4:
                        ):
         global close_calls, hungary_count, hungary_time
         close_calls = []
-        m_dict = {}
-        for target in old_As[0].tar_dict.values():
-            m_dict[target] = target.index
-        flock = Cluster_Flock(m_dict,    # Dict of targets
-                              old_As[0]  # Association
-                              )
+        flock = Cluster_Flock(old_As[0])
         TC_last = Child_Target_Counter
         Time_last = time.time()
         for t in xrange(t_first,len(Ys)):
@@ -1751,7 +1720,7 @@ class MV4:
                     if len(suc_max) > 40*self.Max_NA:
                         print ('Stop: hungary_count=%d, asn_No=%d,' + \
                           ' suc_count=%d')%(hungary_count, asn_No,len(suc_max))
-                        break
+                        raise RuntimeError
                     if len(suc_max) > self.Max_NA:
                         floor = suc_max[self.Max_NA].nu
                     if suc_max[0].nu-self.A_floor > floor:
@@ -1770,11 +1739,13 @@ class MV4:
             print ('t %2d: %3d targets, %2d clusters, %5.2f '+\
                   'seconds, H_time %5.2f, H_count %3d')%(t,
                    Child_Target_Counter-TC_last, len(flock.old_clusters),
-                   time.time()-Time_last,hungary_time,hungary_count),
-            if Child_Target_Counter-TC_last > 50:
+                   time.time()-Time_last,hungary_time,hungary_count)
+            if Child_Target_Counter-TC_last > 100:
                 for cluster in flock.old_clusters:
                     print '   Cluster has %d associations with %d targets'%(
                           len(cluster.As),len(cluster.As[0].tar_dict))
+            for asn in cluster.As: # FixMe  This may not be necessary
+                asn.re_nu_A()
             TC_last = Child_Target_Counter
             Time_last = time.time()
         # Find the best associations at final time
@@ -1803,7 +1774,6 @@ class MV4:
         targets_times = [] # Elements have form [target,t_i,t_f])
         for target in A_best.dead_targets.values() + A_best.tar_dict.values():
             targets_times.append(target.target_time(T))
-        print 'in decode_back, len(targets_times) =  %d'%len(targets_times)
         y_A = [] # y_A[t] is a dict.  y_A[t][j] gives the index of
                  # y[t] associated with target j.  So y[t][y_A[t][j]] is
                  # associated with target j.
@@ -1813,7 +1783,8 @@ class MV4:
         for j in xrange(len(targets_times)):
             d.append(T*[None])# Initialize list of decoded states with Nones
             target,start,stop = targets_times[j]
-            print 'target start, stop = ',start,stop
+            if (stop - start < 3):  # If this happens, I want to know
+                print 'In decode_back: start, stop = ',start,stop
             d[j][start:stop] = target.backtrack()# Set decoded values
             for t in xrange(start,stop):
                 y_A[t][j] = target.m_t[t-start] # y[t][y_A[t][j]] is
@@ -1827,7 +1798,6 @@ class MV4:
         A,t_0 = self.decode_init(Ys)
         A_best,T,close_calls = self.decode_forward(Ys,A,t_0,analysis=analysis)
         d,y_A = self.decode_back(A_best,T)
-        print 'decode returning y_A=',y_A
         return (d,y_A,A_best.nu,close_calls)
     ############## Begin simulation methods ######################
     def step_state(self, # MV4
