@@ -678,7 +678,6 @@ class TARGET1(TARGET3):
             D_nu = self._utility(y_t[k])
             if threshold > D_nu:
                 continue                 # Candidate utility too small
-            print 't=%d, k=%d, making child for index=%d'%(t,k,self.index)
             self.children[k] = self.__class__(par_tar=self,copy_index=True,
                                               tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
@@ -1495,7 +1494,8 @@ class Cluster_Flock:
                     if delta < 0.4: #FixMe use adjustable threshold
                         close_calls.append(('At t=%d in recluster(), dropped'+\
                           ' branch association that is off by %5.3f')%(t,delta))
-            # Invert tk_2_NI to get NI_2_tk with NI_2_tk[NI][tk] = True if it exists
+            # Invert tk_2_NI to get NI_2_tk with
+            # NI_2_tk[NI][tk] = True if it exists
             NI_2_tk = {}
             for tk,NI in tk_2_NI.items():
                 if NI_2_tk.has_key(NI):
@@ -1510,8 +1510,8 @@ class Cluster_Flock:
                 for asn in OK_As: # Copy necessary causes to cluster fragments
                     fragmentON[OI][NI].Append(tks,asn)
             # Save dead targets from best explanation of (all - tk_2_NI)
-            for i in xrange(len(cluster.As)):
-                asn = cluster.As[i]
+            for i in xrange(len(OK_As)):
+                asn = OK_As[i]
                 if i == 0:
                     util_max,dead_max = asn.residual(tk_2_NI)
                     continue
@@ -1720,7 +1720,6 @@ class MV4:
                     if len(suc_max) > 40*self.Max_NA:
                         print ('Stop: hungary_count=%d, asn_No=%d,' + \
                           ' suc_count=%d')%(hungary_count, asn_No,len(suc_max))
-                        raise RuntimeError
                     if len(suc_max) > self.Max_NA:
                         floor = suc_max[self.Max_NA].nu
                     if suc_max[0].nu-self.A_floor > floor:
