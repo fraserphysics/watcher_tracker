@@ -85,7 +85,7 @@ class FA(CAUSE): # False Alarm
         self.type = 'FA'
         self.index = -1
         QF = -float(y.T*Sigma_I*y/2)
-        CC = math.log(mod.Lambda_FA)
+        CC = math.log(mod.Lambda_FA) # Creation Cost
         norm = -math.log(scipy.linalg.det(mod.Sigma_FA))/2
         self.R = norm + CC + QF
         self.R_sum = self.R
@@ -189,6 +189,8 @@ class TARGET5(CAUSE):
         # Do initialization that is same for all modes
         self.type = 'target'
         self._last = None
+        self._invisible_count = 0
+        self.tks = {}
         # The following ugly lines initialize several NxN lists of lists
         self._mu_fs, self._Sigma_fs, self._mu_fO, self._Sigma_fOI, \
                    self._K, self._mu_us, self._Sigma_us, \
@@ -203,32 +205,24 @@ class TARGET5(CAUSE):
             self._mod = mod
             self._mu_t = [mod.IMM.mus]
             self._Sigma_t = [mod.IMM.Sigmas]
-            self._invisible_count = 0
-            self._nu = N*[0]
-            self._best = []
-            self.R_sum = 0
-            self.R = 0
-            self.tks = {}
+            self._nu = scipy.zeros(N)
             self.index = 0
             self.m_t = []
+            self.R_sum = 0
+            self.R = 0
             return
+        self._mod = par_tar._mod
         t,k = tk
         mu = []
         Sigma = []
         for j in xrange(N):
-            try:
-                mu.append(par_tar._mu_us[best[-1][j]][j])
-            except:
-                print 'j=',j,'best=',best,'\par_tar._mu_us',par_tar._mu_us
-                mu.append(par_tar._mu_us[best[-1][j]][j])
+            mu.append(par_tar._mu_us[best[-1][j]][j])
             Sigma.append(par_tar._Sigma_us[best[-1][j]][j])
         if mode == 2: # target_0 + y => new target
             self._mu_t = [mu]
             self._Sigma_t = [Sigma]
-            self._invisible_count = 0
             self.T0 = t
             self._best = []
-            self.tks = {}
             self.index = Target_Counter
             Target_Counter += 1
             self.m_t = [k]
@@ -241,17 +235,16 @@ class TARGET5(CAUSE):
                 self._invisible_count = 0
             Child_Target_Counter += 1   # Inc child counter for debugging
             self.T0 = par_tar.T0
-            self._best = par_tar._best + [best]
+            self._best = best
             self.tks = par_tar.tks.copy()
             self.index = par_tar.index
             self.m_t = par_tar.m_t + [k]
         # Start common code for mode 2 and 3
-        self._mod = par_tar._mod
+        self.R_sum = max(nu)
+        self.R = self.R_sum - par_tar.R_sum
         self._nu = nu
         if k >= 0:                # Don't enter invisibles into tks
             self.tks[tk] = self
-        self.R_sum = max(nu)
-        self.R = self.R_sum - par_tar.R_sum
         self.children = None
         return # End of __init__
     def dump(self #TARGET5
@@ -277,9 +270,15 @@ class TARGET5(CAUSE):
         """ For each of the hits that could plausibly be an
         observation of self, make a child target.  Collect the
         children in a dict and attach it to self.
+
+        Return False if target killed
         """
+        assert (self.type is 'target'),'self.type=%s'%self.type
         if not self.children is None:
-            return # make_children already called for this target
+            return True  # make_children already called for this target
+        if self._invisible_count >= self._mod.Invisible_Lifetime:
+            self._kill(t)
+            return False # Have calling routine move this to dead_targets
         self._forecast()
         self.children = {}
         threshold = self._mod.log_min_pd
@@ -289,7 +288,8 @@ class TARGET5(CAUSE):
             self.children[k] = self._spawn(k,t)
             assert(self.children[k].m_t[-1]==k)
         # Child for invisible y
-        self.children[-1] = self._spawn(-1,t) # FixMe: check this
+        self._utility(None)
+        self.children[-1] = self._spawn(-1,t)
     def _forecast(self # TARGET5
                  ):
         """ For each ij, calculate forecast mean and covariance for
@@ -298,30 +298,28 @@ class TARGET5(CAUSE):
         Sigma_us.
         """
         Id = self._mod.Id
-        for i in xrange(len(self._mod.IMM.A)): # Loop over last state
+        N = len(self._mod.IMM.A)
+        for i in xrange(N): # Loop over old IMM components
             A = self._mod.IMM.A[i]
             Sigma_D = self._mod.IMM.Sigma_D[i]
-            for j in xrange(len(self._mod.IMM.O)): # Loop over next state
+            for j in xrange(N): # Loop over next IMM components
                 O = self._mod.IMM.O[j]
                 Sigma_O = self._mod.IMM.Sigma_O[j]
-                #
                 self._mu_fs[i][j] = A*self._mu_t[-1][i]
-                try:
-                    self._Sigma_fs[i][j] = A*self._Sigma_t[-1][i]*A.T + Sigma_D
-                except:
-                    self.dump()
-                    self._Sigma_fs[i][j] = A*self._Sigma_t[-1][i]*A.T + Sigma_D
+                self._Sigma_fs[i][j] = A*self._Sigma_t[-1][i]*A.T + Sigma_D
                 self._mu_fO[i][j] = O*self._mu_fs[i][j]
                 Sig_y = O*self._Sigma_fs[i][j]*O.T + Sigma_O
                 self._Sigma_fOI[i][j] = scipy.linalg.inv(Sig_y)
                 self._K[i][j] = self._Sigma_fs[i][j]*O.T*self._Sigma_fOI[i][j]
-                self._Sigma_us0[i][j] = (Id-self._K[i][j]*O)*self._Sigma_fs[i][j]
+                self._Sigma_us0[i][j]=(Id-self._K[i][j]*O)*self._Sigma_fs[i][j]
+                # _Sigma_us0 is updated state covariance if y is visible
         return
     def _utility(self,  # TARGET5
                 y):
         """Return the maximum (over (x(t-1),i(t-1),x(t),i(t)) of the
         utility increment given y(t).  Include log_prob factors for
-        Sig_D and visibility transitions.
+        Sig_D and visibility transitions.  Save updated values for
+        making child target if desired.
         """
         if len(self.m_t) == 0 or self.m_t[-1] >= 0:
             v_old = 0 # Last time target was visible or no last time
@@ -331,36 +329,30 @@ class TARGET5(CAUSE):
             v_new = 1 # This time the target is invisible
         else:
             v_new = 0
-        D_nu_v = math.log(self._mod.PV_V[v_old,v_new]) \
-                  -self._mod.log_det_Sig_D/2
+        D_nu_v = math.log(self._mod.PV_V[v_old,v_new])
         N = len(self._mod.IMM.A)
         self._D_nu = scipy.zeros((N,N))
         for i in xrange(N): # Loop over last state
             for j in xrange(N): # Loop over next state
-                log_det_O = self._mod.IMM.log_det_Sig_O[j]
                 D_nu_ij = math.log(self._mod.IMM.Pij[i,j])
                 if y is None:
                     Sigma_new = self._Sigma_fs[i][j]
                     mu_new = self._mu_fs[i][j]
                     D_nu = D_nu_v + D_nu_ij
                 else:
-                    Sigma_new = self._Sigma_us0[i][j]
+                    Sigma_fOI = self._Sigma_fOI[i][j]
+                    norm = math.log(scipy.linalg.det(Sigma_fOI))/2
                     Delta_y = y - self._mu_fO[i][j]
+                    Sigma_new = self._Sigma_us0[i][j]
                     mu_new = self._mu_fs[i][j] + self._K[i][j]*Delta_y
-                    D_nu = D_nu_v + D_nu_ij - float(
-                        Delta_y.T*self._Sigma_fOI[i][j]*Delta_y-log_det_O)/2
+                    D_nu = D_nu_v + D_nu_ij + norm - float(
+                        Delta_y.T*Sigma_fOI*Delta_y)/2
                 self._mu_us[i][j] = mu_new
                 self._Sigma_us[i][j] = Sigma_new
                 self._D_nu[i,j] = D_nu
-                if i==0 and j==0:
-                    self._ij_max = (0,0)
-                    D_nu_max = D_nu
-                    continue
-                if D_nu > D_nu_max:
-                    self._ij_max = (i,j) # FixMe: No point to ij_max?
-                    D_nu_max = D_nu
-        #self.ij_max = unravel_index(self._D_nu.argmax(),self._D_nu.shape)
-        return D_nu_max
+        print 'utility returning %6.2f for index=%d and y='%(
+            float(self._D_nu.max()),self.index),y
+        return float(self._D_nu.max())
     def _spawn(self, # TARGET5
            k,         # Index of the observation
            t          # Present time
@@ -375,36 +367,39 @@ class TARGET5(CAUSE):
         temp = nu_ij.argmax(0)              # temp[j] is best i for j
         best = self._best + [temp]
         nu = scipy.choose(temp,nu_ij)  # temp[j] is util of best path to j
-        nu   = self._nu + nu
+        #nu   = self._nu + nu FixMe Right?
         # Return a new instance of self's class (could be a subclass)
-        return self._class_(par_tar=self,copy_index=True,nu=nu,best=best,tk=(t,k))
+        return self.__class__(par_tar=self,copy_index=True,nu=nu,best=best,
+                              tk=(t,k))
     def Launch(self, # TARGET5
            y,        # The observation of the target at the current time
            k,        # Index of the observation
-           t,        # Present time
-           nu_aug    # Utility to add
+           t         # Present time
            ):
         """ Use a Kalman filter to create a new target with a unique
-        index and history lists with a single entry for observation y."""
+        index and lists with a single entry for observation y."""
         self._forecast()        # Calculate forecast parmeters in self
         D_nu = self._utility(y)
+        CC =  math.log(self._mod.Lambda_new) # Creation cost
         # The following mimics spawn()
-        temp = self._D_nu.argmax(0)          # temp[j] is best i for j
+        temp = self._D_nu.argmax(0)        # temp[j] is best i for j
         best = [temp]
-        temp = scipy.choose(temp,self._D_nu) # temp[j] is util of best path to j
-        nu   = nu_aug + temp
+        nu = scipy.choose(temp,self._D_nu) # temp[j] is util of best path to j
         # Return a new instance of self's class (could be a subclass)
-        return self.__class__(par_tar=self,copy_index=True,nu=nu,best=best,tk=(t,k))
+        return self.__class__(par_tar=self,copy_index=False,nu=nu+CC,best=best,
+                              tk=(t,k))
     def backtrack(self # TARGET5
                   ):
         T = len(self._mu_t)
-        A = self._mod.A
-        X = A.T * scipy.linalg.inv(self._mod.Sigma_D) # An intermediate
-        s_t = range(T)
-        s_t[T-1] = self._mu_t[T-1]
+        s_t = range(T)       # Allocate places for MAP states
+        i = self._nu.argmax()
+        s_t[T-1] = self._mu_t[T-1][i]
         for t in xrange(T-2,-1,-1):
-            Sig_t_I = scipy.linalg.inv(self._Sigma_t[t])
-            mu_t = self._mu_t[t]
+            i = self._best[t][i]
+            Sig_t_I = scipy.linalg.inv(self._Sigma_t[t][i])
+            mu_t = self._mu_t[t][i]
+            A = self._mod.A[i]
+            X = A.T * scipy.linalg.inv(self._mod.Sigma_D[i])
             s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
         return s_t
     def _kill(self, # TARGET5
@@ -414,7 +409,8 @@ class TARGET5(CAUSE):
         self.children = {}
         for List in self.m_t,self._mu_t,self._Sigma_t:
             del(List[-self._mod.Invisible_Lifetime:])
-        self._last = t-self.Invisible_Lifetime
+        self._last = t-self._mod.Invisible_Lifetime
+        print 'Killing index=%d'%self.index
         return
     def target_time(self, # TARGET5
                     T):
@@ -541,15 +537,14 @@ class TARGET4(CAUSE):
         self.children = {}
         threshold = self._mod.log_min_pd
         for k in xrange(len(y_t)):
-            D_nu = self._utility(y_t[k])
-            if threshold > D_nu:
+            if threshold > self._utility(y_t[k]):
                 continue                 # Candidate utility too small
             # Return a new instance of self's class (could be a subclass)
             self.children[k] = self.__class__(par_tar=self,copy_index=True,
                                               tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         # Child for invisible y
-        D_nu = self._utility(None)
+        self._utility(None)
         self.children[-1] = self.__class__(par_tar=self,copy_index=True,tk=(t,-1))
         return True
     def _forecast(self # TARGET4
@@ -1739,7 +1734,7 @@ class MV4:
                   'seconds, H_time %5.2f, H_count %3d')%(t,
                    Child_Target_Counter-TC_last, len(flock.old_clusters),
                    time.time()-Time_last,hungary_time,hungary_count)
-            if Child_Target_Counter-TC_last > 100:
+            if Child_Target_Counter-TC_last > 0:
                 for cluster in flock.old_clusters:
                     print '   Cluster has %d associations with %d targets'%(
                           len(cluster.As),len(cluster.As[0].tar_dict))
@@ -1788,6 +1783,22 @@ class MV4:
             for t in xrange(start,stop):
                 y_A[t][j] = target.m_t[t-start] # y[t][y_A[t][j]] is
                                                 # associated with target k.
+        #return (d,y_A)
+        # Print for debug
+        print 'returning from decode_back with:'
+        N_tar = len(d)
+        for t in xrange(T):
+            print '%2d'%t,
+            for n in xrange(N_tar):
+                if d[n][t] is None:
+                    print 12*' ',
+                else:
+                    try:
+                        print '%6.2f %5.2f'%(d[n][t][0],d[n][t][1]),
+                    except:
+                        print '\nd[%d][%d]='%(n,t),d[n][t]
+                        print '%6.2f %5.2f'%(d[n][t][0],d[n][t][1]),
+            print y_A[t]
         return (d,y_A)
     def decode(self, # MV4
                Ys,   # Observations. Ys[t][k] is the kth hit at time t
