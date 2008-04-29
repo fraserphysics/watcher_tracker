@@ -205,7 +205,7 @@ class TARGET5(CAUSE):
             self._mod = mod
             self._mu_t = [mod.IMM.mus]
             self._Sigma_t = [mod.IMM.Sigmas]
-            self._nu = scipy.zeros(N)
+            self._nu = mod.IMM.nu_0
             self.index = 0
             self.m_t = []
             self.R_sum = 0
@@ -290,6 +290,7 @@ class TARGET5(CAUSE):
         # Child for invisible y
         self._utility(None)
         self.children[-1] = self._spawn(-1,t)
+        return True
     def _forecast(self # TARGET5
                  ):
         """ For each ij, calculate forecast mean and covariance for
@@ -350,8 +351,6 @@ class TARGET5(CAUSE):
                 self._mu_us[i][j] = mu_new
                 self._Sigma_us[i][j] = Sigma_new
                 self._D_nu[i,j] = D_nu
-        print 'utility returning %6.2f for index=%d and y='%(
-            float(self._D_nu.max()),self.index),y
         return float(self._D_nu.max())
     def _spawn(self, # TARGET5
            k,         # Index of the observation
@@ -367,7 +366,6 @@ class TARGET5(CAUSE):
         temp = nu_ij.argmax(0)              # temp[j] is best i for j
         best = self._best + [temp]
         nu = scipy.choose(temp,nu_ij)  # temp[j] is util of best path to j
-        #nu   = self._nu + nu FixMe Right?
         # Return a new instance of self's class (could be a subclass)
         return self.__class__(par_tar=self,copy_index=True,nu=nu,best=best,
                               tk=(t,k))
@@ -382,9 +380,10 @@ class TARGET5(CAUSE):
         D_nu = self._utility(y)
         CC =  math.log(self._mod.Lambda_new) # Creation cost
         # The following mimics spawn()
-        temp = self._D_nu.argmax(0)        # temp[j] is best i for j
+        nu_ij = (self._D_nu.T+self._nu).T # NxN array of possible nu values
+        temp = nu_ij.argmax(0)              # temp[j] is best i for j
         best = [temp]
-        nu = scipy.choose(temp,self._D_nu) # temp[j] is util of best path to j
+        nu = scipy.choose(temp,nu_ij) # temp[j] is util of best path to j
         # Return a new instance of self's class (could be a subclass)
         return self.__class__(par_tar=self,copy_index=False,nu=nu+CC,best=best,
                               tk=(t,k))
@@ -398,8 +397,8 @@ class TARGET5(CAUSE):
             i = self._best[t][i]
             Sig_t_I = scipy.linalg.inv(self._Sigma_t[t][i])
             mu_t = self._mu_t[t][i]
-            A = self._mod.A[i]
-            X = A.T * scipy.linalg.inv(self._mod.Sigma_D[i])
+            A = self._mod.IMM.A[i]
+            X = A.T * scipy.linalg.inv(self._mod.IMM.Sigma_D[i])
             s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
         return s_t
     def _kill(self, # TARGET5
@@ -410,19 +409,15 @@ class TARGET5(CAUSE):
         for List in self.m_t,self._mu_t,self._Sigma_t:
             del(List[-self._mod.Invisible_Lifetime:])
         self._last = t-self._mod.Invisible_Lifetime
-        print 'Killing index=%d'%self.index
         return
     def target_time(self, # TARGET5
                     T):
         """ To give MV*.decode_back the starting and ending times for
         self.
         """
-        print 'target_time: %s, index=%d'%(self.type,self.index),
         if self.type is 'target':
-            print 'T=%d, len(m_t)=%d'%(T,len(self.m_t))
             return [self,T-len(self.m_t),T]
         if self.type is 'dead_target':
-            print 'last=%d, len(m_t)=%d'%(self._last,len(self.m_t))
             return [self,self._last-len(self.m_t),self._last]
         else:
             raise RuntimeError,'unrecognized target type %s'%self.type
@@ -792,9 +787,9 @@ class ASSOCIATION4:
         """ Put the argument "cause" in the association "self" and
         update self.Atks.
         """
-        #for tk in cause.tks.keys():
-        #    if self.Atks.has_key(tk): # FixMe Why comment this out
-        #        return (False,self)
+        for tk in cause.tks.keys():
+            if self.Atks.has_key(tk):
+                return (False,self)
         for tk in cause.tks.keys():
             self.Atks[tk] = cause
             # self.Atks.update(cause.tks) FixMe: use this?
@@ -1187,9 +1182,6 @@ class ASSOCIATION4:
             utility += cause.R_sum
             if cause.type is 'dead_target':
                 dead_list.append(cause)
-        if len(self.Atks) > len(Etks):
-            for target in dead_list:
-                print '  len(target.tks)=%d'%len(target.tks)
         return (utility, dead_list) # End of residual, end of class ASSOCIATION4
 class Cluster:
     """ A cluster is a set of targets and associations containing
@@ -1586,8 +1578,6 @@ class MV4:
         assert(check == dim),("Shape of O=(%d,%d) not consistent with shape "+\
           "of A=(%d,%d))")%(dim_O,check,dim,dim)
         self.Sigma_O = scipy.matrix(Sigma_O)
-        self.log_det_Sig_D = math.log(scipy.linalg.det(self.Sigma_D))
-        self.log_det_Sig_O = math.log(scipy.linalg.det(self.Sigma_O))
         if mu_init == None:
             self.mu_init = scipy.matrix(scipy.zeros(dim)).T
         else:
@@ -1601,7 +1591,7 @@ class MV4:
             self.Sigma_init = scipy.matrix(Sigma_init)
         self.MaxD = MaxD
         self.log_min_pd = -(MaxD*MaxD + dim_O*math.log(2*math.pi) +
-                            self.log_det_Sig_O) /2.0
+                            math.log(scipy.linalg.det(self.Sigma_O))) /2.0
         """ This is the log of the minimum conditional probability density for
         a single observation given some cause.  We consider
         observation/cause pairs that have probability densities lower
@@ -1713,7 +1703,7 @@ class MV4:
                     if len(suc_max) == 0:
                         continue
                     if len(suc_max) > 40*self.Max_NA:
-                        print ('Stop: hungary_count=%d, asn_No=%d,' + \
+                        print ('Warning: hungary_count=%d, asn_No=%d,' + \
                           ' suc_count=%d')%(hungary_count, asn_No,len(suc_max))
                     if len(suc_max) > self.Max_NA:
                         floor = suc_max[self.Max_NA].nu
@@ -1734,7 +1724,7 @@ class MV4:
                   'seconds, H_time %5.2f, H_count %3d')%(t,
                    Child_Target_Counter-TC_last, len(flock.old_clusters),
                    time.time()-Time_last,hungary_time,hungary_count)
-            if Child_Target_Counter-TC_last > 0:
+            if Child_Target_Counter-TC_last > 100:
                 for cluster in flock.old_clusters:
                     print '   Cluster has %d associations with %d targets'%(
                           len(cluster.As),len(cluster.As[0].tar_dict))
@@ -1783,7 +1773,7 @@ class MV4:
             for t in xrange(start,stop):
                 y_A[t][j] = target.m_t[t-start] # y[t][y_A[t][j]] is
                                                 # associated with target k.
-        #return (d,y_A)
+        return (d,y_A)
         # Print for debug
         print 'returning from decode_back with:'
         N_tar = len(d)
@@ -2055,15 +2045,17 @@ class MV1(MV3):
         return obs,states
 class IMM:
     def __init__(self, mod):
-        self.mus = [mod.mu_init, mod.mu_init]
+        Stop = scipy.matrix([[1,0],[0,0]])
+        self.mus = [mod.mu_init, Stop*mod.mu_init]
         self.Sigmas = [mod.Sigma_init, mod.Sigma_init]
-        self.A = [mod.A, mod.A]
+        self.A = [mod.A, Stop*mod.A*Stop]
         self.Sigma_D = [mod.Sigma_D, mod.Sigma_D]
         self.O = [mod.O,mod.O]
         self.Sigma_O = [mod.Sigma_O, mod.Sigma_O]
-        self.log_det_Sig_O = [mod.log_det_Sig_O,mod.log_det_Sig_O]
-        self.Pij = scipy.array([[.9,.1],[.2,.8]])
-        self.Pi = scipy.array([.67,.33])
+        self.Pij = scipy.array([[.6,.4],[.2,.8]])
+        # FixMe trouble if [[.9,.1],[.05,.95]]
+        # self.Pi = scipy.array([1.0,0.0])
+        self.nu_0 = scipy.array([0,-100])
         return # End of IMM.__init__()
 class MV5(MV4):
     """ Number of targets is fixed    
