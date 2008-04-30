@@ -790,9 +790,7 @@ class ASSOCIATION4:
         for tk in cause.tks.keys():
             if self.Atks.has_key(tk):
                 return (False,self)
-        for tk in cause.tks.keys():
-            self.Atks[tk] = cause
-            # self.Atks.update(cause.tks) FixMe: use this?
+        self.Atks.update(cause.tks)
         if cause.type is 'target':
             self.tar_dict[cause.index] = cause
             return (True,self)
@@ -809,17 +807,28 @@ class ASSOCIATION4:
              cause, # CAUSE of next hit in y_t
              k
             ):
-        """ Create a child that extends association by cause
+        """ Create a child that extends association by cause, or, if
+        cause.type is void, create a new association that carries the
+        same FAs and dead_targets as self.  Perhaps second option
+        should be different method.
         """
         CA = self.NewA(self.nu + cause.R,self.mod) #Child Association
-        CA.tar_dict = self.tar_dict.copy()
         CA.dead_targets = self.dead_targets.copy()
         CA.FAs = self.FAs.copy()
-        CA.h2c = self.h2c.copy()
-        CA.Atks = self.Atks.copy()
         CA.t = self.t
-        if k >= 0:
-            CA.h2c[k] = cause.index
+        if cause.type is 'void':
+            CA.tar_dict = {}
+            CA.h2c = {}
+            CA.Atks = {}
+            for old_C in CA.FAs.values() + CA.dead_targets.values():
+                CA.Atks.update(old_C.tks)
+            return (True,CA)
+        else:
+            CA.h2c = self.h2c.copy()
+            CA.tar_dict = self.tar_dict.copy()
+            CA.Atks = self.Atks.copy()
+            if k >= 0:
+                CA.h2c[k] = cause.index
         return CA.Enter(cause)
     def Spoon(self,   # ASSOCIATION4
               cause,  # CAUSE of next hit in y_t
@@ -1007,8 +1016,6 @@ class ASSOCIATION4:
         assert(k_list != (-1,))
         # The seed association is copy of self with empty tar_dict
         OK,seed = self.Fork(CAUSE(),-1)
-        seed.tar_dict = {}
-        seed.h2c = {}
         old_list = [seed]
         # Make list of plausible associations.  At level j, each
         # association explains the source of each y_t[k_list[i]] for
@@ -1092,8 +1099,6 @@ class ASSOCIATION4:
         for U,X in ML.association_list:
             # The seed assn is copy of self with empty tar_dict
             OK,new_A = self.Fork(CAUSE(),-1)
-            new_A.tar_dict = {}
-            new_A.h2c = {}
             for ij in X:
                 i,j = ij
                 k = k_list[i]
@@ -1124,8 +1129,6 @@ class ASSOCIATION4:
         assert(m > 0)       # Necessary in N_hat calulations below
         if k_list == (-1,): # No targets in self have visible children
             OK,seed = self.Fork(CAUSE(),-1)
-            seed.tar_dict = {}
-            seed.h2c = {}
             new_list = [seed]
         else:
             causes = []
