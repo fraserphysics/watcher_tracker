@@ -526,6 +526,7 @@ class TARGET4(CAUSE):
         if not self.children is None:
             return True  # make_children already called for this target
         if self._invisible_count >= self._mod.Invisible_Lifetime:
+            print 'killing a target in make_children',self
             self._kill(t)
             return False # Have calling routine move this to dead_targets
         self._forecast()
@@ -737,8 +738,6 @@ class ASSOCIATION4:
 
      Enter: Put cause in association
 
-     NewA: Create an association that has the same dead targets as self
-
      Fork: Create a child association that explains one more hit
 
      Spoon: Modify self to explain one more hit
@@ -751,10 +750,6 @@ class ASSOCIATION4:
      
      check_targets, check_FAs and check_newts: Checks in list of
          cause_checks called by forward() that propose causes of hits
-
-     extra_invisible: Entry in list of methods extra_forward that is
-         called by forward().  This methods modifies an association to
-         account for invisible targets.
 
      exhaustive: Find self.mod.Max_NA best next associations by
          exhaustive search
@@ -775,12 +770,9 @@ class ASSOCIATION4:
         self.Atks = {}      # Dict. Key: (t,k), Value: cause
         self.cause_checks = [self.check_targets,self.check_FAs,
                              self.check_newts]
-        self.extra_forward = [self.extra_invisible]
+        self.vis_tran = True # Allow invisible targets
         self.t = t
         self.type='ASSOCIATION4'
-    def NewA(self, # ASSOCIATION4
-             *args,**kwargs):
-        return ASSOCIATION4(*args,**kwargs)
     def Enter(self, # ASSOCIATION4
               cause
               ):
@@ -803,6 +795,23 @@ class ASSOCIATION4:
         if cause.type is 'void':
             return (True,self)
         raise RuntimeError,"Cause type %s not known"%cause.type
+    def Seed(self # ASSOCIATION4
+             ):
+        """
+        Make a new association to seed exhaustive or Murty.  Copy FAs
+        and dead_targets, but don't copy targets.
+        """
+        CA = self.__class__(self.nu,self.mod) #Child Association
+        CA.dead_targets = self.dead_targets.copy()
+        CA.FAs = self.FAs.copy()
+        CA.t = self.t
+        CA.tar_dict = {}
+        CA.h2c = {}
+        CA.Atks = {}
+        for old_C in CA.FAs.values() + CA.dead_targets.values():
+            CA.Atks.update(old_C.tks)
+        return CA
+    
     def Fork(self,  # ASSOCIATION4
              cause, # CAUSE of next hit in y_t
              k
@@ -812,23 +821,15 @@ class ASSOCIATION4:
         same FAs and dead_targets as self.  Perhaps second option
         should be different method.
         """
-        CA = self.NewA(self.nu + cause.R,self.mod) #Child Association
+        CA = self.__class__(self.nu + cause.R,self.mod) #Child Association
         CA.dead_targets = self.dead_targets.copy()
         CA.FAs = self.FAs.copy()
         CA.t = self.t
-        if cause.type is 'void':
-            CA.tar_dict = {}
-            CA.h2c = {}
-            CA.Atks = {}
-            for old_C in CA.FAs.values() + CA.dead_targets.values():
-                CA.Atks.update(old_C.tks)
-            return (True,CA)
-        else:
-            CA.h2c = self.h2c.copy()
-            CA.tar_dict = self.tar_dict.copy()
-            CA.Atks = self.Atks.copy()
-            if k >= 0:
-                CA.h2c[k] = cause.index
+        CA.h2c = self.h2c.copy()
+        CA.tar_dict = self.tar_dict.copy()
+        CA.Atks = self.Atks.copy()
+        if k >= 0:
+            CA.h2c[k] = cause.index
         return CA.Enter(cause)
     def Spoon(self,   # ASSOCIATION4
               cause,  # CAUSE of next hit in y_t
@@ -971,17 +972,6 @@ class ASSOCIATION4:
                   'CC.R=%5.3f, t=%d, k=%d')%(self.mod.MaxD,CC.R,self.t,k)
             return
         causes.append(CC)
-    def extra_invisible(self,   # ASSOCIATION4
-                        partial # ASSOCIATION4
-                        ):
-        """ A method in extra_forward called by forward().  Put
-        invisible targets in new association.
-        """ 
-        for target in self.tar_dict.values():
-            if partial.tar_dict.has_key(target.index):
-                continue # Skip if child of target in partial
-            if target.children.has_key(-1): # Invisible target
-                partial.Enter(target.children[-1])
     def dump(self # ASSOCIATION4
              ):
         print 'dumping an association of type',self.type,':'
@@ -1014,9 +1004,8 @@ class ASSOCIATION4:
         """
         assert(len(k_list) > 0)
         assert(k_list != (-1,))
-        # The seed association is copy of self with empty tar_dict
-        OK,seed = self.Fork(CAUSE(),-1)
-        old_list = [seed]
+        # The seed association is a copy of self with an empty tar_dict
+        old_list = [self.Seed()]
         # Make list of plausible associations.  At level j, each
         # association explains the source of each y_t[k_list[i]] for
         # i<j.
@@ -1032,10 +1021,16 @@ class ASSOCIATION4:
                         if OK:
                             new_list.append(child)
                 old_list = new_list
-            if len(old_list) == 0:
+            if len(new_list) == 0:
                 return []
-        # Discard low utility associations.  FixMe: doesn't count
-        # extra_invisible utilities
+        if self.vis_tran:
+            for partial in new_list: #Enter invisible targets
+                for target in self.tar_dict.values():
+                    if partial.tar_dict.has_key(target.index):
+                        continue # Skip if child of target in partial
+                    if target.children.has_key(-1): # Invisible target
+                        partial.Enter(target.children[-1])
+        # Discard low utility associations.
         new_list.sort(cmp_ass)
         if floor == None:  # Calculate threshold relative to best association
             floor = new_list[0].nu-self.mod.A_floor
@@ -1054,6 +1049,7 @@ class ASSOCIATION4:
         self.mod.Max_NA best associations by Murty's algorithm.
         """
         global hungary_count, hungary_time
+        print '********** In Murty ************'
         assert(len(k_list) == len(causes)),\
               'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
         m = len(k_list) # Number of observations
@@ -1091,14 +1087,14 @@ class ASSOCIATION4:
         else:  # Calculate threshold relative to best association
             floor = util_max-self.mod.A_floor
         ML = util.M_LIST(w,m,n,j_gnd=j_mult)
-        # FixMe: doesn't count extra_invisible utilities
+        # FixMe: doesn't count invisible utilities
         ML.till(self.mod.Max_NA,floor)
         hungary_count += ML.H_count
         hungary_time += ML.stop_time-ML.start_time
         new_list = []
         for U,X in ML.association_list:
             # The seed assn is copy of self with empty tar_dict
-            OK,new_A = self.Fork(CAUSE(),-1)
+            new_A = self.Seed()
             for ij in X:
                 i,j = ij
                 k = k_list[i]
@@ -1128,7 +1124,10 @@ class ASSOCIATION4:
         m = len(k_list)
         assert(m > 0)       # Necessary in N_hat calulations below
         if k_list == (-1,): # No targets in self have visible children
-            OK,seed = self.Fork(CAUSE(),-1)
+            seed = self.Seed() # make association for this time step
+            for target in self.tar_dict.values():
+                if target.children.has_key(-1): # Enter invisible children
+                    seed.Enter(target.children[-1])
             new_list = [seed]
         else:
             causes = []
@@ -1148,20 +1147,15 @@ class ASSOCIATION4:
                 new_list = self.exhaustive(k_list,causes,floor)
             else:
                 new_list = self.Murty(k_list,causes,floor)
-            # FixMe: Made selection w/o knowing utilities required by
-            # extra_forward, eg, extra_invisible
         if len(new_list) == 0:
             #print 'forward returning 0 new associations'
             return
-        for asn in new_list:
-            for method in self.extra_forward: # EG extra_invisible
-                method(asn)
-            asn.verify(k_list)  # FixMe delete this
         # Now each entry in new_list is a complete association that
         # explains k_list at time t.  Next propose the present
         # association as the predecessor for each association in
         # new_list.
         for asn in new_list:
+            asn.verify(k_list)  # FixMe delete this
             successors.enter(asn)
         return # End of forward
     def residual(self,   # ASSOCIATION4
@@ -1213,7 +1207,7 @@ class Cluster:
         asn.  Copy causes in asn that explain tks into the new association.
         """
         nu = 0.0
-        new_a = asn.NewA(nu,asn.mod)
+        new_a = asn.__class__(nu,asn.mod)
         for cause in asn.tar_dict.values() + asn.dead_targets.values() + \
                 asn.FAs.values():
             if tks.has_key(cause.tks.keys()[0]):
@@ -1236,7 +1230,7 @@ class Cluster:
         new_As = []
         for OA in other.As:
             for SA in self.As:
-                NA = OA.NewA(OA.nu+SA.nu,SA.mod)
+                NA = OA.__class__(OA.nu+SA.nu,SA.mod)
                 NA.tar_dict = OA.tar_dict.copy()
                 NA.tar_dict.update(SA.tar_dict)
                 NA.dead_targets = OA.dead_targets.copy()
@@ -1279,7 +1273,6 @@ class Cluster_Flock:
     
     Variables:
        parents        Dict of targets; keys are target.index
-       children       Dict of targets; keys are target.index
        k2par          Dict that maps observation index to dict of targets
        ks_and_pars    List of clusters each stored as a dict with keys
                         'ks' and 'tars'.  *['ks'] is a dict of the ks
@@ -1304,7 +1297,6 @@ class Cluster_Flock:
                     t
                     ):
         """ Make each of the following:
-        self.children
         self.parents
         self.k2par
         """
@@ -1690,6 +1682,9 @@ class MV4:
             hungary_count = 0
             hungary_time = 0
             flock.make_family(Ys[t],t)      # Make parent and child targets
+            print """
+t %2d: In decode_forward after make_family, len(flock.parents)=%d"""%(t,
+                 len(flock.parents))
             flock.find_clusters(len(Ys[t])) # Identify clusters of observations
             for cluster,k_list in flock.recluster(t,Ys[t]):
                 # k_list is current observations that cluster explains
@@ -1937,8 +1932,6 @@ class ASSOCIATION3(ASSOCIATION4):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets,self.check_FAs]
         self.type='ASSOCIATION3'
-    def NewA(self, *args,**kwargs):
-        return ASSOCIATION3(*args,**kwargs)
     def make_children(self, # ASSOCIATION3
                       y_t, t ):
         """ No dead targets for ASSOCIATION3. """
@@ -1950,17 +1943,13 @@ class ASSOCIATION2(ASSOCIATION3):
         ASSOCIATION4.__init__(self,*args,**kwargs)
         self.cause_checks = [self.check_targets]
         self.type='ASSOCIATION2'
-    def NewA(self, *args,**kwargs):
-        return ASSOCIATION2(*args,**kwargs)
 class ASSOCIATION1(ASSOCIATION3):
-    """ No extra_forward methods.  Targets and only targets generate hits. """
+    """ vis_tran is false.  Targets and only targets generate hits. """
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)
-        self.extra_forward = []
+        self.vis_tran = False
         self.cause_checks = [self.check_targets]
         self.type='ASSOCIATION1'
-    def NewA(self, *args,**kwargs):
-        return ASSOCIATION1(*args,**kwargs)
 class MV3(MV4):
     """ Number of targets is fixed    
     """
@@ -2012,7 +2001,7 @@ class MV3(MV4):
         return obs,xs
 class MV2(MV3):
     def __init__(self,**kwargs):
-        MV4.__init__(self,**kwargs)
+        MV3.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION2
     def simulate(self, # MV2
                  T):
@@ -2079,9 +2068,6 @@ class ASS_ABQ(ASSOCIATION4):
         self.type='ASS_ABQ'
         self.cause_checks = [self.check_targets, #No self.check_FAs for ABQ
                              self.check_newts]
-        # self.extra_forward = [] need invisibles to kill targets
-    def NewA(self, *args,**kwargs):
-        return ASS_ABQ(*args,**kwargs)
 class MV_ABQ(MV4):
     """ Like MV4 but associations are ASS_ABQ.
     """
