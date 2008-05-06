@@ -63,6 +63,8 @@ Target_Counter = 1
 Child_Target_Counter = 0
 hungary_count = 0
 hungary_time = 0
+Murty_calls = 0
+forgotten_utility = 0
 def dict_2_tuple(tk_dict): # Return tuple made from sorted list of keys
     tk_list = tk_dict.keys()
     tk_list.sort()
@@ -97,7 +99,7 @@ class FA(CAUSE): # False Alarm
     def dump(self, #FA
              ):
         print 'Dumping %s: R=%6.2f, (t,k)=(%d,%d)'%(self.type,self.R,
-                                                    self.t,self,k)
+                                                    self.t,self.k)
         return
 class TARGET5(CAUSE):
     """A TARGET is a possible moving target, eg, a car.  I (Fraser)
@@ -526,7 +528,6 @@ class TARGET4(CAUSE):
         if not self.children is None:
             return True  # make_children already called for this target
         if self._invisible_count >= self._mod.Invisible_Lifetime:
-            print 'killing a target in make_children',self
             self._kill(t)
             return False # Have calling routine move this to dead_targets
         self._forecast()
@@ -979,7 +980,7 @@ class ASSOCIATION4:
             self.nu,len(self.tar_dict),len(self.dead_targets)),
         print 'hits -> causes map=', self.h2c
         print '  Atks.keys()=',dict_2_tuple(self.Atks)
-        for target in self.tar_dict.values()+self.dead_targets.values():
+        for target in self.tar_dict.values()+self.dead_targets.values()+self.FAs.values():
             target.dump()
     def make_children(self,    # self is a ASSOCIATION4
                       y_t,     # All observations at time t
@@ -1049,7 +1050,6 @@ class ASSOCIATION4:
         self.mod.Max_NA best associations by Murty's algorithm.
         """
         global hungary_count, hungary_time
-        print '********** In Murty ************'
         assert(len(k_list) == len(causes)),\
               'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
         m = len(k_list) # Number of observations
@@ -1101,9 +1101,15 @@ class ASSOCIATION4:
                 cause = ij_2_cause[ij]
                 OK, temp = new_A.Spoon(cause,k)
                 if not OK:
+                    raise RuntimeError,'FixMe when is it not OK?'
                     break
             if not OK:
                 continue
+            for target in self.tar_dict.values():  #Enter invisible targets
+                if new_A.tar_dict.has_key(target.index):
+                    continue # Skip if child of target in partial
+                if target.children.has_key(-1): # Invisible target
+                        new_A.Enter(target.children[-1])
             new_list.append(new_A)
         return new_list     # End of Murty()
     def forward(self,       # ASSOCIATION4
@@ -1119,6 +1125,7 @@ class ASSOCIATION4:
         association S. 3. The value of u'(self,S,t+1).  On entry,
         self.nu is correct for time t-1.
         """
+        global Murty_calls
         self.t = t # Make t available to other methods
         self.verify(None)
         m = len(k_list)
@@ -1146,6 +1153,7 @@ class ASSOCIATION4:
             if N_hat < self.mod.Murty_Ex:
                 new_list = self.exhaustive(k_list,causes,floor)
             else:
+                Murty_calls += 1
                 new_list = self.Murty(k_list,causes,floor)
         if len(new_list) == 0:
             #print 'forward returning 0 new associations'
@@ -1212,7 +1220,7 @@ class Cluster:
                 asn.FAs.values():
             if tks.has_key(cause.tks.keys()[0]):
                 new_a.Enter(cause)
-        in_tuple = dict_2_tuple(tks)
+        in_tuple = dict_2_tuple(tks) # FixMe remove this check
         out_tuple = dict_2_tuple(new_a.Atks)
         assert (in_tuple == out_tuple)
         self.As.append(new_a)
@@ -1456,6 +1464,7 @@ class Cluster_Flock:
         targets_, ie, they have not incorporated observations at time
         t.
         """
+        global forgotten_utility
         fragmentON = {} # Fragment clusters indexed by (Old index, New index)
         for OI in xrange(len(self.old_clusters)):
             cluster = self.old_clusters[OI]
@@ -1464,9 +1473,10 @@ class Cluster_Flock:
                            # self.dead_targets.  Keys (t,k).  Values
                            # [tara,tarb,etc]
             cluster.As.sort(cmp_ass) # Sort the associations by utility
-            # Find associations with highest utility that can be
-            # fragmented consistently
+            # Find associations with highest (past) utility that can
+            # be fragmented consistently
             OK_As = []
+            # Assume that asn.Atks is the same for each asn
             for asn in cluster.As:
                 OK,tk_2_NI,tk_2_dead = self.compat_check(asn,tk_2_NI,tk_2_dead)
                 if OK:
@@ -1492,17 +1502,19 @@ class Cluster_Flock:
                 for asn in OK_As: # Copy necessary causes to cluster fragments
                     fragmentON[OI][NI].Append(tks,asn)
             # Save dead targets from best explanation of (all - tk_2_NI)
-            for i in xrange(len(OK_As)):
-                asn = OK_As[i]
-                if i == 0:
+            util_max = None
+            for asn in OK_As:
+                if util_max == None:
                     util_max,dead_max = asn.residual(tk_2_NI)
                     continue
                 util_try,dead_try = asn.residual(tk_2_NI)
                 if util_try > util_max:
                     util_max = util_try
                     dead_max = dead_try
-            for target in dead_max:
-                self.dead_targets.append(target)
+            if util_max != None:
+                forgotten_utility += util_max
+                for target in dead_max:
+                    self.dead_targets.append(target)
         # End loop over OI.  Next merge fragments into new clusters
         new_clusters = {}
         for OI in fragmentON.keys():
@@ -1673,7 +1685,8 @@ class MV4:
                        t_first,# Starting t for iteration
                        analysis = False
                        ):
-        global close_calls, hungary_count, hungary_time
+        global close_calls, hungary_count, hungary_time, forgotten_utility
+        forgotten_utility = 0
         close_calls = []
         flock = Cluster_Flock(old_As[0])
         TC_last = Child_Target_Counter
@@ -1682,9 +1695,6 @@ class MV4:
             hungary_count = 0
             hungary_time = 0
             flock.make_family(Ys[t],t)      # Make parent and child targets
-            print """
-t %2d: In decode_forward after make_family, len(flock.parents)=%d"""%(t,
-                 len(flock.parents))
             flock.find_clusters(len(Ys[t])) # Identify clusters of observations
             for cluster,k_list in flock.recluster(t,Ys[t]):
                 # k_list is current observations that cluster explains
@@ -1740,8 +1750,10 @@ t %2d: In decode_forward after make_family, len(flock.parents)=%d"""%(t,
                 continue
             R = scipy.zeros(len(As))
             for i in xrange(len(As)):
+                As[i].re_nu_A()
                 R[i] = As[i].nu
             A_union.join(As[R.argmax()])
+            print 'At end of decode_forward, forgotten_utility=%6.2f,\nR='%forgotten_utility,R
         # Put dead targets from flock into A_union
         for target in flock.dead_targets:
             A_union.dead_targets[target.index] = target
@@ -1796,7 +1808,7 @@ t %2d: In decode_forward after make_family, len(flock.parents)=%d"""%(t,
         A,t_0 = self.decode_init(Ys)
         A_best,T,close_calls = self.decode_forward(Ys,A,t_0,analysis=analysis)
         d,y_A = self.decode_back(A_best,T)
-        return (d,y_A,A_best.nu,close_calls)
+        return (d,y_A,A_best.nu+forgotten_utility,close_calls)
     ############## Begin simulation methods ######################
     def step_state(self, # MV4
                    state, zero_s):

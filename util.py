@@ -192,7 +192,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
-        if debug and k >= 1.9*n*m**2:
+        if k >= 2*n*m**2:
             print "Trouble in Hungarian. m=%d, n=%d, w="%(m,n)
             print_wx(w,w,m,n)
             print 'u=',u
@@ -201,7 +201,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             print 'unscanned_S.keys()=',unscanned_S.keys()
             print 'unscanned_T.keys()=',unscanned_T.keys()
             print 'X.keys()=',X.keys()
-        assert(k<2*n*m**2),'k=%d, m=%d, n=%d'%(k,m,n)
+        assert(k<4*n*m**2),'k=%d, m=%d, n=%d'%(k,m,n)
         for i in unscanned_S.keys():
             # Begin step 1.3 on i
             for j in xrange(n):
