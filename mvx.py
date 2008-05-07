@@ -36,8 +36,7 @@ MV4 -> MV3 -> MV2
 
 FixMe: To do:
 
-1. Figure out why nu_max and track differ depending exhaustive vs
-   Murty for MV2 and MV3.
+1. Why is re_nu_A necessary in exhaustive and Murty?  Something about Atks.
 
 2. Figure out occasional faliure of Murty
 
@@ -783,6 +782,7 @@ class ASSOCIATION4:
         for tk in cause.tks.keys():
             if self.Atks.has_key(tk):
                 return (False,self)
+        self.nu += cause.R
         self.Atks.update(cause.tks)
         if cause.type is 'target':
             self.tar_dict[cause.index] = cause
@@ -822,7 +822,7 @@ class ASSOCIATION4:
         same FAs and dead_targets as self.  Perhaps second option
         should be different method.
         """
-        CA = self.__class__(self.nu + cause.R,self.mod) #Child Association
+        CA = self.__class__(self.nu,self.mod) #Child Association
         CA.dead_targets = self.dead_targets.copy()
         CA.FAs = self.FAs.copy()
         CA.t = self.t
@@ -839,12 +839,12 @@ class ASSOCIATION4:
         """ Extend association by cause.  Like Fork but modify self
         rather than create child.  Called by Murty.
         """
-        self.nu += cause.R
         self.h2c[k] = cause.index
         return self.Enter(cause)
     def re_nu_A(self, # ASSOCIATION4
                 ):
-        """ Calculate self.nu based on member FA's and targets.
+        """ Calculate self.nu based on member FA's and targets.  Also
+        recalculate self.Atks
         """
         self.nu = 0.0
         self.Atks = self.FAs.copy()
@@ -1032,6 +1032,11 @@ class ASSOCIATION4:
                     if target.children.has_key(-1): # Invisible target
                         partial.Enter(target.children[-1])
         # Discard low utility associations.
+        for asn in new_list:
+            asn.re_nu_A() # FixMe this should be redundant.  asn.nu
+                          # does not change, but asn.Atks must because
+                          # this is critical to getting reasonable
+                          # tracks
         new_list.sort(cmp_ass)
         if floor == None:  # Calculate threshold relative to best association
             floor = new_list[0].nu-self.mod.A_floor
@@ -1110,6 +1115,7 @@ class ASSOCIATION4:
                     continue # Skip if child of target in partial
                 if target.children.has_key(-1): # Invisible target
                         new_A.Enter(target.children[-1])
+            new_A.re_nu_A() # FixMe this should not be necessary
             new_list.append(new_A)
         return new_list     # End of Murty()
     def forward(self,       # ASSOCIATION4
@@ -1753,7 +1759,6 @@ class MV4:
                 As[i].re_nu_A()
                 R[i] = As[i].nu
             A_union.join(As[R.argmax()])
-            print 'At end of decode_forward, forgotten_utility=%6.2f,\nR='%forgotten_utility,R
         # Put dead targets from flock into A_union
         for target in flock.dead_targets:
             A_union.dead_targets[target.index] = target
