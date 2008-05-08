@@ -1025,11 +1025,9 @@ class ASSOCIATION4:
                 for partial in old_list: #Enter invisible targets
                     for target in causes[j]:
                         assert (target.type == 'target')
-                        if partial.tar_dict.has_key(target.index) \
-                               or target.children is None:
-                            continue # Skip if child of target in
-                                     # partial or children not made
-                        if target.children.has_key(-1): # Invisible target
+                        if not partial.tar_dict.has_key(target.index) \
+                           and not target.children is None \
+                           and target.children.has_key(-1):
                             partial.Enter(target.children[-1])
                 new_list=old_list
             else:
@@ -1077,14 +1075,21 @@ class ASSOCIATION4:
         global hungary_count, hungary_time
         assert(len(k_list) == len(causes)),\
               'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
+        print '*** In Murty ****'
         m = len(k_list) # Number of observations
         index_2_j = {}  # Map from cause index to j
         ij_2_cause = {} # Map from (i,j) to cause
         j_mult = {}     # Dict of causes that can explain many observations
         w = {}          # Dict of assignement weights
         n = 0           # Number of j values, ie, causes
-        for i in xrange(m): # Loop over observations
+        # Loop over observations i&k and causes j&index.  Assign
+        # weights w[(i,j)] and maps ij_2_cause and index_2_j.
+        m_for_H = m
+        for i in xrange(m):
             k = k_list[i]
+            if k < 0 :       # FixMe I want to drop this and include
+                m_for_H -= 1 # invisibles in Hungarian
+                continue
             for cause in causes[i]:
                 index = cause.index
                 if not index_2_j.has_key(index):
@@ -1095,14 +1100,26 @@ class ASSOCIATION4:
                 j = index_2_j[index]
                 ij_2_cause[(i,j)] = cause
                 assert(cause.type != 'target' or cause.m_t[-1] == k)
-                w[(i,j)] = cause.R
+                w[(i,j)] = cause.R                
+        # FixMe This next section is for case of only invisible
+        # children.  It should go away when Hungarian handles
+        # invisibles        
+        if m_for_H < 1:
+            # The seed assn is copy of self with empty tar_dict
+            new_A = self.Seed()
+            for target in self.tar_dict.values():
+                assert (not new_A.tar_dict.has_key(target.index))
+                assert (target.children.has_key(-1))
+                new_A.Enter(target.children[-1])
+            new_A.re_nu_A() # FixMe this should not be necessary
+            return [new_A]
         # Make each w[key] > (Max-Min) so all solutions have m links
         w_list = w.values()
         delta = 2*m*max(w_list) - (2*m+1)*min(w_list)
         for key in w.keys():
             w[key] = w[key] + delta
         #
-        X = util.Hungarian(w,m,n,j_gnd=j_mult)
+        X = util.Hungarian(w,m_for_H,n,j_gnd=j_mult)
         util_max = 0
         for key in X.keys():
             util_max += w[key]
@@ -1111,7 +1128,7 @@ class ASSOCIATION4:
                 return []
         else:  # Calculate threshold relative to best association
             floor = util_max-self.mod.A_floor
-        ML = util.M_LIST(w,m,n,j_gnd=j_mult)
+        ML = util.M_LIST(w,m_for_H,n,j_gnd=j_mult)
         # FixMe: doesn't count invisible utilities
         ML.till(self.mod.Max_NA,floor)
         hungary_count += ML.H_count
@@ -1130,7 +1147,8 @@ class ASSOCIATION4:
                     break
             if not OK:
                 continue
-            for target in self.tar_dict.values():  #Enter invisible targets
+            # Enter invisible targets.  FixMe Include invisibles in Hungarian
+            for target in self.tar_dict.values():
                 if new_A.tar_dict.has_key(target.index):
                     continue # Skip if child of target in partial
                 if target.children.has_key(-1): # Invisible target
