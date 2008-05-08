@@ -495,11 +495,11 @@ class M_LIST:
         node_0 = M_NODE([],[],0.0,w,m,n,j_gnd=j_gnd)
         self.association_list = []
         self.j_gnd=j_gnd
+        self.H_count = 1
         if node_0.u_max == None:
             self.node_list = []
             return
         self.node_list = [(node_0.u_max,node_0)]
-        self.H_count = 1
         self.start_time = time.time()
         self.next()
         return

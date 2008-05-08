@@ -839,7 +839,8 @@ class ASSOCIATION4:
         """ Extend association by cause.  Like Fork but modify self
         rather than create child.  Called by Murty.
         """
-        self.h2c[k] = cause.index
+        if k >= 0:
+            self.h2c[k] = cause.index
         return self.Enter(cause)
     def re_nu_A(self, # ASSOCIATION4
                 ):
@@ -953,19 +954,25 @@ class ASSOCIATION4:
     # causes.
     def check_targets(self, # ASSOCIATION4
                   k,causes,y):
+        if k < 0 and not self.vis_tran:
+            return
         for target in self.tar_dict.values():
             if target.children.has_key(k):
                 causes.append(target.children[k])
+        return
     def check_FAs(self, # ASSOCIATION4
                   k,causes,y):
-        CC = FA(y,self.t,k,self.mod.Sigma_FA_I, self.mod)
+        if k < 0:
+            return
+        CC = FA(y[k],self.t,k,self.mod.Sigma_FA_I, self.mod)
         if CC.R > self.mod.log_min_pd:
             causes.append(CC) # False alarm
         else:
             print 'check_FAs rejects, self.mod.MaxD=',self.mod.MaxD
+        return
     def check_newts(self, # ASSOCIATION4.  Check for new target
                     k,causes,y):
-        if not self.mod.newts.has_key(k):
+        if k < 0 or not self.mod.newts.has_key(k):
             return
         CC = self.mod.newts[k]
         if self.mod.log_min_pd > CC.R:
@@ -1004,24 +1011,37 @@ class ASSOCIATION4:
         self.mod.Max_NA best associations for t+1 by exhaustive search
         """
         assert(len(k_list) > 0)
-        assert(k_list != (-1,))
+        assert (len(causes) == len(k_list)),'len(causes)=%d, len(k_list)=%d'%(
+            len(causes), len(k_list))
         # The seed association is a copy of self with an empty tar_dict
         old_list = [self.Seed()]
         # Make list of plausible associations.  At level j, each
         # association explains the source of each y_t[k_list[i]] for
         # i<j.
         for j in xrange(len(k_list)):
-            if k_list[j] < 0:
-                continue
+            k = k_list[j]
             new_list = []    # List of partial associations at level j
-            for partial in old_list:
-                for cause in causes[j]:
-                    # Don't use same target index more than once.
-                    if not partial.tar_dict.has_key(cause.index):
-                        OK,child = partial.Fork(cause,k_list[j])
+            if k < 0:
+                for partial in old_list: #Enter invisible targets
+                    for target in causes[j]:
+                        assert (target.type == 'target')
+                        if partial.tar_dict.has_key(target.index) \
+                               or target.children is None:
+                            continue # Skip if child of target in
+                                     # partial or children not made
+                        if target.children.has_key(-1): # Invisible target
+                            partial.Enter(target.children[-1])
+                new_list=old_list
+            else:
+                for partial in old_list:
+                    for cause in causes[j]:
+                        # Don't use same target index more than once.
+                        if partial.tar_dict.has_key(cause.index):
+                            continue
+                        OK,child = partial.Fork(cause,k)
                         if OK:
                             new_list.append(child)
-                old_list = new_list
+            old_list = new_list
             if len(new_list) == 0:
                 return []
         if self.vis_tran:
@@ -1136,31 +1156,22 @@ class ASSOCIATION4:
         self.verify(None)
         m = len(k_list)
         assert(m > 0)       # Necessary in N_hat calulations below
-        if k_list == (-1,): # No targets in self have visible children
-            seed = self.Seed() # make association for this time step
-            for target in self.tar_dict.values():
-                if target.children.has_key(-1): # Enter invisible children
-                    seed.Enter(target.children[-1])
-            new_list = [seed]
+        causes = []
+        N_c =0    # Total number of causes for N_hat calculation
+        # For each observation, make a list of plausible causes
+        for k in k_list:
+            causes_k = []
+            for check in self.cause_checks:
+                check(k,causes_k,y_t)
+            causes.append(causes_k)
+            N_c += len(causes_k)
+        # List of plausible causes complete
+        N_hat = (float(N_c)/m)**m  # Estimated number of associations
+        if N_hat < self.mod.Murty_Ex:
+            new_list = self.exhaustive(k_list,causes,floor)
         else:
-            causes = []
-            N_c =0    # Total number of causes for N_hat calculation
-            # For each observation, make a list of plausible causes
-            for k in k_list:
-                if k < 0:
-                    continue
-                causes_k = []
-                for check in self.cause_checks:
-                    check(k,causes_k,y_t[k])
-                causes.append(causes_k)
-                N_c += len(causes_k)
-            # List of plausible causes complete
-            N_hat = (float(N_c)/m)**m  # Estimated number of associations
-            if N_hat < self.mod.Murty_Ex:
-                new_list = self.exhaustive(k_list,causes,floor)
-            else:
-                Murty_calls += 1
-                new_list = self.Murty(k_list,causes,floor)
+            Murty_calls += 1
+            new_list = self.Murty(k_list,causes,floor)
         if len(new_list) == 0:
             #print 'forward returning 0 new associations'
             return
@@ -1408,6 +1419,8 @@ class Cluster_Flock:
         for NI in xrange(len(self.ks_and_pars)):
             for parent in self.ks_and_pars[NI]['pars'].keys():
                 self.parent_2_NI[parent] = NI
+                if parent.children.has_key(-1): #Note invisible children
+                    self.ks_and_pars[NI]['ks'][-1] = True
         return # End of find_clusters
     def compat_check(self,     # Cluster_Flock
                      asn,      # Proposed parent association
