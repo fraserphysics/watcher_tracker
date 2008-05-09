@@ -114,6 +114,7 @@ def M_2_w(M):
 def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
               m,       # Cardinality of S (use i \in S)
               n,       # Cardinality of T (use j \in T)
+              i_gnd={},# Nodes in S with unlimited capacity
               j_gnd={} # Nodes in T with unlimited capacity
               ):
     """ Find mapping X from S to T that maximizes \sum_{i,j}
@@ -152,15 +153,25 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             X_S[i] = j
             X_T[j] = i
         return
-    def backtrack_i(X,X_S,X_T,S_label,T_label,i):
+    def backtrack_i(X,X_S,X_T,S_label,T_label,i,i_gnd={},j_gnd={}):
+        """Follow path of labels and "augment" the links along the way
+        """
         if not S_label.has_key(i) or S_label[i] is None:
             return
         j = S_label[i]
         if debug:
             print '(%d,%d)'%(i,j),
-        augment(X,X_S,X_T,i,j)
-        backtrack_j(X,X_S,X_T,S_label,T_label,j)
-    def backtrack_j(X,X_S,X_T,S_label,T_label,j,j_gnd={}):
+        if i_gnd.has_key(i):
+            assert (not X.has_key((i,j))
+                    ),'X has key (%d,%d) but %d is in i_gnd'%(i,j,i)
+            Y[(i,j)] = True
+            X_T[j] = i       # Treat T node number j as "covered"
+        else:
+            augment(X,X_S,X_T,i,j)
+            backtrack_j(X,X_S,X_T,S_label,T_label,j,i_gnd=i_gnd,j_gnd=j_gnd)
+    def backtrack_j(X,X_S,X_T,S_label,T_label,j,i_gnd={},j_gnd={}):
+        """Follow path of labels and "augment" the links along the way
+        """
         if not T_label.has_key(j):
             return
         i = T_label[j]
@@ -168,13 +179,13 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             print '(%d,%d)'%(i,j),
         if j_gnd.has_key(j):
             if X.has_key((i,j)):
-                raise RuntimeError,'X has key (%d,%d) but %d is in j_gnd'%(i,
-                                                                        j,j)
+                raise RuntimeError,'X has key (%d,%d) but %d is in j_gnd'%(
+                    i,j,j)
             Y[(i,j)] = True
             X_S[i] = j       # Treat S node number i as "covered"
         else:
             augment(X,X_S,X_T,i,j)
-        backtrack_i(X,X_S,X_T,S_label,T_label,i)
+        backtrack_i(X,X_S,X_T,S_label,T_label,i,i_gnd=i_gnd,j_gnd=j_gnd)
     # Begin Lawler's step 0
     X = {}   # Dict of links X[(i,j)] = True
     X_S = {} # Dict of nodes. X_S[i]=j if i linked to j.
@@ -192,6 +203,10 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
+        for i in xrange(m):
+            if i_gnd.has_key(i):
+                S_label[i] = None
+                unscanned_S[i] = True
         if k >= 2*n*m**2:
             print "Trouble in Hungarian. m=%d, n=%d, w="%(m,n)
             print_wx(w,w,m,n)
@@ -201,7 +216,14 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             print 'unscanned_S.keys()=',unscanned_S.keys()
             print 'unscanned_T.keys()=',unscanned_T.keys()
             print 'X.keys()=',X.keys()
-        assert(k<4*n*m**2),'k=%d, m=%d, n=%d'%(k,m,n)
+        assert(k<2.5*n*m**2),'k=%d, m=%d, n=%d'%(k,m,n)
+        if debug:
+            print """
+Begin step 1.3: Find pi by searching unscanned_s and links not in X."""
+            print '  unscanned_S=',unscanned_S.keys()
+            print '  u=',u
+            print '  v=',v
+            print ' pi=',pi
         for i in unscanned_S.keys():
             # Begin step 1.3 on i
             for j in xrange(n):
@@ -216,6 +238,8 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
                 pi[j] = u[i] + v[j] - w[(i,j)]
             del unscanned_S[i]
             # End step step 1.3 on i
+        if debug:
+            print 'Found pi=',pi
         for j in unscanned_T.keys():
             if pi[j] > tol:
                 continue
@@ -224,15 +248,20 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             if not X_T.has_key(j):
                 # Begin Lawler's step 2 (augmentation)
                 if debug:
-                    print '\nBefore step 2 augmentation X=',
+                    print """
+Since pi[%d]==0 and %d is not in X_T, start step 2 augmentation from j=%d
+  with X="""%(j,j,j),
                     for key in X.keys():
                         print key,
-                    print '\nj=%d, S_label='%j,S_label, 'T_label=',T_label
-                    print 'Augmenting path=',
-                backtrack_j(X,X_S,X_T,S_label,T_label,j,j_gnd=j_gnd)
+                    print '\n S_label=',S_label, 'T_label=',T_label
+                    print ' Augmenting path=',
+                backtrack_j(X,X_S,X_T,S_label,T_label,j,i_gnd=i_gnd,j_gnd=j_gnd)
                 if debug:
-                    print '\nAfter step 2 augmentation:  X=',
+                    print '\n After step 2 augmentation:  X=',
                     for key in X.keys():
+                        print key,
+                    print 'Y=',
+                    for key in Y.keys():
                         print key,
                     print ''
                 pi = scipy.ones(n)*inf
@@ -241,7 +270,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
                 unscanned_S = {}
                 unscanned_T = {}
                 for i in xrange(m): # Step 1.0
-                    if not X_S.has_key(i):
+                    if i_gnd.has_key(i) or not X_S.has_key(i):
                         S_label[i] = None
                         unscanned_S[i] = True
                 if debug:
@@ -252,6 +281,10 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
                 S_label[i] = j
                 unscanned_S[i] = True
                 del unscanned_T[j]
+                if debug:
+                    print """
+Since pi[%d]==0 and X_T[%d]=%d, set S_label[%d] = %d, mark S[%d] unscanned
+and mark T[%d] scanned"""%(j,j,i,i,j,i,j)
         # Begin Lawler's step 1.1 (check for step 3)
         if len(unscanned_S) > 0:
             continue # Start another iteration of the labeling loop
@@ -266,22 +299,27 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             continue # Start another iteration of the labeling loop
         # End step 1.1
         # Begin Lawler's step 3 (change dual varibles)
-        delta_1 = min(u)
+        min_u = min(u)
         assert(float(pi.min()) > -tol),\
          "float(pi.min())=%f, tol=%f len(wO)=%d"%(pi.min(),tol,len(wO))
-        Lim = pi.max()
+        pi_max = pi.max()
         Mask = (pi < tol)
-        pi_ = pi + Lim*Mask
-        delta = float(pi_.min())
-        if delta > delta_1:
+        pi_ = pi + pi_max*Mask
+        delta = float(pi_.min()) # delta = min_{i:pi[i]>0} pi[i]
+        if delta > min_u:
+            if debug:
+                print """
+Finished! delta=%5.3f > min_u=%5.3f"""%(delta,min_u)
+                print 'u=',u,'v=',v,'pi=',pi
             # Finished
-            X.update(Y)
+            X.update(Y) # Fold the Y dict into the X dict
             return X
         if debug:
-            print '\nBefore step 3 adjustment by delta=%5.3f:'%delta
-            print 'u=',u,
-            print 'v=',v,
-            print 'pi=',pi,
+            print """
+Before step 3, delta=%5.3f:"""%delta
+            print '  u=',u,'v=',v,'pi=',pi
+            print '  subtract from u[i] for i in',S_label.keys()
+            print '  subtract from pi[j]>0 otherwise add to v[j]'
         for i in S_label.keys():
             u[i] -= delta
         for j in xrange(n):
@@ -293,15 +331,13 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             v[j] = 0
             pi[j] = 0
         if debug:
-            print '  After step 3 adjustment:'
-            print 'u=',u,
-            print 'v=',v,
-            print 'pi=',pi
-            print 'New scannable T node:',
+            print ' After step 3 adjustment:'
+            print '  u=',u,'v=',v,'pi=',pi
+            print '  New scannable T nodes:',
             for j in unscanned_T.keys():
                 if pi[j] < tol:
                     print j,
-            print '\nS_label=',S_label, 'T_label=',T_label
+            print '\n  S_label=',S_label, 'T_label=',T_label
         # Start another iteration of the labeling loop
     # End of Hungarian
 class M_NODE:
@@ -337,6 +373,7 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
                  n,    # Number of different output vertices in util
                  Ri_2_Oi=None, # List for mapping reduced i to original
                  Rj_2_Oj=None, # List for mapping reduced j to original
+                 i_gnd={},     # Dict of S nodes with unlimited capacity
                  j_gnd={}      # Dict of T nodes with unlimited capacity
                  ):
         if Ri_2_Oi is None:
@@ -351,8 +388,9 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.OUT = OUT[:]           # shallow copy list
         self.u_in = u_in            # Float
         self.util = util.copy()     # shallow copy dict
+        self.i_gnd=i_gnd
         self.j_gnd=j_gnd
-        X = Hungarian(util,m,n,j_gnd=j_gnd)
+        X = Hungarian(util,m,n,i_gnd=i_gnd,j_gnd=j_gnd)
         self.m = m
         self.n = n
         if len(X) < m:        # Some source vertices (hits) have no links
@@ -484,16 +522,18 @@ class M_LIST:
         association_list or you reach an association with utility less
         than U
     """
-    def __init__(self, # M_LIST
-                 w,    # A dict of utilities indexed by tuples (i,j)
-                 m,    # Range of i values
-                 n,    # Range of j values
-                 j_gnd={} # j values, ie, T nodes with unlimited capacity
+    def __init__(self,     # M_LIST
+                 w,        # A dict of utilities indexed by tuples (i,j)
+                 m,        # Range of i values
+                 n,        # Range of j values
+                 i_gnd={}, # i values, ie, S nodes with unlimited capacity
+                 j_gnd={}  # j values, ie, T nodes with unlimited capacity
                  ):
         """
         """
         node_0 = M_NODE([],[],0.0,w,m,n,j_gnd=j_gnd)
         self.association_list = []
+        self.i_gnd=i_gnd
         self.j_gnd=j_gnd
         self.H_count = 1
         self.start_time = time.time()
@@ -536,7 +576,6 @@ class M_LIST:
         return
 if __name__ == '__main__':  # Test code
     # This is tests noninteger, negative and missing entries
-    global debug
     M = scipy.array([
         [ 1, 2, 3, 0, 6],
         [ 2, 4, 0, 2, 7],
@@ -549,12 +588,12 @@ if __name__ == '__main__':  # Test code
     test0 = (M,m,n,sol)
     # This is eaiser to follow
     M = scipy.array([
-        [ 2, 3, 7],
-        [ 4, 5, 8]
+        [ 4, 5, 8],
+        [ 2, 3, 7]
         ])
     m = 2
     n = 3
-    sol = {(0, 2): True, (1, 1): True}
+    sol = {(1, 2): True, (0, 1): True}
     test1 = (M,m,n,sol)
     # This is the matrix in Murty's paper (scaled)
     M = (100-scipy.array([
@@ -585,6 +624,15 @@ if __name__ == '__main__':  # Test code
     print_wx(w,X,m,n)
     print 'Calling Hungarian with j_gnd={2:True} yields:'
     X = Hungarian(w,m,n,j_gnd={2:True})
+    print_wx(w,X,m,n)
+    print 'Calling Hungarian with i_gnd={0:True} yields:'
+    debug = True
+    X = Hungarian(w,m,n,i_gnd={1:True})
+    #X = Hungarian(w,m,n,i_gnd={})
+    debug = False
+    print_wx(w,X,m,n)
+    print 'Expected'
+    X = {(0, 1): True, (1, 2): True, (1,0):True}
     print_wx(w,X,m,n)
     M,m,n,sol = test2
     w = M_2_w(M)
