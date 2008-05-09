@@ -110,11 +110,9 @@ def M_2_w(M):
                 continue
             w[(i,j)] = w_ij
     return w
-            
 def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
               m,       # Cardinality of S (use i \in S)
               n,       # Cardinality of T (use j \in T)
-              i_gnd={},# Nodes in S with unlimited capacity
               j_gnd={} # Nodes in T with unlimited capacity
               ):
     """ Find mapping X from S to T that maximizes \sum_{i,j}
@@ -153,7 +151,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             X_S[i] = j
             X_T[j] = i
         return
-    def backtrack_i(X,X_S,X_T,S_label,T_label,i,i_gnd={},j_gnd={}):
+    def backtrack_i(X,X_S,X_T,S_label,T_label,i):
         """Follow path of labels and "augment" the links along the way
         """
         if not S_label.has_key(i) or S_label[i] is None:
@@ -161,17 +159,9 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
         j = S_label[i]
         if debug:
             print '(%d,%d)'%(i,j),
-        if i_gnd.has_key(i):
-            assert (not X.has_key((i,j))
-                    ),'X has key (%d,%d) but %d is in i_gnd'%(i,j,i)
-            Y[(i,j)] = True
-            X_T[j] = i       # Treat T node number j as "covered"
-        else:
-            augment(X,X_S,X_T,i,j)
-            backtrack_j(X,X_S,X_T,S_label,T_label,j,i_gnd=i_gnd,j_gnd=j_gnd)
-    def backtrack_j(X,X_S,X_T,S_label,T_label,j,i_gnd={},j_gnd={}):
-        """Follow path of labels and "augment" the links along the way
-        """
+        augment(X,X_S,X_T,i,j)
+        backtrack_j(X,X_S,X_T,S_label,T_label,j)
+    def backtrack_j(X,X_S,X_T,S_label,T_label,j,j_gnd={}):
         if not T_label.has_key(j):
             return
         i = T_label[j]
@@ -185,7 +175,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             X_S[i] = j       # Treat S node number i as "covered"
         else:
             augment(X,X_S,X_T,i,j)
-        backtrack_i(X,X_S,X_T,S_label,T_label,i,i_gnd=i_gnd,j_gnd=j_gnd)
+        backtrack_i(X,X_S,X_T,S_label,T_label,i)
     # Begin Lawler's step 0
     X = {}   # Dict of links X[(i,j)] = True
     X_S = {} # Dict of nodes. X_S[i]=j if i linked to j.
@@ -203,10 +193,6 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
-        for i in xrange(m):
-            if i_gnd.has_key(i):
-                S_label[i] = None
-                unscanned_S[i] = True
         if k >= 2*n*m**2:
             print "Trouble in Hungarian. m=%d, n=%d, w="%(m,n)
             print_wx(w,w,m,n)
@@ -243,7 +229,7 @@ Begin step 1.3: Find pi by searching unscanned_s and links not in X."""
         for j in unscanned_T.keys():
             if pi[j] > tol:
                 continue
-            # Begin step step 1.4 on j
+            # Begin step 1.4 on j
             pi[j] = 0.0
             if not X_T.has_key(j):
                 # Begin Lawler's step 2 (augmentation)
@@ -255,7 +241,7 @@ Since pi[%d]==0 and %d is not in X_T, start step 2 augmentation from j=%d
                         print key,
                     print '\n S_label=',S_label, 'T_label=',T_label
                     print ' Augmenting path=',
-                backtrack_j(X,X_S,X_T,S_label,T_label,j,i_gnd=i_gnd,j_gnd=j_gnd)
+                backtrack_j(X,X_S,X_T,S_label,T_label,j,j_gnd=j_gnd)
                 if debug:
                     print '\n After step 2 augmentation:  X=',
                     for key in X.keys():
@@ -270,7 +256,7 @@ Since pi[%d]==0 and %d is not in X_T, start step 2 augmentation from j=%d
                 unscanned_S = {}
                 unscanned_T = {}
                 for i in xrange(m): # Step 1.0
-                    if i_gnd.has_key(i) or not X_S.has_key(i):
+                    if not X_S.has_key(i):
                         S_label[i] = None
                         unscanned_S[i] = True
                 if debug:
@@ -373,7 +359,6 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
                  n,    # Number of different output vertices in util
                  Ri_2_Oi=None, # List for mapping reduced i to original
                  Rj_2_Oj=None, # List for mapping reduced j to original
-                 i_gnd={},     # Dict of S nodes with unlimited capacity
                  j_gnd={}      # Dict of T nodes with unlimited capacity
                  ):
         if Ri_2_Oi is None:
@@ -388,9 +373,8 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.OUT = OUT[:]           # shallow copy list
         self.u_in = u_in            # Float
         self.util = util.copy()     # shallow copy dict
-        self.i_gnd=i_gnd
         self.j_gnd=j_gnd
-        X = Hungarian(util,m,n,i_gnd=i_gnd,j_gnd=j_gnd)
+        X = Hungarian(util,m,n,j_gnd=j_gnd)
         self.m = m
         self.n = n
         if len(X) < m:        # Some source vertices (hits) have no links
@@ -522,18 +506,16 @@ class M_LIST:
         association_list or you reach an association with utility less
         than U
     """
-    def __init__(self,     # M_LIST
-                 w,        # A dict of utilities indexed by tuples (i,j)
-                 m,        # Range of i values
-                 n,        # Range of j values
-                 i_gnd={}, # i values, ie, S nodes with unlimited capacity
-                 j_gnd={}  # j values, ie, T nodes with unlimited capacity
+    def __init__(self, # M_LIST
+                 w,    # A dict of utilities indexed by tuples (i,j)
+                 m,    # Range of i values
+                 n,    # Range of j values
+                 j_gnd={} # j values, ie, T nodes with unlimited capacity
                  ):
         """
         """
         node_0 = M_NODE([],[],0.0,w,m,n,j_gnd=j_gnd)
         self.association_list = []
-        self.i_gnd=i_gnd
         self.j_gnd=j_gnd
         self.H_count = 1
         self.start_time = time.time()
@@ -619,20 +601,13 @@ if __name__ == '__main__':  # Test code
     print_wx(w,w,m,n)
     print 'Call Hungarian.  Expect result:'
     print_wx(w,sol,m,n)
+    debug = True
     X = Hungarian(w,m,n)
+    debug = False
     print 'Returned from Hungarian with result:'
     print_wx(w,X,m,n)
     print 'Calling Hungarian with j_gnd={2:True} yields:'
     X = Hungarian(w,m,n,j_gnd={2:True})
-    print_wx(w,X,m,n)
-    print 'Calling Hungarian with i_gnd={0:True} yields:'
-    debug = True
-    X = Hungarian(w,m,n,i_gnd={1:True})
-    #X = Hungarian(w,m,n,i_gnd={})
-    debug = False
-    print_wx(w,X,m,n)
-    print 'Expected'
-    X = {(0, 1): True, (1, 2): True, (1,0):True}
     print_wx(w,X,m,n)
     M,m,n,sol = test2
     w = M_2_w(M)
