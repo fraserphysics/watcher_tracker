@@ -541,7 +541,8 @@ class TARGET4(CAUSE):
             assert(self.children[k].m_t[-1]==k)
         # Child for invisible y
         self._utility(None)
-        self.children[-1] = self.__class__(par_tar=self,copy_index=True,tk=(t,-1))
+        self.children[-1] = self.__class__(par_tar=self,copy_index=True,
+                                           tk=(t,-1))
         return True
     def _forecast(self # TARGET4
                  ):
@@ -1010,7 +1011,6 @@ class ASSOCIATION4:
         """ A service routine for forward that returns a list of the
         self.mod.Max_NA best associations for t+1 by exhaustive search
         """
-        assert(len(k_list) > 0)
         assert (len(causes) == len(k_list)),'len(causes)=%d, len(k_list)=%d'%(
             len(causes), len(k_list))
         # The seed association is a copy of self with an empty tar_dict
@@ -1021,49 +1021,39 @@ class ASSOCIATION4:
         for j in xrange(len(k_list)):
             k = k_list[j]
             new_list = []    # List of partial associations at level j
-            if k < 0:
-                for partial in old_list: #Enter invisible targets
-                    for target in causes[j]:
-                        assert (target.type == 'target')
-                        if not partial.tar_dict.has_key(target.index) \
-                           and not target.children is None \
-                           and target.children.has_key(-1):
-                            partial.Enter(target.children[-1])
-                new_list=old_list
-            else:
-                for partial in old_list:
-                    for cause in causes[j]:
-                        # Don't use same target index more than once.
-                        if partial.tar_dict.has_key(cause.index):
-                            continue
-                        OK,child = partial.Fork(cause,k)
-                        if OK:
-                            new_list.append(child)
+            for partial in old_list:
+                for cause in causes[j]:
+                    # Don't use same target index more than once.
+                    if partial.tar_dict.has_key(cause.index):
+                        continue
+                    OK,child = partial.Fork(cause,k)
+                    if OK:
+                        new_list.append(child)
             old_list = new_list
             if len(new_list) == 0:
                 return []
         if self.vis_tran:
-            for partial in new_list: #Enter invisible targets
+            for partial in old_list: #Enter invisible targets
                 for target in self.tar_dict.values():
                     if partial.tar_dict.has_key(target.index):
                         continue # Skip if child of target in partial
                     if target.children.has_key(-1): # Invisible target
                         partial.Enter(target.children[-1])
         # Discard low utility associations.
-        for asn in new_list:
+        for asn in old_list:
             asn.re_nu_A() # FixMe this should be redundant.  asn.nu
                           # does not change, but asn.Atks must because
                           # this is critical to getting reasonable
                           # tracks
-        new_list.sort(cmp_ass)
+        old_list.sort(cmp_ass)
         if floor == None:  # Calculate threshold relative to best association
-            floor = new_list[0].nu-self.mod.A_floor
-        old_list = []
-        for asn in new_list[:self.mod.Max_NA]:
+            floor = old_list[0].nu-self.mod.A_floor
+        new_list = []
+        for asn in old_list[:self.mod.Max_NA]:
             if asn.nu < floor:
                 break
-            old_list.append(asn)
-        return old_list  # End of exhaustive()
+            new_list.append(asn)
+        return new_list  # End of exhaustive()
     def Murty(self,      # ASSOCIATION4
               k_list,    # Observations indices in this cluster
               causes,    # Plausible explanations of each observation
@@ -1075,8 +1065,6 @@ class ASSOCIATION4:
         global hungary_count, hungary_time
         assert(len(k_list) == len(causes)),\
               'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
-        print '*** In Murty ****'
-        m = len(k_list) # Number of observations
         index_2_j = {}  # Map from cause index to j
         ij_2_cause = {} # Map from (i,j) to cause
         j_mult = {}     # Dict of causes that can explain many observations
@@ -1084,12 +1072,8 @@ class ASSOCIATION4:
         n = 0           # Number of j values, ie, causes
         # Loop over observations i&k and causes j&index.  Assign
         # weights w[(i,j)] and maps ij_2_cause and index_2_j.
-        m_for_H = m
-        for i in xrange(m):
+        for i in xrange(len(k_list)):
             k = k_list[i]
-            if k < 0 :       # FixMe I want to drop this and include
-                m_for_H -= 1 # invisibles in Hungarian
-                continue
             for cause in causes[i]:
                 index = cause.index
                 if not index_2_j.has_key(index):
@@ -1100,26 +1084,30 @@ class ASSOCIATION4:
                 j = index_2_j[index]
                 ij_2_cause[(i,j)] = cause
                 assert(cause.type != 'target' or cause.m_t[-1] == k)
-                w[(i,j)] = cause.R                
-        # FixMe This next section is for case of only invisible
-        # children.  It should go away when Hungarian handles
-        # invisibles        
-        if m_for_H < 1:
-            # The seed assn is copy of self with empty tar_dict
-            new_A = self.Seed()
+                w[(i,j)] = cause.R
+        i_mult = {} 
+        if self.vis_tran: #Enter invisible targets
             for target in self.tar_dict.values():
-                assert (not new_A.tar_dict.has_key(target.index))
-                assert (target.children.has_key(-1))
-                new_A.Enter(target.children[-1])
-            new_A.re_nu_A() # FixMe this should not be necessary
-            return [new_A]
+                if target.children.has_key(-1): # Invisible target
+                    index = target.index
+                    if not index_2_j.has_key(index):
+                        index_2_j[index] = n
+                        n += 1
+                    j = index_2_j[index]
+                    ij_2_cause[(-1,j)] = target
+                    w[(-1,j)] = target.R
+                    i_mult[-1] = True
+        if i_mult.has_key(-1):
+            m = len(k_list) + 1
+        else:
+            m = len(k_list)
         # Make each w[key] > (Max-Min) so all solutions have m links
         w_list = w.values()
         delta = 2*m*max(w_list) - (2*m+1)*min(w_list)
         for key in w.keys():
             w[key] = w[key] + delta
         #
-        X = util.Hungarian(w,m_for_H,n,j_gnd=j_mult)
+        X = util.H_cvx(w,m,n,i_gnd=i_mult,j_gnd=j_mult)
         util_max = 0
         for key in X.keys():
             util_max += w[key]
@@ -1128,8 +1116,7 @@ class ASSOCIATION4:
                 return []
         else:  # Calculate threshold relative to best association
             floor = util_max-self.mod.A_floor
-        ML = util.M_LIST(w,m_for_H,n,j_gnd=j_mult)
-        # FixMe: doesn't count invisible utilities
+        ML = util.M_LIST(w,m,n,i_gnd=i_mult,j_gnd=j_mult)
         ML.till(self.mod.Max_NA,floor)
         hungary_count += ML.H_count
         hungary_time += ML.stop_time-ML.start_time
@@ -1147,12 +1134,6 @@ class ASSOCIATION4:
                     break
             if not OK:
                 continue
-            # Enter invisible targets.  FixMe Include invisibles in Hungarian
-            for target in self.tar_dict.values():
-                if new_A.tar_dict.has_key(target.index):
-                    continue # Skip if child of target in partial
-                if target.children.has_key(-1): # Invisible target
-                        new_A.Enter(target.children[-1])
             new_A.re_nu_A() # FixMe this should not be necessary
             new_list.append(new_A)
         return new_list     # End of Murty()
@@ -1172,8 +1153,7 @@ class ASSOCIATION4:
         global Murty_calls
         self.t = t # Make t available to other methods
         self.verify(None)
-        m = len(k_list)
-        assert(m > 0)       # Necessary in N_hat calulations below
+        m = max(len(k_list), 1) # 1 for N_hat calculation with all invisible
         causes = []
         N_c =0    # Total number of causes for N_hat calculation
         # For each observation, make a list of plausible causes
@@ -1580,6 +1560,8 @@ class Cluster_Flock:
         rv = [] # Return value is [[cluster,k_list],[cluster,k_list],...]
         self.old_clusters = []
         for NI in new_clusters.keys():
+            if self.ks_and_pars[NI]['ks'].has_key(-1):
+                del self.ks_and_pars[NI]['ks'][-1] # FixMe: inelegant
             k_list = self.ks_and_pars[NI]['ks'].keys()
             cluster = new_clusters[NI]
             cluster.re_nu_C()

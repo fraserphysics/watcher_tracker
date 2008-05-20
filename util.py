@@ -110,13 +110,60 @@ def M_2_w(M):
                 continue
             w[(i,j)] = w_ij
     return w
+def H_cvx(
+    wO,       # dict of weights indexed by tuple (i,j)
+    m,        # Cardinality of S (use i \in S)
+    n,        # Cardinality of T (use j \in T)
+    i_gnd={}, # Nodes in S with unlimited capacity
+    j_gnd={}  # Nodes in T with unlimited capacity
+    ):
+    import cvxopt, cvxopt.base, cvxopt.modeling, cvxopt.solvers
+
+    cvxopt.solvers.options['show_progress'] = False
+    wO_keys = wO.keys()
+    Min = min(wO.values())
+    L = len(wO)
+    S_mat = cvxopt.base.matrix(0,(m,L),'d')
+    T_mat = cvxopt.base.matrix(0,(n,L),'d')
+    W = cvxopt.base.matrix(0,(1,L),'d')
+    for k in xrange(L):
+        ij = wO_keys[k]
+        i,j = ij
+        W[k] = wO[ij] - Min + .1 # Add 0.1 because cvxopt fails if all W are 0
+        if not i_gnd.has_key(i):
+            S_mat[i,k] = 1.0
+        if not j_gnd.has_key(j):
+            T_mat[j,k] = 1.0
+    X = cvxopt.modeling.variable(len(W),'X')
+    f = -W*X
+    S_sum = S_mat*X
+    S_constraint = (S_sum <= 1)
+    T_sum = T_mat*X
+    T_constraint = (T_sum <= 1)
+    positive = (0 <= X)
+    LP = cvxopt.modeling.op(f,[positive, S_constraint, T_constraint])
+    try:
+        LP.solve()
+    except:
+        print LP.variables()
+        print LP.objective
+        print LP.inequalities()
+        LP.solve()
+    assert (LP.status == 'optimal'),'LP.status=%s'%LP.status
+    RD = {}
+    for k in xrange(L):
+        ij = wO_keys[k]
+        if X.value[k] > 0.5:
+            RD[ij] = True
+    return RD
+    
 def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
               m,       # Cardinality of S (use i \in S)
               n,       # Cardinality of T (use j \in T)
               j_gnd={} # Nodes in T with unlimited capacity
               ):
     """ Find mapping X from S to T that maximizes \sum_{i,j}
-    X_{i,j}w_{i,j}.  Return X as a dict with X[i] = j
+    X_{i,j}w_{i,j}.  Return X as a dict with X[(i,j)] = True
     """
     if len(wO) == 0:
         return {}
@@ -350,17 +397,19 @@ Citation: An Algorithm for Ranking all the Assignments in Order of
 Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
 (May - Jun., 1968), pp. 682-687
     """
-    def __init__(self, # M_NODE
-                 IN,   # List of vertices included in all a \in M_NODE
-                 OUT,  # List of vertices excluded from all a \in M_NODE
-                 u_in, # Utility of vertices in IN
-                 util, # Utility "matrix" stored as dict
-                 m,    # Number of different input vertices in util
-                 n,    # Number of different output vertices in util
-                 Ri_2_Oi=None, # List for mapping reduced i to original
-                 Rj_2_Oj=None, # List for mapping reduced j to original
-                 j_gnd={}      # Dict of T nodes with unlimited capacity
-                 ):
+    def __init__(
+        self,         # M_NODE
+        IN,           # List of vertices included in all a \in M_NODE
+        OUT,          # List of vertices excluded from all a \in M_NODE
+        u_in,         # Utility of vertices in IN
+        util,         # Utility "matrix" stored as dict
+        m,            # Number of different input vertices in util
+        n,            # Number of different output vertices in util
+        Ri_2_Oi=None, # List for mapping reduced i to original
+        Rj_2_Oj=None, # List for mapping reduced j to original
+        i_gnd={},     # Dict of S nodes with unlimited capacity
+        j_gnd={}      # Dict of T nodes with unlimited capacity
+        ):
         if Ri_2_Oi is None:
             self.Ri_2_Oi = range(m)
         else:
@@ -373,8 +422,9 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         self.OUT = OUT[:]           # shallow copy list
         self.u_in = u_in            # Float
         self.util = util.copy()     # shallow copy dict
+        self.i_gnd=i_gnd
         self.j_gnd=j_gnd
-        X = Hungarian(util,m,n,j_gnd=j_gnd)
+        X = H_cvx(util,m,n,i_gnd=i_gnd,j_gnd=j_gnd)
         self.m = m
         self.n = n
         if len(X) < m:        # Some source vertices (hits) have no links
@@ -436,7 +486,8 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         i_list = []
         j_list = []
         for Ri,Rj in new_in:
-            i_list.append(Ri)
+            if not self.i_gnd.has_key(Ri): # Don't drop i's in self.i_gnd
+                i_list.append(Ri)
             if not self.j_gnd.has_key(Rj): # Don't drop j's in self.j_gnd
                 j_list.append(Rj)
         i_map,Ri_2_Oi = remap(self.Ri_2_Oi,i_list)
@@ -456,11 +507,14 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         IN = self.IN[:]
         for Ri,Rj in new_in:
             IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
+        new_i_gnd = {}
+        for i in self.i_gnd.keys():   # Map j_gnd to new coordinates
+            new_i_gnd[i_map[i]] = True
         new_j_gnd = {}
         for j in self.j_gnd.keys():   # Map j_gnd to new coordinates
             new_j_gnd[j_map[j]] = True
         new = M_NODE(IN, self.OUT, u_in, util, len(i_map), len(j_map),
-                     Ri_2_Oi, Rj_2_Oj,j_gnd=new_j_gnd)
+                     Ri_2_Oi, Rj_2_Oj,i_gnd=new_i_gnd,j_gnd=new_j_gnd)
         if new.ij_max is None: # Cardinality of X less than m
             return None
         Ri,Rj = new_out
@@ -506,16 +560,19 @@ class M_LIST:
         association_list or you reach an association with utility less
         than U
     """
-    def __init__(self, # M_LIST
-                 w,    # A dict of utilities indexed by tuples (i,j)
-                 m,    # Range of i values
-                 n,    # Range of j values
-                 j_gnd={} # j values, ie, T nodes with unlimited capacity
+    def __init__(
+        self,     # M_LIST
+        w,        # A dict of utilities indexed by tuples (i,j)
+        m,        # Range of i values
+        n,        # Range of j values
+        i_gnd={}, # j values, ie, T nodes with unlimited capacity
+        j_gnd={}  # j values, ie, T nodes with unlimited capacity
                  ):
         """
         """
-        node_0 = M_NODE([],[],0.0,w,m,n,j_gnd=j_gnd)
+        node_0 = M_NODE([],[],0.0,w,m,n,i_gnd=i_gnd,j_gnd=j_gnd)
         self.association_list = []
+        self.i_gnd=i_gnd
         self.j_gnd=j_gnd
         self.H_count = 1
         self.start_time = time.time()
@@ -594,20 +651,24 @@ if __name__ == '__main__':  # Test code
     n = 10
     sol = {(6, 9): True, (0, 8): True, (7, 0): True, (9, 1): True, (4, 5): True, (1, 6): True, (2, 2): True, (3, 7): True, (5, 3): True, (8, 4): True}
     test2 = (M,m,n,sol)
-    M,m,n,sol = test1 # Funny way to enable different tests with small edit
+    M,m,n,sol = test0 # Funny way to enable different tests with small edit
     debug = False
     w = M_2_w(M)
     print 'w='
     print_wx(w,w,m,n)
     print 'Call Hungarian.  Expect result:'
     print_wx(w,sol,m,n)
-    debug = True
     X = Hungarian(w,m,n)
-    debug = False
     print 'Returned from Hungarian with result:'
     print_wx(w,X,m,n)
-    print 'Calling Hungarian with j_gnd={2:True} yields:'
-    X = Hungarian(w,m,n,j_gnd={2:True})
+    X = H_cvx(w,m,n)
+    print 'Returned from H_cvx with result:'
+    print_wx(w,X,m,n)
+    print 'Calling Hungarian with j_gnd={4:True} yields:'
+    X = H_cvx(w,m,n,j_gnd={4:True})
+    print_wx(w,X,m,n)
+    print 'Calling Hungarian with i_gnd={1:True} yields:'
+    X = H_cvx(w,m,n,i_gnd={1:True})
     print_wx(w,X,m,n)
     M,m,n,sol = test2
     w = M_2_w(M)
@@ -617,10 +678,17 @@ if __name__ == '__main__':  # Test code
     for U,X in ML.association_list:
         X.sort()
         print_x(X,w)
-    # Test with no capacity limit for third column
+    # Test with no capacity limit for column
     ML = M_LIST(w,m,n,j_gnd={2:True})
     ML.till(18,99.8)
     print "Result of Murty's algorithm with j_gnd={2:True}:"
+    for U,X in ML.association_list:
+        X.sort()
+        print_x(X,w)
+    # Test with no capacity limit for row
+    ML = M_LIST(w,m,n,i_gnd={6:True})
+    ML.till(18,99.8)
+    print "Result of Murty's algorithm with i_gnd={6:True}:"
     for U,X in ML.association_list:
         X.sort()
         print_x(X,w)
