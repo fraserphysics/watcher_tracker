@@ -110,6 +110,14 @@ def M_2_w(M):
                 continue
             w[(i,j)] = w_ij
     return w
+def print_cvx_mat(M,name):
+    print '%s='%name
+    m,n = M.size
+    for i in xrange(m):
+        for j in xrange(n):
+            print '%2d'%int(M[i,j]),
+        print '\n',
+    print ''
 def H_cvx(
     wO,       # dict of weights indexed by tuple (i,j)
     m,        # Cardinality of S (use i \in S)
@@ -121,35 +129,54 @@ def H_cvx(
 
     cvxopt.solvers.options['show_progress'] = False
     wO_keys = wO.keys()
-    Min = min(wO.values())
     L = len(wO)
-    S_mat = cvxopt.base.matrix(0,(m,L),'d')
-    T_mat = cvxopt.base.matrix(0,(n,L),'d')
     W = cvxopt.base.matrix(0,(1,L),'d')
+    S_mat0 = cvxopt.base.matrix(0,(m,L),'d')
+    T_mat0 = cvxopt.base.matrix(0,(n,L),'d')
     for k in xrange(L):
         ij = wO_keys[k]
         i,j = ij
-        W[k] = wO[ij] - Min + .1 # Add 0.1 because cvxopt fails if all W are 0
-        if not i_gnd.has_key(i):
-            S_mat[i,k] = 1.0
-        if not j_gnd.has_key(j):
-            T_mat[j,k] = 1.0
+        W[k] = wO[ij] + 1e-6 # 1e-6 to keep cvxopt from dropping zeros
+        S_mat0[i,k] = 1.0
+        T_mat0[j,k] = 1.0
+    size = (m + n - len(i_gnd) - len(j_gnd),L)
+    ST_mat = cvxopt.base.matrix(0,size,'d')
+    k=0
+    for i in xrange(m):
+        if i_gnd.has_key(i):
+            continue
+        for j in xrange(L):
+            ST_mat[k,j] = S_mat0[i,j]
+        k += 1
+    for i in xrange(n):
+        if j_gnd.has_key(i):
+            continue
+        for j in xrange(L):
+            ST_mat[k,j] = T_mat0[i,j]
+        k += 1
     X = cvxopt.modeling.variable(len(W),'X')
     f = -W*X
-    S_sum = S_mat*X
-    S_constraint = (S_sum <= 1)
-    T_sum = T_mat*X
-    T_constraint = (T_sum <= 1)
+    ST_constraint = (ST_mat*X == 1)
     positive = (0 <= X)
-    LP = cvxopt.modeling.op(f,[positive, S_constraint, T_constraint])
+    # (X[0]<=2.0) circumvents a bug in cvxopt
+    LP = cvxopt.modeling.op(f,[ST_constraint,(X[0]<=2.0),positive])
     try:
-        LP.solve()
+        LP.solve('dense','glpk')
+        #LP.solve()
+        assert (LP.status == 'optimal'),'LP.status=%s'%LP.status
     except:
-        print LP.variables()
-        print LP.objective
-        print LP.inequalities()
-        LP.solve()
-    assert (LP.status == 'optimal'),'LP.status=%s'%LP.status
+        print 'LP.solve() failed m=%d, n=%d'%(m,n)
+        print ' i_gnd=',i_gnd.keys()
+        print ' j_gnd=',j_gnd.keys()
+        print ' wO=',wO
+        print 'printing varibles',LP.variables()
+        print 'printing objective',LP.objective
+        print 'printing inequalities',LP.inequalities()
+        print 'printing equalities',LP.equalities()
+        print '\n*** Calling solve ***'
+        LP.solve('dense','glpk')
+        #LP.solve()
+        assert (LP.status == 'optimal'),'LP.status=%s'%LP.status
     RD = {}
     for k in xrange(L):
         ij = wO_keys[k]
@@ -513,10 +540,11 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         new_j_gnd = {}
         for j in self.j_gnd.keys():   # Map j_gnd to new coordinates
             new_j_gnd[j_map[j]] = True
-        new = M_NODE(IN, self.OUT, u_in, util, len(i_map), len(j_map),
+        try: # FixMe Should check exception
+            new = M_NODE(IN, self.OUT, u_in, util, len(i_map), len(j_map),
                      Ri_2_Oi, Rj_2_Oj,i_gnd=new_i_gnd,j_gnd=new_j_gnd)
-        if new.ij_max is None: # Cardinality of X less than m
-            return None
+        except:
+            return None # No feasible solution
         Ri,Rj = new_out
         new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
         return new
@@ -606,7 +634,7 @@ class M_LIST:
         utility(association_list[-1]) <= U or no more associations are
         possible.
         """
-        while len(self.association_list) < N and len(self.node_list) > 0:       
+        while len(self.association_list) < N and len(self.node_list) > 0:
             self.next()
             if self.association_list[-1][0] < U:
                 self.stop_time = time.time()
@@ -616,14 +644,15 @@ class M_LIST:
 if __name__ == '__main__':  # Test code
     # This is tests noninteger, negative and missing entries
     M = scipy.array([
-        [ 1, 2, 3, 0, 6],
+        [ 1, 2, 4, 0, 6],
         [ 2, 4, 0, 2, 7],
-        [ 4, 3, 4, 8, 9],
-        [-1, 0,-3,-4,-2]
-        ])*1.1
-    m = 4
+        [ 4, 3, 4, 7, 9],
+        [-3, 0, 1,-4,-2],
+        [ 4, 3, 4, 8, 9]
+        ],'float')
+    m = 5
     n = 5
-    sol = {(0, 2): True, (1, 4): True, (2, 3): True, (3,0):True }
+    sol = {(0, 0): True, (1, 1): True, (2,4):True, (3, 2): True, (4,3):True }
     test0 = (M,m,n,sol)
     # This is eaiser to follow
     M = scipy.array([
@@ -649,7 +678,9 @@ if __name__ == '__main__':  # Test code
         ]))/10.0
     m = 10
     n = 10
-    sol = {(6, 9): True, (0, 8): True, (7, 0): True, (9, 1): True, (4, 5): True, (1, 6): True, (2, 2): True, (3, 7): True, (5, 3): True, (8, 4): True}
+    sol = {(6, 9): True, (0, 8): True, (7, 0): True, (9, 1): True,
+           (4, 5): True, (1, 6): True, (2, 2): True, (3, 7): True,
+           (5, 3): True, (8, 4): True}
     test2 = (M,m,n,sol)
     M,m,n,sol = test0 # Funny way to enable different tests with small edit
     debug = False
@@ -664,11 +695,14 @@ if __name__ == '__main__':  # Test code
     X = H_cvx(w,m,n)
     print 'Returned from H_cvx with result:'
     print_wx(w,X,m,n)
-    print 'Calling Hungarian with j_gnd={4:True} yields:'
-    X = H_cvx(w,m,n,j_gnd={4:True})
+    print 'Calling H_cvx with j_gnd={j:True,1:True} yields:'
+    X = H_cvx(w,m,n,j_gnd={2:True,1:True})
     print_wx(w,X,m,n)
-    print 'Calling Hungarian with i_gnd={1:True} yields:'
-    X = H_cvx(w,m,n,i_gnd={1:True})
+    print 'Calling H_cvx with i_gnd={2:True,1:True} yields:'
+    X = H_cvx(w,m,n,i_gnd={2:True,1:True})
+    print_wx(w,X,m,n)
+    print 'Calling H_cvx with i_gnd={1:True} & j_gnd={2:True} yields:'
+    X = H_cvx(w,m,n,i_gnd={1:True},j_gnd={2:True})
     print_wx(w,X,m,n)
     M,m,n,sol = test2
     w = M_2_w(M)
@@ -678,17 +712,12 @@ if __name__ == '__main__':  # Test code
     for U,X in ML.association_list:
         X.sort()
         print_x(X,w)
-    # Test with no capacity limit for column
-    ML = M_LIST(w,m,n,j_gnd={2:True})
-    ML.till(18,99.8)
-    print "Result of Murty's algorithm with j_gnd={2:True}:"
-    for U,X in ML.association_list:
-        X.sort()
-        print_x(X,w)
-    # Test with no capacity limit for row
-    ML = M_LIST(w,m,n,i_gnd={6:True})
-    ML.till(18,99.8)
-    print "Result of Murty's algorithm with i_gnd={6:True}:"
+    # Test with no capacity limit for row and column
+    M,m,n,sol = test0
+    w = M_2_w(M)
+    ML = M_LIST(w,m,n,i_gnd={1:True},j_gnd={2:True})
+    ML.till(63,10) # FixMe should quit gracefully if till asks for too much
+    print "Result of Murty's algorithm with i_gnd={1:True},j_gnd={2:True}}:"
     for U,X in ML.association_list:
         X.sort()
         print_x(X,w)
