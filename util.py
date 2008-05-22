@@ -125,46 +125,49 @@ def H_cvx(
     i_gnd={}, # Nodes in S with unlimited capacity
     j_gnd={}  # Nodes in T with unlimited capacity
     ):
+    """ Find the maximum weight assignment with weights given by wO.
+    The indices of wO are 2-tuples.  Each tuple has elements i and j.
+    The only restriction on the elements i and j is that they are used
+    individually to index a dict.
+    """
     import cvxopt, cvxopt.base, cvxopt.modeling, cvxopt.solvers
 
     cvxopt.solvers.options['show_progress'] = False
     wO_keys = wO.keys()
     L = len(wO)
     W = cvxopt.base.matrix(0,(1,L),'d')
-    S_mat0 = cvxopt.base.matrix(0,(m,L),'d')
-    T_mat0 = cvxopt.base.matrix(0,(n,L),'d')
-    for k in xrange(L):
-        ij = wO_keys[k]
-        i,j = ij
-        W[k] = wO[ij] + 1e-6 # 1e-6 to keep cvxopt from dropping zeros
-        S_mat0[i,k] = 1.0
-        T_mat0[j,k] = 1.0
     size = (m + n - len(i_gnd) - len(j_gnd),L)
     ST_mat = cvxopt.base.matrix(0,size,'d')
-    k=0
-    for i in xrange(m):
-        if i_gnd.has_key(i):
-            continue
-        for j in xrange(L):
-            ST_mat[k,j] = S_mat0[i,j]
-        k += 1
-    for i in xrange(n):
-        if j_gnd.has_key(i):
-            continue
-        for j in xrange(L):
-            ST_mat[k,j] = T_mat0[i,j]
-        k += 1
+    ij_dict = {}
+    # This loop extracts a dense vector W from wO and a matrix ST_mat
+    for col in xrange(L):
+        ij = wO_keys[col]
+        W[col] = wO[ij] + 1e-6 # 1e-6 to keep cvxopt from dropping zeros
+        i,j = ij
+        i_key = ('i',i)
+        j_key = ('j',j)
+        if not i_gnd.has_key(i):
+            if not ij_dict.has_key(i_key):
+                row = len(ij_dict)
+                ij_dict[i_key] = row
+        if not j_gnd.has_key(j):
+            if not ij_dict.has_key(j_key):
+                row = len(ij_dict)
+                ij_dict[j_key] = row
+        for key in [i_key,j_key]:
+            if ij_dict.has_key(key):
+                row = ij_dict[key]
+                ST_mat[row,col] = 1.0
     X = cvxopt.modeling.variable(len(W),'X')
     f = -W*X
     ST_constraint = (ST_mat*X == 1)
     positive = (0 <= X)
     # (X[0]<=2.0) circumvents a bug in cvxopt
     LP = cvxopt.modeling.op(f,[ST_constraint,(X[0]<=2.0),positive])
-    try:
-        LP.solve('dense','glpk')
-        #LP.solve()
-        assert (LP.status == 'optimal'),'LP.status=%s'%LP.status
-    except:
+    LP.solve('dense','glpk')
+    #LP.solve()
+    assert (LP.status == 'optimal'),'LP.status=%s'%LP.status
+    if False:
         print 'LP.solve() failed m=%d, n=%d'%(m,n)
         print ' i_gnd=',i_gnd.keys()
         print ' j_gnd=',j_gnd.keys()
@@ -182,6 +185,9 @@ def H_cvx(
         ij = wO_keys[k]
         if X.value[k] > 0.5:
             RD[ij] = True
+    #print 'Returning from H_cvx with:'
+    #print_wx(wO,RD,m,n)
+    #print_wx(wO,wO,m,n)
     return RD
     
 def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
