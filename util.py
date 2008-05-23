@@ -438,32 +438,23 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         util,         # Utility "matrix" stored as dict
         m,            # Number of different input vertices in util
         n,            # Number of different output vertices in util
-        Ri_2_Oi=None, # List for mapping reduced i to original
-        Rj_2_Oj=None, # List for mapping reduced j to original
         i_gnd={},     # Dict of S nodes with unlimited capacity
         j_gnd={}      # Dict of T nodes with unlimited capacity
         ):
-        if Ri_2_Oi is None:
-            self.Ri_2_Oi = range(m)
-        else:
-            self.Ri_2_Oi = Ri_2_Oi[:] # shallow copy list
-        if Rj_2_Oj is None:
-            self.Rj_2_Oj = range(n)
-        else:
-            self.Rj_2_Oj = Rj_2_Oj[:] # shallow copy list
         self.IN = IN[:]             # shallow copy list
         self.OUT = OUT[:]           # shallow copy list
         self.u_in = u_in            # Float
         self.util = util.copy()     # shallow copy dict
         self.i_gnd=i_gnd
         self.j_gnd=j_gnd
-        X = H_cvx(util,m,n,i_gnd=i_gnd,j_gnd=j_gnd)
-        self.m = m
-        self.n = n
-        if len(X) < m:        # Some source vertices (hits) have no links
+        try:
+            X = H_cvx(util,m,n,i_gnd=i_gnd,j_gnd=j_gnd)
+        except: # Indicate that there is no feasible solution
             self.ij_max = None
             self.u_max = None
             return
+        self.m = m
+        self.n = n
         self.ij_max = X
         u_max = u_in
         for ij in X:
@@ -474,8 +465,6 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         print "\nDumping an M_NODE:"
         print "IN=",self.IN
         print "OUT=",self.OUT
-        print "Ri_2_Oi=",self.Ri_2_Oi
-        print "Rj_2_Oj=",self.Rj_2_Oj
         print "ij_max=",self.ij_max.keys()
         print "u_in=%5.2f,  u_max=%5.2f, m=%d, n=%d, util="%(self.u_in,
             self.u_max, self.m, self.n)
@@ -489,90 +478,63 @@ Increasing Cost Katta G. Murty Operations Research, Vol. 16, No. 3
         print ''
         return
     def spawn(self,      # M_NODE
-               new_in,   # List of additional vertices in reduced form for IN
-               new_out   # Additional vertex for in reduced form OUT
+               new_in,   # List of additional vertices for IN
+               new_out   # Vertex for OUT
                ):
-        """ Augment self.OUT by new_out and modify self.util, then
-        call reduce_in to handle new_in
+        """ Create and retrun an M_NODE called 'new' that is like self
+        except:
+        
+           Vertex new_out removed from new.util and appended to
+              new.OUT
+        
+           for each vertex v in new_in:
+              Remove row and column of v unless in *_gnd
+              Append v to new.IN
+              Add utility of v to new.u_in
         """
-        def remap(Rx_2_Ox,x_list):
-            """ Return (x_map,new_Rx_2_Ox).  x_map is a dict for
-            calculating keys of the new utility from the keys of the
-            old utility.  The list new_Rx_2_Ox maps new Reduced keys to
-            Original indices.
-            """
-            x_list.sort()
-            x_map = {}
-            L = 0
-            for k in xrange(len(Rx_2_Ox)):
-                if L < len(x_list) and x_list[L] == k:
-                    L += 1
-                    continue
-                x_map[k] = k-L
-            new_Rx_2_Ox = Rx_2_Ox[:] # Shallow copy
-            x_list.reverse()
-            for k in x_list:
-                del new_Rx_2_Ox[k]
-            return (x_map,new_Rx_2_Ox)
-        # End of remap
-        # Create the mapping lists and util dict for new node
-        i_list = []
-        j_list = []
-        for Ri,Rj in new_in:
-            if not self.i_gnd.has_key(Ri): # Don't drop i's in self.i_gnd
-                i_list.append(Ri)
-            if not self.j_gnd.has_key(Rj): # Don't drop j's in self.j_gnd
-                j_list.append(Rj)
-        i_map,Ri_2_Oi = remap(self.Ri_2_Oi,i_list)
-        j_map,Rj_2_Oj = remap(self.Rj_2_Oj,j_list)
-        util = {}
-        for key in self.util.keys():
+        # Create util dict for new node
+        i_kill = {}
+        j_kill = {}
+        new_m = self.m
+        new_n = self.n
+        for i,j in new_in:
+            if not self.i_gnd.has_key(i): # Don't drop i's in self.i_gnd
+                i_kill[i] = True
+                new_m -= 1
+            if not self.j_gnd.has_key(j): # Don't drop j's in self.j_gnd
+                j_kill[j] = True
+                new_n -= 1
+        util = self.util.copy()
+        del util[new_out]
+        for key in util.keys():
             i,j = key
-            if i_map.has_key(i) and j_map.has_key(j):
-                if key == new_out:
-                    continue
-                util[(i_map[i],j_map[j])] = self.util[key]
-        if len(util) == 0:
-            return None
+            if i_kill.has_key(i) or j_kill.has_key(j):
+                del util[key]
         u_in = self.u_in
         for ij in new_in:
             u_in += self.util[ij]
-        IN = self.IN[:]
-        for Ri,Rj in new_in:
-            IN.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
-        new_i_gnd = {}
-        for i in self.i_gnd.keys():   # Map j_gnd to new coordinates
-            new_i_gnd[i_map[i]] = True
-        new_j_gnd = {}
-        for j in self.j_gnd.keys():   # Map j_gnd to new coordinates
-            new_j_gnd[j_map[j]] = True
-        try: # FixMe Should check exception
-            new = M_NODE(IN, self.OUT, u_in, util, len(i_map), len(j_map),
-                     Ri_2_Oi, Rj_2_Oj,i_gnd=new_i_gnd,j_gnd=new_j_gnd)
-        except:
+        IN = self.IN + new_in
+        OUT = self.OUT + [new_out]
+        new = M_NODE(IN, self.OUT, u_in, util, new_m, new_n,
+                     i_gnd=self.i_gnd,j_gnd=self.j_gnd)
+        if new.u_max is None:
             return None # No feasible solution
-        Ri,Rj = new_out
-        new.OUT.append((self.Ri_2_Oi[Ri],self.Rj_2_Oj[Rj]))
         return new
     # End of spawn()
     def partition(self # M_NODE
                   ):
-        """ Return both m_nodes and (u_max, m_node) pairs of partition on
-        self.ij_max
+        """ Create partition self on maximal assignment, self.ij_max.
+        Return list of (u_max, m_node) pairs for nodes of the partition.
         """
-        if self.m == 0 or len(self.util) == 0:
-            return ([],[])
-        children = []
         pairs = []
         new_in = []
         for ij in self.ij_max.keys():
             child = self.spawn(new_in,ij)
-            if child is None: # Cardinality of X less than m
+            if child is None: # No feasible association
                 continue
             new_in.append(ij)
-            children.append(child)
             pairs.append((child.u_max,child))
-        return (children,pairs)
+        return pairs
 class M_LIST:
     """ A class that implements a list of M_NODEs for Murty's algorithm.
 
@@ -597,8 +559,8 @@ class M_LIST:
     def __init__(
         self,     # M_LIST
         w,        # A dict of utilities indexed by tuples (i,j)
-        m,        # Range of i values
-        n,        # Range of j values
+        m,        # Number of i values
+        n,        # Number of j values
         i_gnd={}, # j values, ie, T nodes with unlimited capacity
         j_gnd={}  # j values, ie, T nodes with unlimited capacity
                  ):
@@ -623,12 +585,10 @@ class M_LIST:
         came.
         """
         u,node = self.node_list.pop()
-        A =  node.IN[:]
-        for Ri,Rj in node.ij_max.keys():  # Map from reduced to Original
-            A.append((node.Ri_2_Oi[Ri],node.Rj_2_Oj[Rj]))
+        A =  node.IN + node.ij_max.keys()
         self.association_list.append((u,A))
-        children,pairs = node.partition()
-        self.H_count += len(children)
+        pairs = node.partition()
+        self.H_count += len(pairs)
         self.node_list += pairs
         self.node_list.sort()
         return
@@ -722,7 +682,7 @@ if __name__ == '__main__':  # Test code
     M,m,n,sol = test0
     w = M_2_w(M)
     ML = M_LIST(w,m,n,i_gnd={1:True},j_gnd={2:True})
-    ML.till(63,10) # FixMe should quit gracefully if till asks for too much
+    ML.till(200,10) # FixMe should quit gracefully if till asks for too much
     print "Result of Murty's algorithm with i_gnd={1:True},j_gnd={2:True}}:"
     for U,X in ML.association_list:
         X.sort()
