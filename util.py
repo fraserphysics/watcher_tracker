@@ -131,8 +131,10 @@ def H_cvx(
     individually to index a dict.
     """
     import cvxopt, cvxopt.base, cvxopt.modeling, cvxopt.solvers
+    import cvxopt.glpk
 
     cvxopt.solvers.options['show_progress'] = False
+    cvxopt.glpk.options['LPX_K_MSGLEV'] = 0 # Keep glpk quiet
     wO_keys = wO.keys()
     L = len(wO)
     W = cvxopt.base.matrix(0,(1,L),'d')

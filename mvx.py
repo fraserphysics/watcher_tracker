@@ -1033,12 +1033,18 @@ class ASSOCIATION4:
             if len(new_list) == 0:
                 return []
         if self.vis_tran:
-            for partial in old_list: #Enter invisible targets
+            for p_i in xrange(len(old_list)): #Enter invisible targets
+                partial = old_list[p_i]
+                viable = True
                 for target in self.tar_dict.values():
                     if partial.tar_dict.has_key(target.index):
                         continue # Skip if child of target in partial
                     if target.children.has_key(-1): # Invisible target
                         partial.Enter(target.children[-1])
+                    else:
+                        viable = False
+                if not viable:
+                    del old_list[p_i]
         # Discard low utility associations.
         for asn in old_list:
             asn.re_nu_A() # FixMe this should be redundant.  asn.nu
@@ -1065,42 +1071,36 @@ class ASSOCIATION4:
         global hungary_count, hungary_time
         assert(len(k_list) == len(causes)),\
               'len(k_list)=%d, len(causes)=%d'%(len(k_list),len(causes))
-        index_2_j = {}  # Map from cause index to j
-        ij_2_cause = {} # Map from (i,j) to cause
+        dict_cause = {} # Just for counting
+        ij_2_cause = {}
         j_mult = {}     # Dict of causes that can explain many observations
         w = {}          # Dict of assignement weights
-        n = 0           # Number of j values, ie, causes
-        # Loop over observations i&k and causes j&index.  Assign
-        # weights w[(i,j)] and maps ij_2_cause and index_2_j.
+        # Loop over observations i and causes j&index.  Assign
+        # weights w[(i,index)] and map index_2_j.
         for i in xrange(len(k_list)):
-            k = k_list[i]
             for cause in causes[i]:
                 index = cause.index
-                if not index_2_j.has_key(index):
-                    index_2_j[index] = n
-                    if index < 0:
-                        j_mult[n]=True # Allow multiple assignments to FA
-                    n += 1
-                j = index_2_j[index]
-                ij_2_cause[(i,j)] = cause
-                assert(cause.type != 'target' or cause.m_t[-1] == k)
-                w[(i,j)] = cause.R
+                if not dict_cause.has_key(index):
+                    dict_cause[index] = len(dict_cause)
+                if index < 0:
+                    j_mult[index]=True # Allow multiple assignments to FA
+                assert(cause.type != 'target' or cause.m_t[-1] == k_list[i])
+                w[(i,index)] = cause.R
+                ij_2_cause[(i,index)] = cause
         i_mult = {} 
         if self.vis_tran: #Enter invisible targets
             for target in self.tar_dict.values():
                 if target.children.has_key(-1): # Invisible target
                     index = target.index
-                    if not index_2_j.has_key(index):
-                        index_2_j[index] = n
-                        n += 1
-                    j = index_2_j[index]
-                    ij_2_cause[(-1,j)] = target
-                    w[(-1,j)] = target.R
+                    if not dict_cause.has_key(index):
+                        dict_cause[index] = len(dict_cause)
+                    cause = target.children[-1]
+                    w[(-1,index)] = cause.R
+                    ij_2_cause[(-1,index)] = cause
                     i_mult[-1] = True
-        if i_mult.has_key(-1):
-            m = len(k_list) + 1
-        else:
-            m = len(k_list)
+        # FixMe what about newts?
+        m = len(k_list) + len(i_mult)
+        n = len(dict_cause)
         X = util.H_cvx(w,m,n,i_gnd=i_mult,j_gnd=j_mult)
         util_max = 0
         for key in X.keys():
@@ -1120,13 +1120,14 @@ class ASSOCIATION4:
             new_A = self.Seed()
             # The seed assn is copy of self with empty tar_dict
             for ij in X:
+                cause = ij_2_cause[ij]
                 i,j = ij
                 if i >= 0: # Visible hit
-                    k = k_list[i]
-                    cause = ij_2_cause[ij]
-                    OK, temp = new_A.Spoon(cause,k)
-                    if not OK:
-                        raise RuntimeError,'FixMe when is it not OK?'
+                    OK, temp = new_A.Spoon(cause,k_list[i])
+                else:
+                    OK, temp = new_A.Spoon(cause,-1)
+                if not OK:
+                    raise RuntimeError,'FixMe when is it not OK?'
             new_A.re_nu_A() # FixMe this should not be necessary
             new_list.append(new_A)
         return new_list     # End of Murty()
@@ -1158,16 +1159,11 @@ class ASSOCIATION4:
             N_c += len(causes_k)
         # List of plausible causes complete
         N_hat = (float(N_c)/m)**m  # Estimated number of associations
-        print 'k_list=',k_list,'causes=',causes,'len(self.tar_dict)=',len(self.tar_dict)
         if N_hat < self.mod.Murty_Ex:
             new_list = self.exhaustive(k_list,causes,floor)
         else:
             Murty_calls += 1
-            try:
-                new_list = self.Murty(k_list,causes,floor)
-            except:
-                print 'k_list=',k_list,'causes=',causes
-                new_list = self.Murty(k_list,causes,floor)
+            new_list = self.Murty(k_list,causes,floor)
         if len(new_list) == 0:
             #print 'forward returning 0 new associations'
             return
