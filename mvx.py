@@ -905,8 +905,8 @@ class ASSOCIATION4:
                     continue
                 tk = (T0+t,k)
                 if not target.tks.has_key(tk):
-                    print 'At t=%d, T0=%d, target.tks is missing '%(self.t,T0)+\
-                    '(%d,%d).  Dump target'%tk
+                    print 'At t=%d, T0=%d, target.tks is missing'%(self.t,T0)+\
+                    ' (%d,%d).  Dump target'%tk
                     target.dump()
                     raise RuntimeError
                 if tk_dict.has_key(tk):
@@ -1101,12 +1101,6 @@ class ASSOCIATION4:
             m = len(k_list) + 1
         else:
             m = len(k_list)
-        # Make each w[key] > (Max-Min) so all solutions have m links
-        w_list = w.values()
-        delta = 2*m*max(w_list) - (2*m+1)*min(w_list)
-        for key in w.keys():
-            w[key] = w[key] + delta
-        #
         X = util.H_cvx(w,m,n,i_gnd=i_mult,j_gnd=j_mult)
         util_max = 0
         for key in X.keys():
@@ -1122,18 +1116,17 @@ class ASSOCIATION4:
         hungary_time += ML.stop_time-ML.start_time
         new_list = []
         for U,X in ML.association_list:
-            # The seed assn is copy of self with empty tar_dict
+            # U is utility.  X is map from hits to causes.
             new_A = self.Seed()
+            # The seed assn is copy of self with empty tar_dict
             for ij in X:
                 i,j = ij
-                k = k_list[i]
-                cause = ij_2_cause[ij]
-                OK, temp = new_A.Spoon(cause,k)
-                if not OK:
-                    raise RuntimeError,'FixMe when is it not OK?'
-                    break
-            if not OK:
-                continue
+                if i >= 0: # Visible hit
+                    k = k_list[i]
+                    cause = ij_2_cause[ij]
+                    OK, temp = new_A.Spoon(cause,k)
+                    if not OK:
+                        raise RuntimeError,'FixMe when is it not OK?'
             new_A.re_nu_A() # FixMe this should not be necessary
             new_list.append(new_A)
         return new_list     # End of Murty()
@@ -1165,11 +1158,16 @@ class ASSOCIATION4:
             N_c += len(causes_k)
         # List of plausible causes complete
         N_hat = (float(N_c)/m)**m  # Estimated number of associations
+        print 'k_list=',k_list,'causes=',causes,'len(self.tar_dict)=',len(self.tar_dict)
         if N_hat < self.mod.Murty_Ex:
             new_list = self.exhaustive(k_list,causes,floor)
         else:
             Murty_calls += 1
-            new_list = self.Murty(k_list,causes,floor)
+            try:
+                new_list = self.Murty(k_list,causes,floor)
+            except:
+                print 'k_list=',k_list,'causes=',causes
+                new_list = self.Murty(k_list,causes,floor)
         if len(new_list) == 0:
             #print 'forward returning 0 new associations'
             return
