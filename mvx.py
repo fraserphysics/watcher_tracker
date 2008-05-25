@@ -40,18 +40,19 @@ FixMe: To do:
 
 2. Flag likely errors correctly.  Places to think about:
 
-   When Murty's algorithm works on big clusters
    TARGET4.make_children
    ASSOCIATION4.join
-   ASSOCIATION4.check_FAs   Should I try false alarms when targets are good? 
-   ASSOCIATION4.check_newts Should I try a newt when targets are good? 
-   ASSOCIATION4.forward     Implement Murty's algorithm.  Prune here
-                            with threshold that is independent of MaxD
    Cluster.__init__         What is the right way to apportion utility
    Cluster.Append           What is the right way to apportion utility
    Cluster_Flock.recluster  First fragment may not have best utility
    Cluster_Flock.recluster  Consistency check should include dead_targets
    Cluster_Flock.recluster  For which observations should I make newts
+
+3. When I take out the argmax from SUCCESSOR_DB.maxes, Murty and
+   exhaustive give different results.  I don't understand why.
+
+4. I don't understand how serious the apporximation is of having
+   argmax in SUCCESSOR_DB.maxes.
 
 """
 import numpy, scipy, scipy.linalg, random, math, util, time
@@ -723,6 +724,8 @@ class SUCCESSOR_DB:
         """
         rv = []
         for suc in self.successors.values():
+            #rv += suc['associations']
+            # FixMe could be dropping good associations with argmax
             rv.append(suc['associations'][util.argmax(suc['u_primes'])])
         rv.sort(cmp_ass)
         return rv
@@ -1238,7 +1241,8 @@ class Cluster:
                 asn.FAs.values():
             if tks.has_key(cause.tks.keys()[0]):
                 new_a.Enter(cause)
-        in_tuple = dict_2_tuple(tks) # FixMe remove this check
+        # FixMe remove this check
+        in_tuple = dict_2_tuple(tks)
         out_tuple = dict_2_tuple(new_a.Atks)
         assert (in_tuple == out_tuple)
         self.As.append(new_a)
@@ -1673,7 +1677,8 @@ class MV4:
             keepers[k] = new_As[k] # copy list to dict
             for target in new_As[k].tar_dict.values():
                 if len(target.m_t) < self.T_MM or \
-                       target.m_t[-1] < 0 or target.m_t[-2] < 0:
+                       target.m_t[-1] < 0 or target.m_t[-2] < 0 or \
+                       target.m_t[1-self.T_MM] < 0:
                     continue # Don't kill new or invisible targets
                 short_key = tuple(target.m_t[-self.T_MM:])
                 if not shorts.has_key(short_key):

@@ -433,7 +433,8 @@ class ControlPanel(wx.Panel):
                      parent.Max_NA_sliderUpdate, value=Max_NA, minValue=1,
                                 maxValue=100, size=(-1, 200))
         A_floor_frame,self.A_floor_Slider = VFlab_slider(self, row_C,"Af",
-            0.0, 20.0, 0.1, 4, parent.A_floor_sliderUpdate, size=(-1, 200))
+            0.0, 20.0, 0.1, A_floor, parent.A_floor_sliderUpdate,
+            size=(-1, 200))
         Murty_Ex_frame,self.Murty_Ex_Slider = Vlab_slider(self, row_C,
                  "MX", parent.Murty_Ex_sliderUpdate,
                  value=Murty_Ex, minValue=0, maxValue=999, size=(-1, 200))
