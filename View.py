@@ -14,9 +14,9 @@ sig_x = 0.1
 sig_v = 0.2
 sig_O = 0.3
 MaxD   = 5.0   # Maximum Malhabonobis distance from forecast to y
-Max_NA = 20    # Maximum number of associations per cluster
-A_floor = 4.0  # Drop associations with utility less than max - A_floor
-Murty_Ex = 50  # If there are less that Murty_Ex associations use exhaustive()
+Max_NA = 40    # Maximum number of associations per cluster
+A_floor = 7.0  # Drop associations with utility less than max - A_floor
+Murty_Ex = 999 # If there are less that Murty_Ex associations use exhaustive()
 T_MM = 5       # If two targets match hits more than T_MM in a row, kill one
 Analyze = False
 Model_No = 0
@@ -436,7 +436,7 @@ class ControlPanel(wx.Panel):
             0.0, 20.0, 0.1, 4, parent.A_floor_sliderUpdate, size=(-1, 200))
         Murty_Ex_frame,self.Murty_Ex_Slider = Vlab_slider(self, row_C,
                  "MX", parent.Murty_Ex_sliderUpdate,
-                 value=Murty_Ex, minValue=0, maxValue=199, size=(-1, 200))
+                 value=Murty_Ex, minValue=0, maxValue=999, size=(-1, 200))
         T_MM_frame,self.T_MM_Slider = Vlab_slider(self, row_C, "TM",
                      parent.T_MM_sliderUpdate, value=T_MM, minValue=2,
                                 maxValue=10, size=(-1, 200))

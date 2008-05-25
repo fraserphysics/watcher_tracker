@@ -38,9 +38,7 @@ FixMe: To do:
 
 1. Why is re_nu_A necessary in exhaustive and Murty?  Something about Atks.
 
-2. Figure out occasional faliure of Murty
-
-3. Flag likely errors correctly.  Places to think about:
+2. Flag likely errors correctly.  Places to think about:
 
    When Murty's algorithm works on big clusters
    TARGET4.make_children
@@ -1082,8 +1080,15 @@ class ASSOCIATION4:
                 index = cause.index
                 if not dict_cause.has_key(index):
                     dict_cause[index] = len(dict_cause)
+                # If cause is FA remove restriction that it be used
+                # exactly once.
                 if index < 0:
-                    j_mult[index]=True # Allow multiple assignments to FA
+                    j_mult[index]=True
+                try: # Same for newts
+                    if self.mod.newts[k_list[i]] == cause:
+                        j_mult[index] = True
+                except:
+                    pass # Model class may not have newts
                 assert(cause.type != 'target' or cause.m_t[-1] == k_list[i])
                 w[(i,index)] = cause.R
                 ij_2_cause[(i,index)] = cause
@@ -1098,10 +1103,14 @@ class ASSOCIATION4:
                     w[(-1,index)] = cause.R
                     ij_2_cause[(-1,index)] = cause
                     i_mult[-1] = True
-        # FixMe what about newts?
         m = len(k_list) + len(i_mult)
         n = len(dict_cause)
-        X = util.H_cvx(w,m,n,i_gnd=i_mult,j_gnd=j_mult)
+        try:
+            X = util.H_cvx(w,m,n,i_gnd=i_mult,j_gnd=j_mult)
+        except:
+            print 'm=%d, n=%d, w='%(m,n),w
+            print 'k_list=',k_list,'causes=',causes
+            X = util.H_cvx(w,m,n,i_gnd=i_mult,j_gnd=j_mult)
         util_max = 0
         for key in X.keys():
             util_max += w[key]
@@ -1159,9 +1168,9 @@ class ASSOCIATION4:
             N_c += len(causes_k)
         # List of plausible causes complete
         N_hat = (float(N_c)/m)**m  # Estimated number of associations
-        if N_hat < self.mod.Murty_Ex:
+        if N_hat < self.mod.Murty_Ex or len(k_list) == 0:
             new_list = self.exhaustive(k_list,causes,floor)
-        else:
+        else: # Murty chokes on empty k_list
             Murty_calls += 1
             new_list = self.Murty(k_list,causes,floor)
         if len(new_list) == 0:

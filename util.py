@@ -216,8 +216,8 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     else:
         w = wO
     inf = Max*10            # "Infinity" for pi values
-    unscanned_S = {}
-    unscanned_T = {}
+    scannable_S = {}
+    scannable_T = {}
     def augment(X,X_S,X_T,i,j):
         """ If arc (i,j) is in X, take it out.  If it is not in X, put
         it in.
@@ -236,7 +236,7 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     def backtrack_i(X,X_S,X_T,S_label,T_label,i):
         """Follow path of labels and "augment" the links along the way
         """
-        if not S_label.has_key(i) or S_label[i] is None:
+        if not S_label.has_key(i):
             return
         j = S_label[i]
         if debug:
@@ -267,11 +267,9 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
     pi = scipy.ones(n)*inf
     S_label = {}
     T_label = {}
-    # Begin Lawler's step 1.0: Exposed S nodes get label None
+    # Begin Lawler's step 1.0
     for i in xrange(m):
-        if not X_S.has_key(i):
-            S_label[i] = None
-            unscanned_S[i] = True
+            scannable_S[i] = True
     k = 0
     while True: # This is Lawler's step 1 (labeling).  I make it the main loop
         k += 1
@@ -281,18 +279,18 @@ def Hungarian(wO,      # dict of weights indexed by tuple (i,j)
             print 'u=',u
             print 'v=',v
             print 'pi=',pi
-            print 'unscanned_S.keys()=',unscanned_S.keys()
-            print 'unscanned_T.keys()=',unscanned_T.keys()
+            print 'scannable_S.keys()=',scannable_S.keys()
+            print 'scannable_T.keys()=',scannable_T.keys()
             print 'X.keys()=',X.keys()
         assert(k<2.5*n*m**2),'k=%d, m=%d, n=%d'%(k,m,n)
         if debug:
             print """
-Begin step 1.3: Find pi by searching unscanned_s and links not in X."""
-            print '  unscanned_S=',unscanned_S.keys()
+Begin step 1.3: Find pi by searching scannable_s and links not in X."""
+            print '  scannable_S=',scannable_S.keys()
             print '  u=',u
             print '  v=',v
             print ' pi=',pi
-        for i in unscanned_S.keys():
+        for i in scannable_S.keys():
             # Begin step 1.3 on i
             for j in xrange(n):
                 if not w.has_key((i,j)):
@@ -302,13 +300,14 @@ Begin step 1.3: Find pi by searching unscanned_s and links not in X."""
                 if u[i] + v[j] - w[(i,j)] > pi[j] - tol: #FixMe > or >=
                     continue
                 T_label[j] = i
-                unscanned_T[j] = True
+                scannable_T[j] = True
                 pi[j] = u[i] + v[j] - w[(i,j)]
-            del unscanned_S[i]
+            del scannable_S[i]
             # End step step 1.3 on i
         if debug:
             print 'Found pi=',pi
-        for j in unscanned_T.keys():
+        skip3 = False
+        for j in scannable_T.keys():
             if pi[j] > tol:
                 continue
             # Begin step 1.4 on j
@@ -335,38 +334,34 @@ Since pi[%d]==0 and %d is not in X_T, start step 2 augmentation from j=%d
                 pi = scipy.ones(n)*inf
                 S_label = {}
                 T_label = {}
-                unscanned_S = {}
-                unscanned_T = {}
+                scannable_S = {}
+                scannable_T = {}
                 for i in xrange(m): # Step 1.0
                     if not X_S.has_key(i):
-                        S_label[i] = None
-                        unscanned_S[i] = True
+                        scannable_S[i] = True
                 if debug:
-                    print '              and unscanned_S=',unscanned_S.keys()
+                    print '              and scannable_S=',scannable_S.keys()
                 # End Lawler's step 2
-            else:
+            else: # X_T.has_key(j) and pi[j] == 0
+                skip3 = True
                 i = X_T[j]
                 S_label[i] = j
-                unscanned_S[i] = True
-                del unscanned_T[j]
+                scannable_S[i] = True
+                del scannable_T[j]
                 if debug:
                     print """
 Since pi[%d]==0 and X_T[%d]=%d, set S_label[%d] = %d, mark S[%d] unscanned
 and mark T[%d] scanned"""%(j,j,i,i,j,i,j)
         # Begin Lawler's step 1.1 (check for step 3)
-        if len(unscanned_S) > 0:
+        if len(scannable_S) > 0:
             continue # Start another iteration of the labeling loop
-        skip3 = False
-        for j in unscanned_T.keys():
-            if pi[j] > tol:
-                continue # Continue checking j's
-            else:
-                skip3 = True
-                break
+        # If there is a scannable j with pi[j] == 0 start labeling loop again
         if skip3:
             continue # Start another iteration of the labeling loop
         # End step 1.1
-        # Begin Lawler's step 3 (change dual varibles)
+
+        # If no scannable j with pi[j] == 0, begin Lawler's step 3
+        # (change dual varibles)
         min_u = min(u)
         assert(float(pi.min()) > -tol),\
          "float(pi.min())=%f, tol=%f len(wO)=%d"%(pi.min(),tol,len(wO))
@@ -402,7 +397,7 @@ Before step 3, delta=%5.3f:"""%delta
             print ' After step 3 adjustment:'
             print '  u=',u,'v=',v,'pi=',pi
             print '  New scannable T nodes:',
-            for j in unscanned_T.keys():
+            for j in scannable_T.keys():
                 if pi[j] < tol:
                     print j,
             print '\n  S_label=',S_label, 'T_label=',T_label
