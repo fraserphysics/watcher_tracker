@@ -512,6 +512,26 @@ class TARGET4(CAUSE):
             print'  len(self.children)=%d'%len(self.children)
             for child in self.children.values():
                 child.dump()
+        return # end of dump()
+    def simulate(self #TARGET4
+                 ):
+        mod = self.mod        
+        if self.index == 0:# If model is new, draw random phase space position
+            self.index = 1
+            self.x = util.normalS(self._mu_t[0],self._Sigma_t[0])
+            self.v = 0 # Target is visible
+        else: # Evolve phase space position
+            epsilon = util.normalS(mod.mu_d,mod.Sigma_D) # Dynamical noise
+            x = mod.A*self.x + epsilon
+        new_v = int(mod.PV_V[self.v,0] < random.random())
+        if new_v is 1 and self.v is 1:
+            self.invisible_count += 1
+        else:
+            self.invisible_count = 0
+        self.v = new_v
+        eta = util.normalS(mod.mu_O,mod.Sigma_O) # Observational noise
+        self.y = mod.O*self.x + eta
+        return # end of simulate
     def make_children(self,        # TARGET4
                       y_t,         # list of hits at time t
                       t
@@ -1608,12 +1628,14 @@ class MV4:
         assert(dim == check),("A should be square but it's dimensions are "+\
            "(%d,%d)")%(dim,check)
         self.Id = scipy.matrix(scipy.identity(dim))
-        self.Sigma_D = scipy.matrix(Sigma_D)
+        self.Sigma_D = scipy.matrix(Sigma_D)         # State noise covariance
+        self.mu_D = scipy.matrix(scipy.zeros(dim)).T # State noise mean
         self.O = scipy.matrix(O)
         dim_O,check = self.O.shape
         assert(check == dim),("Shape of O=(%d,%d) not consistent with shape "+\
           "of A=(%d,%d))")%(dim_O,check,dim,dim)
         self.Sigma_O = scipy.matrix(Sigma_O)
+        self.mu_O = scipy.matrix(scipy.zeros(dim_O)).T # Observation noise mean
         if mu_init == None:
             self.mu_init = scipy.matrix(scipy.zeros(dim)).T
         else:

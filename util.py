@@ -164,7 +164,7 @@ def H_cvx(
     f = -W*X
     ST_constraint = (ST_mat*X == 1)
     positive = (0 <= X)
-    # (X[0]<=2.0) circumvents a bug in cvxopt
+    # (X[0]<=2.0) circumvents a bug in cvxopt FixMe
     LP = cvxopt.modeling.op(f,[ST_constraint,(X[0]<=2.0),positive])
     LP.solve('dense','glpk')
     #LP.solve()
