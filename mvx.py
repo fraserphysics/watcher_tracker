@@ -515,13 +515,15 @@ class TARGET4(CAUSE):
         return # end of dump()
     def simulate(self #TARGET4
                  ):
-        mod = self.mod        
+        global Target_Counter
+        mod = self._mod        
         if self.index == 0:# If model is new, draw random phase space position
-            self.index = 1
-            self.x = util.normalS(self._mu_t[0],self._Sigma_t[0])
+            self.index = Target_Counter
+            Target_Counter += 1
+            self.x = util.normalS(mod.mu_init,mod.Sigma_init)
             self.v = 0 # Target is visible
         else: # Evolve phase space position
-            epsilon = util.normalS(mod.mu_d,mod.Sigma_D) # Dynamical noise
+            epsilon = util.normalS(mod.mu_D,mod.Sigma_D) # Dynamical noise
             x = mod.A*self.x + epsilon
         new_v = int(mod.PV_V[self.v,0] < random.random())
         if new_v is 1 and self.v is 1:
@@ -1667,6 +1669,7 @@ class MV4:
         self.PV_V = scipy.matrix(PV_V)
         self.Lambda_FA = Lambda_FA # Average number of false alarms per frame
         Sigma_FA = self.O*self.Sigma_init*self.O.T + self.Sigma_O
+        self.mu_FA = self.mu_O # False alarm mean
         self.Sigma_FA = Sigma_FA
         self.log_FA_norm = math.log(Lambda_FA)\
                            - math.log(scipy.linalg.det(Sigma_FA))/2
@@ -1955,38 +1958,42 @@ class MV4:
                  T):
         """ Return a sequence of T observations and a sequence of T
         states."""
-        x_0,v_0,N_FA = self.sim_init(self.N_tar) # N_tar visible targets
-        zero_x,zero_y = self.sim_zeros()
-        skt = []
-        vkt = []
-        obs = []
+        targets = []
+        states = {}
+        observations = []
         for k in xrange(self.N_tar):
-            x,v = self.run_state(x_0[k],v_0[k],zero_x,0,T)
-            skt.append(x)
-            vkt.append(v)
+            target = TARGET4(mod=self)
+            targets.append(target)
         for t in xrange(T):
-            obs.append([])
+            ot = [] # Observations at time t
             N_new = scipy.random.poisson(self.Lambda_new)
-            x_0,v_0,N_FA = self.sim_init(N_new)
-            for k in xrange(N_new):
-                x,v = self.run_state(x_0[k],v_0[k],zero_x,t,T)
-                skt.append(x)
-                vkt.append(v)
-        stk = []
-        for t in xrange(T):
-            stk.append([])
-            s_vis = []
-            for k in xrange(len(skt)):
-                s = skt[k][t]
-                stk[t].append(s)
-                if s is not None and vkt[k][t] is 0:
-                    s_vis.append(s)
-            y = self.observe_states(s_vis,len(s_vis)*[0],zero_y)
+            for i in xrange(N_new):
+                target = TARGET4(mod=self)
+                targets.append(target)
+            for i in xrange(len(targets)):
+                target = targets[i]
+                target.simulate()
+                if not states.has_key(target):
+                    states[target] = []
+                states[target].append((t,target.x))
+                if target.v is 0:
+                    ot.append(target.y)
+                if target.invisible_count >= self.Invisible_Lifetime:
+                    del targets[i]
             N_FA = scipy.random.poisson(self.Lambda_FA)
             for k in xrange(N_FA):
-                y.append(util.normalS(zero_y,self.Sigma_FA))
-            obs[t] = self.shuffle(y)
-        return obs,stk
+                ot.append(util.normalS(self.mu_FA,self.Sigma_FA))
+            observations.append(self.shuffle(ot))
+        # Now reorder the state sequences
+        stk = T*[None]
+        K = len(states)
+        for t in xrange(T):
+            stk[t] = K*[None]
+        tlist = states.values()
+        for k in xrange(K):
+            for t,s in tlist[k]:
+                stk[t][k] = s
+        return observations,stk
 
 class ASSOCIATION3(ASSOCIATION4):
     """ Number of targets is fixed.  Allow false alarms and invisibles
