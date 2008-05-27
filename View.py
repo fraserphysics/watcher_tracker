@@ -15,9 +15,9 @@ sig_v = 0.2
 sig_O = 0.3
 MaxD   = 5.0   # Maximum Malhabonobis distance from forecast to y
 Max_NA = 40    # Maximum number of associations per cluster
-A_floor = 7.0  # Drop associations with utility less than max - A_floor
+A_floor = 9.0  # Drop associations with utility less than max - A_floor
 Murty_Ex = 999 # If there are less that Murty_Ex associations use exhaustive()
-T_MM = 5       # If two targets match hits more than T_MM in a row, kill one
+T_MM = 8       # If two targets match hits more than T_MM in a row, kill one
 Analyze = False
 Model_No = 0
 

@@ -276,7 +276,7 @@ class TARGET5(CAUSE):
         assert (self.type is 'target'),'self.type=%s'%self.type
         if not self.children is None:
             return True  # make_children already called for this target
-        if self._invisible_count >= self._mod.Invisible_Lifetime:
+        if self._invisible_count > self._mod.Invisible_Lifetime:
             self._kill(t)
             return False # Have calling routine move this to dead_targets
         self._forecast()
@@ -525,7 +525,7 @@ class TARGET4(CAUSE):
         assert (self.type is 'target'),'self.type=%s'%self.type
         if not self.children is None:
             return True  # make_children already called for this target
-        if self._invisible_count >= self._mod.Invisible_Lifetime:
+        if self._invisible_count > self._mod.Invisible_Lifetime:
             self._kill(t)
             return False # Have calling routine move this to dead_targets
         self._forecast()
@@ -724,9 +724,12 @@ class SUCCESSOR_DB:
         """
         rv = []
         for suc in self.successors.values():
-            #rv += suc['associations']
+            sa = suc['associations']
+            sa.sort(cmp_ass)
+            L = min(3,len(sa))
+            rv += sa[:L]
             # FixMe could be dropping good associations with argmax
-            rv.append(suc['associations'][util.argmax(suc['u_primes'])])
+            #rv.append(suc['associations'][util.argmax(suc['u_primes'])])
         rv.sort(cmp_ass)
         return rv
 class ASSOCIATION4:
@@ -1676,7 +1679,7 @@ class MV4:
         for k in xrange(len(new_As)):
             keepers[k] = new_As[k] # copy list to dict
             for target in new_As[k].tar_dict.values():
-                if len(target.m_t) < self.T_MM or \
+                if len(target.m_t) <= self.T_MM or \
                        target.m_t[-1] < 0 or target.m_t[-2] < 0 or \
                        target.m_t[1-self.T_MM] < 0:
                     continue # Don't kill new or invisible targets
