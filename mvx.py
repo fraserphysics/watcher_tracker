@@ -500,6 +500,11 @@ class TARGET4(CAUSE):
     def dump(self #TARGET4
              ):
         print '\n Dump %s: m_t='%self.type,self.m_t
+        try:
+            print 'x=',self.x # Do this for simulation
+            return
+        except:
+            pass
         tks = self.tks.keys()
         tks.sort()
         print '  tks=',tks
@@ -524,7 +529,7 @@ class TARGET4(CAUSE):
             self.v = 0 # Target is visible
         else: # Evolve phase space position
             epsilon = util.normalS(mod.mu_D,mod.Sigma_D) # Dynamical noise
-            x = mod.A*self.x + epsilon
+            self.x = mod.A*self.x + epsilon
         new_v = int(mod.PV_V[self.v,0] < random.random())
         if new_v is 1 and self.v is 1:
             self.invisible_count += 1
@@ -620,13 +625,17 @@ class TARGET4(CAUSE):
         """ Use a Kalman filter to create a new target with a unique
         index, fresh m_t, mu_t, Sigma_t and R for the observation y."""
         self._forecast()        # Calculate forecast parmeters in self
-        Delta_y = y - self._mu_fO
+        if y is None:
+            self._Sigma_us = self._Sigma_us  # Updated Sigma if invisible
+            Delta_y = 0.0*self._mu_fO
+        else:
+            self._Sigma_us = self._Sigma_us0 # Updated Sigma if visible
+            Delta_y = y - self._mu_fO
         QF = -float(Delta_y.T*self._Sigma_fOI*Delta_y)/2
         CC =  math.log(self._mod.Lambda_new) # Creation cost
         norm = math.log(scipy.linalg.det(self._Sigma_fOI))/2
         self._D_nu = norm + CC + QF
         self._mu_us = self._mu_fs + self._K*Delta_y
-        self._Sigma_us = self._Sigma_us0
         #print 'Utility of newt is %5.2f, QF=%5.2f, CC=%5.2f, norm=%5.2f'%(self._D_nu,
         #              QF, CC, norm)
         # Return a new instance of self's class (could be a subclass)
@@ -695,6 +704,21 @@ class TARGET1(TARGET3):
                                               tk=(t,k))
             assert(self.children[k].m_t[-1]==k)
         return True
+    def simulate(self #TARGET1
+                 ):
+        global Target_Counter
+        mod = self._mod        
+        if self.index == 0:# If model is new, draw random phase space position
+            self.index = Target_Counter
+            Target_Counter += 1
+            self.x = util.normalS(mod.mu_init,mod.Sigma_init)
+            self.v = 0 # Target is visible
+        else: # Evolve phase space position
+            epsilon = util.normalS(mod.mu_D,mod.Sigma_D) # Dynamical noise
+            self.x = mod.A*self.x + epsilon
+        eta = util.normalS(mod.mu_O,mod.Sigma_O) # Observational noise
+        self.y = mod.O*self.x + eta
+        return # end of simulate
     def _utility(self,   # TARGET1
                 y):
         """ Like TARGET4.utility but no visibility probabilities.
@@ -1679,6 +1703,9 @@ class MV4:
         self.Invisible_Lifetime = IL # If invisible IL times in a row
                                      # target dies
         self.target_0 = TARGET4(mod=self)
+        self._TARGET = TARGET4
+        self._FA=True
+        self._NEWT=True
         return # End of __init__
     def make_newts(self, # MV4.  Make new targets
                    Yts,  # List of ys for current time
@@ -1864,24 +1891,6 @@ class MV4:
         d,y_A = self.decode_back(A_best,T)
         return (d,y_A,A_best.nu+forgotten_utility,close_calls)
     ############## Begin simulation methods ######################
-    def step_state(self, # MV4
-                   state, zero_s):
-        epsilon = util.normalS(zero_s,self.Sigma_D) # Dynamical noise
-        return self.A*state + epsilon
-    def observe_states(self, states_t, v_t, zero_y):
-        """ Create observations for this time step from a list of
-        states (states_t) and a list of visibilities (v_t).
-        """
-        assert(len(v_t) == len(states_t))
-        v_states = []
-        for k in xrange(len(v_t)):
-            if v_t[k] is 0:
-                v_states.append(states_t[k])
-        y_t = []
-        for state in v_states:
-            eta = util.normalS(zero_y,self.Sigma_O) # Observational noise
-            y_t.append(self.O * state + eta)
-        return y_t
     def shuffle(self, # MV4
                 things_i):
         """ return a random permutation of things_i 
@@ -1894,82 +1903,23 @@ class MV4:
         for k in xrange(N):
             things_o[k] = things_i[permute[k]]
         return things_o
-    def sim_zeros(self):
-        """ Make two useful zero matrices """
-        s_dim = self.mu_init.shape[1]
-        zero_s = scipy.matrix(scipy.zeros(s_dim))
-        y_dim = self.Sigma_O.shape[0]
-        zero_y = scipy.matrix(scipy.zeros(y_dim))
-        return (zero_s,zero_y)
-    def step_vis(self,v):
-        """ Take observability for a single target from previous time
-        step and return visibility for current time
-        """
-        pv = self.PV_V[v,0]
-        if pv > random.random():
-            return 0
-        else:
-            return 1
-    def sim_init(self, # MV4
-                 N):
-        """ Initialize states and visibilities for N targets.
-        """
-        x_j = []
-        v_j = []
-        for j in xrange(N):
-            x_j.append(util.normalS(self.mu_init,self.Sigma_init))
-            v_j.append(0)
-        return (x_j,v_j,0)
-    def step_count(self, x, v, c, zero_x):
-        """ Step x, v, and c forward one time step.
-        x = target vector x
-        v = visibility
-        c = count of number of times that v != 0 (not visible)
-        """
-        x = self.step_state(x,zero_x)
-        v = self.step_vis(v)
-        if v is 0:
-            c = 0
-        else:
-            c += 1
-        return (x,v,c)
-    def run_state(self,x,v,zero_x,t_0,T):
-        """ Given x and for an initial time t_0, do the following:
-
-        1. Propagate x and v forward till either the state dies or T-1
-              is reached,
-
-        2. Put the simulated x's and v'x in lists that run from 0 to T.
-        """
-        IL = self.Invisible_Lifetime
-        s_k = T*[None]
-        v_k = T*[None]
-        c = 0
-        for t in xrange(t_0,T):
-            s_k[t] = x
-            v_k[t] = v
-            x,v,c = self.step_count(x,v,c,zero_x)
-            if c >= IL:
-                s_k[t-IL+1:t+1] = IL*[None]
-                v_k[t-IL+1:t+1] = IL*[None]
-                break
-        return (s_k,v_k)
     def simulate(self, # MV4
                  T):
         """ Return a sequence of T observations and a sequence of T
         states."""
-        targets = []
-        states = {}
-        observations = []
+        targets = []      # List of targets
+        states = {}       # Dict of states: index=target, value=state
+        observations = [] # observations[t][k]
         for k in xrange(self.N_tar):
-            target = TARGET4(mod=self)
+            target = self._TARGET(mod=self)
             targets.append(target)
         for t in xrange(T):
             ot = [] # Observations at time t
-            N_new = scipy.random.poisson(self.Lambda_new)
-            for i in xrange(N_new):
-                target = TARGET4(mod=self)
-                targets.append(target)
+            if self._NEWT:
+                N_new = scipy.random.poisson(self.Lambda_new)
+                for i in xrange(N_new):
+                    target = TARGET4(mod=self)
+                    targets.append(target)
             for i in xrange(len(targets)):
                 target = targets[i]
                 target.simulate()
@@ -1978,11 +1928,13 @@ class MV4:
                 states[target].append((t,target.x))
                 if target.v is 0:
                     ot.append(target.y)
-                if target.invisible_count >= self.Invisible_Lifetime:
+                if self._NEWT and target.invisible_count >= \
+                       self.Invisible_Lifetime:
                     del targets[i]
-            N_FA = scipy.random.poisson(self.Lambda_FA)
-            for k in xrange(N_FA):
-                ot.append(util.normalS(self.mu_FA,self.Sigma_FA))
+            if self._FA:
+                N_FA = scipy.random.poisson(self.Lambda_FA)
+                for k in xrange(N_FA):
+                    ot.append(util.normalS(self.mu_FA,self.Sigma_FA))
             observations.append(self.shuffle(ot))
         # Now reorder the state sequences
         stk = T*[None]
@@ -2028,6 +1980,9 @@ class MV3(MV4):
         self.ASSOCIATION = ASSOCIATION3 
         self.target_0 = TARGET3(mod=self)
         self.Invisible_Lifetime = 1 # Any number > 0
+        self._TARGET = TARGET3
+        self._FA=True
+        self._NEWT=False
     def make_newts(self, # MV3.  Make no new targets
                    Yts,  # List of ys for current time
                    t,    # Current time
@@ -2045,66 +2000,26 @@ class MV3(MV4):
         T = len(Ys)
         partial = self.ASSOCIATION(0.0,self,t=0)
         for k in xrange(self.N_tar):
-            target_k = self.target_0.Launch(Ys[0][k],k,0)
+            if len(Ys[0]) > k:
+                target_k = self.target_0.Launch(Ys[0][k],k,0)
+            else:
+                target_k = self.target_0.Launch(None,k,0)
             partial.Spoon(target_k,k)
         return ([partial],1)
-    def simulate(self, #MV3
-                 T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        x_j,v_j,N_FA = self.sim_init(self.N_tar)
-        zero_x,zero_y = self.sim_zeros()
-        # Lists for results
-        xs = []
-        obs = []
-        for t in xrange(T):
-            xs.append(x_j)        # Save X[t] part of state for return
-            # Generate observations Y[t]
-            obs_t = self.observe_states(x_j,v_j,zero_y)
-            for k in xrange(N_FA):
-                obs_t.append(util.normalS(zero_y,self.Sigma_FA))
-            obs.append(self.shuffle(obs_t))
-            # Generate state, visibility, and N_FA for next t
-            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
-            v_j = map(self.step_vis,v_j)
-            N_FA = scipy.random.poisson(self.Lambda_FA)
-        return obs,xs
 class MV2(MV3):
     def __init__(self,**kwargs):
         MV3.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION2
-    def simulate(self, # MV2
-                 T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        x_j,v_j,N_FA = self.sim_init(self.N_tar)
-        zero_x,zero_y = self.sim_zeros()
-        obs = []
-        xs = []
-        for t in xrange(T):
-            xs.append(x_j)
-            obs.append(self.shuffle(self.observe_states(x_j,v_j,zero_y)))
-            x_j = map(lambda x: self.step_state(x,zero_x),x_j)
-            v_j = map(self.step_vis,v_j)
-        return obs,xs
+        self._FA=False
+        self._NEWT=False
 class MV1(MV3):
     def __init__(self,**kwargs):
         MV4.__init__(self,**kwargs)
         self.ASSOCIATION = ASSOCIATION1
         self.target_0 = TARGET1(mod=self)
-    def simulate(self, # MV1
-                 T):
-        """ Return a sequence of T observations and a sequence of T
-        states."""
-        s_j,v_j,N_FA = self.sim_init(self.N_tar)
-        zero_s,zero_y = self.sim_zeros()       
-        obs = []
-        states = []
-        for t in xrange(T):
-            states.append(s_j)
-            obs.append(self.shuffle(self.observe_states(s_j,v_j,zero_y)))
-            s_j = map(lambda x: self.step_state(x,zero_s),s_j)
-        return obs,states
+        self._TARGET = TARGET1
+        self._FA=False
+        self._NEWT=False
 class IMM:
     def __init__(self, mod):
         Stop = scipy.matrix([[1,0],[0,0]])
