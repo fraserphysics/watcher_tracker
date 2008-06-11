@@ -527,10 +527,11 @@ class TARGET4(CAUSE):
             Target_Counter += 1
             self.x = util.normalS(mod.mu_init,mod.Sigma_init)
             self.v = 0 # Target is visible
-        else: # Evolve phase space position
+            new_v = 0
+        else: # Evolve phase space position and visibility
             epsilon = util.normalS(mod.mu_D,mod.Sigma_D) # Dynamical noise
             self.x = mod.A*self.x + epsilon
-        new_v = int(mod.PV_V[self.v,0] < random.random())
+            new_v = int(mod.PV_V[self.v,0] < random.random())
         if new_v is 1 and self.v is 1:
             self.invisible_count += 1
         else:
@@ -625,17 +626,13 @@ class TARGET4(CAUSE):
         """ Use a Kalman filter to create a new target with a unique
         index, fresh m_t, mu_t, Sigma_t and R for the observation y."""
         self._forecast()        # Calculate forecast parmeters in self
-        if y is None:
-            self._Sigma_us = self._Sigma_us  # Updated Sigma if invisible
-            Delta_y = 0.0*self._mu_fO
-        else:
-            self._Sigma_us = self._Sigma_us0 # Updated Sigma if visible
-            Delta_y = y - self._mu_fO
+        Delta_y = y - self._mu_fO
         QF = -float(Delta_y.T*self._Sigma_fOI*Delta_y)/2
         CC =  math.log(self._mod.Lambda_new) # Creation cost
         norm = math.log(scipy.linalg.det(self._Sigma_fOI))/2
         self._D_nu = norm + CC + QF
         self._mu_us = self._mu_fs + self._K*Delta_y
+        self._Sigma_us = self._Sigma_us0
         #print 'Utility of newt is %5.2f, QF=%5.2f, CC=%5.2f, norm=%5.2f'%(self._D_nu,
         #              QF, CC, norm)
         # Return a new instance of self's class (could be a subclass)
@@ -1872,10 +1869,10 @@ class MV4:
             print '%2d'%t,
             for n in xrange(N_tar):
                 if d[n][t] is None:
-                    print 12*' ',
+                    print 13*' ',
                 else:
                     try:
-                        print '%6.2f %5.2f'%(d[n][t][0],d[n][t][1]),
+                        print '%6.2f %5.2f,'%(d[n][t][0],d[n][t][1]),
                     except:
                         print '\nd[%d][%d]='%(n,t),d[n][t]
                         print '%6.2f %5.2f'%(d[n][t][0],d[n][t][1]),
@@ -1918,20 +1915,21 @@ class MV4:
             if self._NEWT:
                 N_new = scipy.random.poisson(self.Lambda_new)
                 for i in xrange(N_new):
-                    target = TARGET4(mod=self)
+                    target = self._TARGET(mod=self)
                     targets.append(target)
-            for i in xrange(len(targets)):
-                target = targets[i]
+            for target in targets:
                 target.simulate()
                 if not states.has_key(target):
                     states[target] = []
                 states[target].append((t,target.x))
                 if target.v is 0:
                     ot.append(target.y)
+            for i in xrange(len(targets)-1,0,-1): # Backwards so delete is OK
+                target = targets[i]
                 if self._NEWT and target.invisible_count >= \
                        self.Invisible_Lifetime:
                     del targets[i]
-            if self._FA:
+            if self._FA and (self._NEWT or t > 0): # No FA at t=0 for MV3
                 N_FA = scipy.random.poisson(self.Lambda_FA)
                 for k in xrange(N_FA):
                     ot.append(util.normalS(self.mu_FA,self.Sigma_FA))
@@ -2000,10 +1998,7 @@ class MV3(MV4):
         T = len(Ys)
         partial = self.ASSOCIATION(0.0,self,t=0)
         for k in xrange(self.N_tar):
-            if len(Ys[0]) > k:
-                target_k = self.target_0.Launch(Ys[0][k],k,0)
-            else:
-                target_k = self.target_0.Launch(None,k,0)
+            target_k = self.target_0.Launch(Ys[0][k],k,0) # FixMe ,k, not used
             partial.Spoon(target_k,k)
         return ([partial],1)
 class MV2(MV3):
