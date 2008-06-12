@@ -249,8 +249,12 @@ class TARGET5(CAUSE):
         return # End of __init__
     def dump(self #TARGET5
              ):
-        print 'Dumping TARGET5 %s #'%self.type,self.index
-        print '\nm_t=',self.m_t
+        print '\n Dump %s: m_t='%self.type,self.m_t
+        try:
+            print 'mode=%d, x='%self.mode,self.x # Do this for simulation
+            return
+        except:
+            pass
         tks = self.tks.keys()
         tks.sort()
         print '  tks=',tks
@@ -263,6 +267,34 @@ class TARGET5(CAUSE):
             print'  len(self.children)=%d'%len(self.children)
             for child in self.children.values():
                 child.dump()
+        return # end of dump()
+    def simulate(self #TARGET5
+                 ):
+        global Target_Counter
+        mod = self._mod
+        IMM = mod.IMM      
+        if self.index == 0:# If model is new, draw random state space position
+            self.index = Target_Counter
+            Target_Counter += 1
+            self.v = 0 # Target is visible
+            new_v = 0
+            nm = 0 # Initial mode is moving
+            self.x = util.normalS(mod.mu_init,mod.Sigma_init)
+        else: # Evolve mode, phase space position, and visibility
+            nm = int(IMM.Pij[self.mode,0] < random.random())
+            # FixMe assumes 2 modes
+            epsilon = util.normalS(IMM.mu_D[nm],IMM.Sigma_D[nm]) # Dyn. noise
+            self.x = IMM.A[nm]*self.x + epsilon
+            new_v = int(mod.PV_V[self.v,0] < random.random())
+        if new_v is 1 and self.v is 1:
+            self.invisible_count += 1
+        else:
+            self.invisible_count = 0
+        self.v = new_v
+        self.mode = nm
+        eta = util.normalS(IMM.mu_O[nm],IMM.Sigma_O[nm]) # Observational noise
+        self.y = IMM.O[nm]*self.x + eta
+        return # end of simulate
     def make_children(self,        # TARGET5
                       y_t,         # list of hits at time t
                       t
@@ -333,8 +365,8 @@ class TARGET5(CAUSE):
         D_nu_v = math.log(self._mod.PV_V[v_old,v_new])
         N = len(self._mod.IMM.A)
         self._D_nu = scipy.zeros((N,N))
-        for i in xrange(N): # Loop over last state
-            for j in xrange(N): # Loop over next state
+        for i in xrange(N): # Loop over last mode
+            for j in xrange(N): # Loop over next mode
                 D_nu_ij = math.log(self._mod.IMM.Pij[i,j])
                 if y is None:
                     Sigma_new = self._Sigma_fs[i][j]
@@ -633,8 +665,6 @@ class TARGET4(CAUSE):
         self._D_nu = norm + CC + QF
         self._mu_us = self._mu_fs + self._K*Delta_y
         self._Sigma_us = self._Sigma_us0
-        #print 'Utility of newt is %5.2f, QF=%5.2f, CC=%5.2f, norm=%5.2f'%(self._D_nu,
-        #              QF, CC, norm)
         # Return a new instance of self's class (could be a subclass)
         return self.__class__(par_tar=self,copy_index=False,tk=(t,k))
     def backtrack(self # TARGET4
@@ -2016,15 +2046,21 @@ class MV1(MV3):
         self._FA=False
         self._NEWT=False
 class IMM:
+    """ IMM[0] is moving, and IMM[1] is stopped.  Initial mode is
+    moving.
+    """
     def __init__(self, mod):
         Stop = scipy.matrix([[1,0],[0,0]])
         self.mus = [mod.mu_init, Stop*mod.mu_init]
-        self.Sigmas = [mod.Sigma_init, mod.Sigma_init]
+        self.Sigmas = [mod.Sigma_init, mod.Sigma_init*1e-12]
         self.A = [mod.A, Stop*mod.A*Stop]
-        self.Sigma_D = [mod.Sigma_D, mod.Sigma_D]
+        self.mu_D = [mod.mu_D,mod.mu_D]
+        self.Sigma_D = [mod.Sigma_D, mod.Sigma_D*1e-12] # FixMe 2nd should be 0
         self.O = [mod.O,mod.O]
+        self.mu_O = [mod.mu_O,mod.mu_O]
         self.Sigma_O = [mod.Sigma_O, mod.Sigma_O]
-        self.Pij = scipy.array([[.6,.4],[.2,.8]])
+        #self.Pij = scipy.array([[.6,.4],[.2,.8]])
+        self.Pij = scipy.array([[.9,.1],[.1,.9]])
         # FixMe trouble if [[.9,.1],[.05,.95]]
         # self.Pi = scipy.array([1.0,0.0])
         self.nu_0 = scipy.array([0,-100])
@@ -2036,6 +2072,7 @@ class MV5(MV4):
         MV4.__init__(self,**kwargs) 
         self.IMM = IMM(self) 
         self.target_0 = TARGET5(mod=self)
+        self._TARGET = TARGET5
     def decode_init(self,  # MV5
                     Ys     # Dummy for subclasses of MV4
                     ):
