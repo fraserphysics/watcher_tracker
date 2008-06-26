@@ -422,16 +422,18 @@ class TARGET5(CAUSE):
     def backtrack(self # TARGET5
                   ):
         T = len(self._mu_t)
-        s_t = range(T)       # Allocate places for MAP states
+        s_t = range(T)       # Allocate places for MAP states and modes
         i = self._nu.argmax()
-        s_t[T-1] = self._mu_t[T-1][i]
+        last = self._mu_t[T-1][i]
+        s_t[T-1] = [last,i]
         for t in xrange(T-2,-1,-1):
             i = self._best[t][i]
             Sig_t_I = scipy.linalg.inv(self._Sigma_t[t][i])
             mu_t = self._mu_t[t][i]
             A = self._mod.IMM.A[i]
             X = A.T * scipy.linalg.inv(self._mod.IMM.Sigma_D[i])
-            s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
+            last = scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*last)
+            s_t[t] = [last,i]
         return s_t
     def _kill(self, # TARGET5
              t
@@ -673,11 +675,13 @@ class TARGET4(CAUSE):
         A = self._mod.A
         X = A.T * scipy.linalg.inv(self._mod.Sigma_D) # An intermediate
         s_t = range(T)
-        s_t[T-1] = self._mu_t[T-1]
+        last = self._mu_t[T-1]
+        s_t[T-1] = [last,None]
         for t in xrange(T-2,-1,-1):
             Sig_t_I = scipy.linalg.inv(self._Sigma_t[t])
             mu_t = self._mu_t[t]
-            s_t[t]=scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*s_t[t+1])
+            last = scipy.linalg.inv(Sig_t_I + X*A)*(Sig_t_I*mu_t + X*last)
+            s_t[t] = [last, None] # None for compatibility with TARGET5
         return s_t
     def _kill(self, # TARGET4
              t
@@ -1662,8 +1666,8 @@ class MV4:
          Sigma_D = [[0.01,0],[0,0.4]], # Dynamical noise
          O = [[1,0]],                  # Observation projection
          Sigma_O = [[0.25]],           # Observational noise
-         Sigma_init = None,            # Initial state distribution
          mu_init = None,               # Initial state distribution
+         Sigma_init = None,            # Initial state distribution
          MaxD = 5.0,                   # Threshold for hits
          Max_NA = 20,                  # Maximum associations per cluster
          A_floor = 25.0,               # Drop if max-ass.utility > A_floor
@@ -1887,7 +1891,7 @@ class MV4:
             target,start,stop = targets_times[j]
             if (stop - start < 3):  # If this happens, I want to know
                 print 'In decode_back: start, stop = ',start,stop
-            d[j][start:stop] = target.backtrack()# Set decoded values
+            d[j][start:stop] = target.backtrack() # Set decoded values
             for t in xrange(start,stop):
                 y_A[t][j] = target.m_t[t-start] # y[t][y_A[t][j]] is
                                                 # associated with target k.
@@ -2049,13 +2053,14 @@ class IMM:
     """ IMM[0] is moving, and IMM[1] is stopped.  Initial mode is
     moving.
     """
-    def __init__(self, mod):
-        Stop = scipy.matrix([[1,0],[0,0]])
+    def __init__(self, mod, Stop):
+        dim = len(mod.Sigma_init)
+        safe = scipy.matrix(scipy.eye(dim))*1e-8
         self.mus = [mod.mu_init, Stop*mod.mu_init]
-        self.Sigmas = [mod.Sigma_init, mod.Sigma_init*1e-12]
+        self.Sigmas = [mod.Sigma_init, Stop*mod.Sigma_init*Stop+safe]
         self.A = [mod.A, Stop*mod.A*Stop]
         self.mu_D = [mod.mu_D,mod.mu_D]
-        self.Sigma_D = [mod.Sigma_D, mod.Sigma_D*1e-12] # FixMe 2nd should be 0
+        self.Sigma_D = [mod.Sigma_D, safe] # FixMe 2nd should be 0
         self.O = [mod.O,mod.O]
         self.mu_O = [mod.mu_O,mod.mu_O]
         self.Sigma_O = [mod.Sigma_O, mod.Sigma_O]
@@ -2063,14 +2068,14 @@ class IMM:
         self.Pij = scipy.array([[.9,.1],[.1,.9]])
         # FixMe trouble if [[.9,.1],[.05,.95]]
         # self.Pi = scipy.array([1.0,0.0])
-        self.nu_0 = scipy.array([0,-100])
+        self.nu_0 = scipy.array([0,0])
         return # End of IMM.__init__()
 class MV5(MV4):
-    """ Number of targets is fixed    
+    """ Uses TARGET5 with IMM technology
     """
-    def __init__(self,**kwargs):
+    def __init__(self,Stop=[[1,0],[0,0]],**kwargs):
         MV4.__init__(self,**kwargs) 
-        self.IMM = IMM(self) 
+        self.IMM = IMM(self, scipy.matrix(Stop)) 
         self.target_0 = TARGET5(mod=self)
         self._TARGET = TARGET5
     def decode_init(self,  # MV5
@@ -2078,7 +2083,6 @@ class MV5(MV4):
                     ):
         return ([self.ASSOCIATION(0.0,self)],0) # First A and first t
     
-        
 class ASS_ABQ(ASSOCIATION4):
     def __init__(self,*args,**kwargs):
         ASSOCIATION4.__init__(self,*args,**kwargs)

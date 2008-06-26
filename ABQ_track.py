@@ -63,19 +63,19 @@ Sigma_init=scipy.matrix([
     [ 1e4,  0,    0,   0],
     [ 0,    5e2,  0,   0],
     [ 0,    0,    4e4, 0],
-    [ 0,    0,    0,   1e3]])
+    [ 0,    0,    0,   1e3]],scipy.float32)
 mu_init=scipy.matrix([
     [250],
     [ 0],
     [250],
-    [ 0]]).T
+    [ 0]],scipy.float32).T
 Lambda_new = 3.0
 def reestimate(track_2_hits,    # dict of tracks read by parse_tracks()
                track_only=False # Just report tracks from MV1.decode()
                ):
     global Sigma_D, Sigma_O,mu_init,Sigma_init
     Mod = mvx.MV1(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
-                  mu_init=mu_init,Sigma_init=Sigma_init,MaxD=10)
+                  mu_init=mu_init,Sigma_init=Sigma_init,MaxD=11)
     # Now reestimate using decoded states as truth
     N=0
     N_i=0
@@ -118,12 +118,74 @@ def reestimate(track_2_hits,    # dict of tracks read by parse_tracks()
     mu_init = x_i.sum(1)/N_i
     Sigma_init = x_i*x_i.T/N_i - mu_init*mu_init.T
     mu_init = mu_init.T
+
+def reestimate_IMM(track_2_hits, # dict of tracks read by parse_tracks()
+               track_only=False  # Just report tracks decode()
+               ):
+    global Sigma_D, Sigma_O,mu_init,Sigma_init
+    Stop = scipy.eye(4)
+    Stop[1,1] = 0
+    Stop[3,3] = 0
+    small = 1e-200 # Don't create second targets
+    Mod = mvx.MV5(Stop=Stop, N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
+                  mu_init=mu_init,Sigma_init=Sigma_init,MaxD=35,Max_NA=1,
+                  Lambda_new=small, Lambda_FA=small/1e5,
+                  PV_V=[[1,1e-6],[1,1e-6]] )
+    IMM = Mod.IMM
+    dim = len(mod.Sigma_init)
+    safe = scipy.matrix(scipy.eye(dim))*1e-8
+    # Now reestimate using decoded states as truth
+    y0 = [[],[]] # Observations at t
+    x0 = [[],[]] # Estimated states at t
+    x1 = [[],[]] # Estimated states at t+1
+    x_i = [[],[]]# Estimated initial states
+    trans = scipy.zeros((2,2))
+    for track in track_2_hits.values():
+        if len(track) < 10:
+            continue
+        Yts = extract_yts(track)
+        d,tmp0,tmp1,tmp2 = Mod.decode(Yts) # d[k][t] is decoded x,i for
+                                           # target k at time t
+        if len(d) != 1:
+            print 'len(d)=%d'%len(d)
+            continue
+        st,it = d[0][0]
+        x_i[it].append(st.A.reshape(-1))
+        for t in xrange(len(d[0])-1):
+            st0,it0 = d[0][t]
+            st1,it1 = d[0][t+1]
+            trans[it0,it1] += 1
+            y0[it0].append(Yts[t][0].A.reshape(-1))
+            x0[it0].append(st0.A.reshape(-1))
+            x1[it0].append(st1.A.reshape(-1))
+    # A,resids,rank,s = scipy.linalg.lstsq(x0.T,x1.T)
+    # A = A.T Don't fit A.  It is known
+    for temp in (y0,x0,x1,x_i): # Convert data to scipy arrays
+        temp[0] = scipy.array(temp[0])
+        temp[1] = scipy.array(temp[1])
+    for i in xrange(2):
+        e = x1[i]-scipy.dot(x0[i],A.T)
+        IMM.Sigma_D[i] = scipy.matrix(scipy.dot(e.T,e)/len(e))
+        e = y0[i] - scipy.dot(x0[i],O.T)
+        IMM.Sigma_O[i] = scipy.matrix(scipy.dot(e.T,e)/len(e))
+        IMM.mus[i] = scipy.matrix(x_i[i].sum(0)/len(x_i[i])).T
+        N_i,temp = x_i[i].shape
+        IMM.Sigmas[i] = scipy.matrix(scipy.dot(x_i[i].T,x_i[i])/N_i -\
+                                         IMM.mus[i]*IMM.mus[i].T)
+    for i in xrange(2):
+        print '\n\nIMM component %d:'%i
+        for pair in ((IMM.Sigma_D,'Sigma_D'),(IMM.Sigma_O,'Sigma_O'),
+                     (IMM.mus,'mus'),(IMM.Sigmas,'Sigmas')):
+            print '  %s=\n'%pair[1],pair[0][i]
+    D = trans.sum(1)
+    print 'P_trans/D=\n',trans/D
             
 if __name__ == '__main__':  # Test code
     import sys, getopt
     opts,pargs = getopt.getopt(sys.argv[1:],'',
                                ['count',
                                 'fit',
+                                'fitIMM',
                                 'track',
                                 'test',
                                 'accel',
@@ -143,39 +205,31 @@ if __name__ == '__main__':  # Test code
     
     if opt_dict.has_key('--track'):
         Mod = mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
-                     MaxD=3.0,Max_NA=40,mu_init=mu_init,Sigma_init=Sigma_init,
-                     Lambda_new=Lambda_new,Murty_Ex=150)
+                     MaxD=5.0,A_floor=6.0,Max_NA=10,mu_init=mu_init,
+                     Sigma_init=Sigma_init,Lambda_new=Lambda_new,Murty_Ex=10000)
         # Recall: t_2_hits[t].append([x,y,track])
-        times = t_2_hits.keys()
-        times.sort()
-        def get_third(r):
-            name = 'AMF_tracks'+str(r)+'.txt'
-            file = open(name,'w')
-            yts = []
-            for t in xrange(len(times)):
-                t1 = times[t]
-                assert t == t1-1,'times not sequential'
-                yts.append([])
-                for triple in t_2_hits[t1]:
-                    if triple[2]%3 == r:
-                        yts[t].append(scipy.matrix(triple[0:2]).T) # FixMe
-            print 'calling decode for real'
-            d,tmp0,tmp1,tmp2 = Mod.decode(yts)
-            print >>file,'START_FILE'
-            for track in d:
-                print >>file,'START_TRACK'
-                t=0
-                for hit in track:
-                    t += 1
-                    if not hit is None:
-                        print >>file,'0 %2d %3d %3d 0 0'%(t,int(hit[0]),
-                                                          int(hit[2]))
-                        # confdence, frame#, x, y, x_dot, y_dot
-                print >>file,'END_TRACK'
-            print >>file,'END_FILE'
-            file.close
-        for r in xrange(3):
-            get_third(r)
+        yts = []
+        for t1 in t_2_hits.keys():
+            t = t1-1 # FixMe
+            yts.append([])
+            for triple in t_2_hits[t1]:
+                yts[t].append(scipy.matrix(triple[0:2]).T)
+        d,y_A,nu,close_calls = Mod.decode(yts)
+        print 'nu=',nu
+        file = open('AMF_tracks.txt','w')
+        print >>file,'START_FILE'
+        for track in d:
+            print >>file,'START_TRACK'
+            t=0
+            for hit in track:
+                t += 1
+                if not hit is None:
+                    print >>file,'0 %2d %3d %3d 0 0'%(t,int(hit[0]),
+                                                      int(hit[2]))
+                        # confidence, frame#, x, y, x_dot, y_dot
+            print >>file,'END_TRACK'
+        print >>file,'END_FILE'
+        file.close
     if opt_dict.has_key('--fit') or opt_dict.has_key('--accel'):
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)
@@ -199,6 +253,8 @@ if __name__ == '__main__':  # Test code
             for I in xrange(len(Mods)):
                 print '\n\nDumping model %d'%I
                 Mods[I].dump()
+    if opt_dict.has_key('--fitIMM'):   # Fit IMM model parameters
+        v_a = reestimate_IMM(track_2_hits,track_only=True)
             
     if opt_dict.has_key('--test'):
         # Check for missed hits in each track

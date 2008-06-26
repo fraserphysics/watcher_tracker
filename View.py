@@ -144,13 +144,14 @@ class PlotPanelB(PlotPanelA):
             y = []
             for t in xrange(T):
                 if self.d[k][t] is not None:
-                    x.append(self.d[k][t][1,0])
-                    y.append(self.d[k][t][0,0])
+                    x.append(self.d[k][t][0][1,0])
+                    y.append(self.d[k][t][0][0,0])
             color = self.colors[k%len(self.colors)]
             self.subplot.plot(x,y, lw=2, color=color, linestyle='-')
             t = self.t
             if self.d[k][t] is not None:
-                self.subplot.plot([self.d[k][t][1,0]],[self.d[k][t][0,0]],
+                self.subplot.plot([self.d[k][t][0][1,0]],
+                 [self.d[k][t][0][0,0]],
                  markerfacecolor=color, markeredgecolor=color, marker='+',
                  linewidth=0, markeredgewidth=2, markersize=25)
         self.subplot.set_title(self.title, fontsize = 12)
