@@ -6,8 +6,14 @@ ABQ_prof: mvx.py util.py ABQ_track.py
 groundTruthTracks.txt: data/ABQ_Intersection
 	cp data/ABQ_Intersection/abqGroundTruth.trx $@
 
-AMF_tracks0.txt AMF_tracks1.txt AMF_tracks2.txt:
+AMF_tracks.txt: ABQ_track.py
 	python ABQ_track.py --track
+
+IMM_Mod: ABQ_track.py
+	python ABQ_track.py --fitIMM
+
+AMF_IMM_tracks.txt: ABQ_track.py IMM_Mod
+	python ABQ_track.py --trackIMM
 
 AMF_accel.txt: ABQ_track.py
 	python ABQ_track.py --accel
