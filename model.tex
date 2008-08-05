@@ -93,7 +93,7 @@ I will use the following definitions to describe decoding:
 \begin{align*}
   u(\ts{s}{\tau}{1}{t}) & \quad \text{Utility of state sequence }
   \ts{s}{\tau}{1}{t}\\
-  & \quad \equiv \log \left( P(\ts{y}{\tau}{1}{t},\ts{s}{\tau}{1}{t} \right)
+  & \quad \equiv \log \left( P(\ts{y}{\tau}{1}{t},\ts{s}{\tau}{1}{t}) \right)
   \\
   \nu(s,t) & \quad \text{Utility of best sequence ending with }
   \ti{s}{t} = s \\ 
@@ -108,7 +108,7 @@ I will use the following definitions to describe decoding:
 I can evaluate the functions $B(*,t)$ and $\nu(*,t)$ recursively as
 follows:
 \begin{align*}
-  \omega(s,s',t) &= \nu(s,t) + \log\left( P_{\ti{s}{t+1}|}(s'|s) \right) +
+  \omega(s,s',t) &= \nu(s,t) + \log\left( P_{\ti{s}{t+1}|\ti{s}{t}}(s'|s) \right) +
   \log\left( P_{\ti{y}{t+1}|\ti{s}{t+1}}(\ti{y}{t+1}|s') \right) \\
   \nu(s,t+1) &= \omega(B(s,t),s,t)
 \end{align*}
@@ -182,11 +182,8 @@ $\ti{s}{t}$ would produce observation $\ti{y}{t}$ is\footnote{This
 \end{equation}
 with normal conditional observation distributions
 \begin{equation*}
-  \ti{y}{t,i}|\ti{s}{t,j} \sim
-  \begin{cases}
-    \NormalE{O\ti{s}{t,j}}{\Sigma_o}{\ti{y}{t,i}} & i = M(j) \\
-    \text{Uniform} & \text{Otherwise}
-  \end{cases}
+  \ti{y}{t,j}|\ti{s}{t,i} \sim
+    \NormalE{O\ti{s}{t,i}}{\Sigma_O}{\ti{y}{t,j}}
 \end{equation*}
 where each mean comes from the projection
 \begin{equation*}
@@ -195,8 +192,8 @@ where each mean comes from the projection
 \end{equation*}
 and each covariance is
 \begin{equation*}
-  \Sigma_o = \begin{bmatrix} \sigma_{xo}^2 & 0 \\ 0 &
-    \sigma_{xo}^2 \end{bmatrix}.
+  \Sigma_O = \begin{bmatrix} \sigma_{xO}^2 & 0 \\ 0 &
+    \sigma_{xO}^2 \end{bmatrix}.
 \end{equation*}
 In summary, aside from the initial state distribution, the model has
 the following 3 degrees of freedom:
@@ -206,7 +203,7 @@ the following 3 degrees of freedom:
     Symbol & Description & Degrees of freedom \\
     \hline
     $\Sigma_D$ & Dynamical noise & 2 \\
-    $\Sigma_o$ & Observation noise & 1 \\
+    $\Sigma_O$ & Observation noise & 1 \\
     \hline
   \end{tabular} 
 \end{center}
@@ -390,7 +387,7 @@ I have implemented an algorithm around the following recursion step:
 \begin{verse}
   At time $t$ given $(\mu(k,t|M), \Sigma(k,t|M), R(k,t|M))~\forall
   (M,k)$:\\
-  For each possible permutation $M$ at time $t+1$:\\
+  For each possible permutation $M'$ at time $t+1$:\\
   \hspace{2em} For each possible predecessor $M$ at time $t$:\\
   \hspace{4em} Calculate $\omega(M,M',t) = \sum_k R(k,t+1|M,M')$ \\
   \hspace{2em} Set $B_M(M',t+1) = \tilde M = \argmax_{M}\omega(M,M',t)$\\
@@ -401,6 +398,8 @@ I have implemented an algorithm around the following recursion step:
   \hspace{4em} $(\mu(k,t|\tilde M), \Sigma(k,t|\tilde M),R(k,t|\tilde
   M))$
 \end{verse}
+(Note: The calculation of $\omega$ on the fourth line is incorrect
+and will be revised in the next version.)
 
 \section{Model Version Two: Variable Visibility}
 \label{sec:model2}
@@ -471,7 +470,7 @@ without an observation, ie,
   &\equiv -\frac{1}{2}(s-\mu_{t+1})^T
   \Sigma_{t+1}^{-1}(s-\mu_{t+1}) + R_{t+1} \nonumber \\
   \label{eq:new_Sigma_noy}
-  \Sigma_{t+1} & = \left( \Sigma_D + A \Sigma_tA^T \right) \\
+  \Sigma_{t+1} & = \left( \Sigma_D + A \Sigma_tA^T \right)^{-1} \\
   \label{eq:new_mu_noy}
   \mu_{t+1} &= A \mu_t \\
   \label{eq:new_R_noy}
