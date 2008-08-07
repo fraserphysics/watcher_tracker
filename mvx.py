@@ -312,13 +312,24 @@ class TARGET5(CAUSE):
             self._kill(t)
             return False # Have calling routine move this to dead_targets
         self._forecast()
-        self.children = {}
+        child_list = []
         threshold = self._mod.log_min_pd
         for k in xrange(len(y_t)):
-            if threshold > self._utility(y_t[k]):
+            u = self._utility(y_t[k])
+            if threshold > u:
                 continue                 # Candidate utility too small
-            self.children[k] = self._spawn(k,t)
-            assert(self.children[k].m_t[-1]==k)
+            child = self._spawn(k,t)
+            assert(child.m_t[-1]==k)
+            child_list.append([u,k,child])
+        child_list.sort()
+        self.children = {}
+        max_child = 10 # FixMe: How should I set this parameter?
+        L = min(max_child,len(child_list))
+        for u,k,child in child_list[:L]:
+            self.children[k] = child
+        #if L < max_child:
+        #    print 'make_children: threshold=%f, %d children %d hits: %d%%'%(
+        #        threshold, L,len(y_t),100*L/len(y_t))
         # Child for invisible y
         self._utility(None)
         self.children[-1] = self._spawn(-1,t)
@@ -398,6 +409,7 @@ class TARGET5(CAUSE):
         temp = nu_ij.argmax(0)              # temp[j] is best i for j
         best = self._best + [temp]
         nu = scipy.choose(temp,nu_ij)  # temp[j] is util of best path to j
+        # FixMe: Best path may depend on future measurements
         # Return a new instance of self's class (could be a subclass)
         return self.__class__(par_tar=self,copy_index=True,nu=nu,best=best,
                               tk=(t,k))
@@ -1049,8 +1061,8 @@ class ASSOCIATION4:
         CC = FA(y[k],self.t,k,self.mod.Sigma_FA_I, self.mod)
         if CC.R > self.mod.log_min_pd:
             causes.append(CC) # False alarm
-        else:
-            print 'check_FAs rejects, self.mod.MaxD=',self.mod.MaxD
+        #else: # FixMe
+        #    print 'check_FAs rejects, %5.2f < %5.2f'%(CC.R,self.mod.log_min_pd)
         return
     def check_newts(self, # ASSOCIATION4.  Check for new target
                     k,causes,y):
@@ -2056,6 +2068,7 @@ class IMM:
     def __init__(self, mod, Stop):
         dim = len(mod.Sigma_init)
         safe = scipy.matrix(scipy.eye(dim))*1e-8
+        # Parmaters of initial distributions are: mus and Sigmas
         self.mus = [mod.mu_init, Stop*mod.mu_init]
         self.Sigmas = [mod.Sigma_init, Stop*mod.Sigma_init*Stop+safe]
         self.A = [mod.A, Stop*mod.A*Stop]
