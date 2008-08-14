@@ -1,0 +1,188 @@
+\documentclass[]{article}
+
+\usepackage{amsmath,amsfonts}
+\usepackage{graphicx}
+%\usepackage{showlabels}
+
+\newcommand{\normal}[2]{{\cal N}(#1,#2)}
+\newcommand{\NormalE}[3]{{\mathcal{N}}\left.\left(#1,#2\right)\right|_{#3}}
+\newcommand{\xdot}{{\dot x}}
+\renewcommand{\th}{^{\text{th}}}
+\newcommand{\field}[1]{\mathbb{#1}}
+\newcommand{\REAL}{\field{R}}
+\newcommand{\RATIONAL}{\field{Q}}
+\newcommand{\INTEGER}{\field{Z}}
+\newcommand{\EV}[2]{\field{E}_{#1}\left[#2\right]}
+\newcommand{\M}{{\cal M}}
+\newcommand{\transpose}{^\top}
+\newcommand{\os}[4]{{\left[ #1(#2) \right]}_{#3}^{#4}} % Object sequence
+\newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
+%\newcommand{\ts}[4]{\os{#1}{#2}{#2=#3}{#4}} % Time series
+%\newcommand{\ts}[4]{{\left[ #1(#2) \right]}_{#2=#3}^{#4}} % Sequence
+\newcommand{\ts}[3]{{#1}_{#2}^{#3}} % Time series
+\newcommand{\argmin}{\operatorname*{argmin}}
+\newcommand{\argmax}{\operatorname*{argmax}}
+\newcommand{\cS}{{\cal S}}
+\newcommand{\cA}{{\cal A}}
+\newcommand{\cC}{{\cal C}}
+\newcommand{\logdet}{\log\left(\left|\Sigma_D\right| \left| \Sigma_O
+    \right| \right)}
+
+\title{Track Improvement}
+\author{Andy Fraser}
+
+\begin{document}
+\maketitle
+
+Existing MIT-LL software derives estimated vehicle tracks from a lower
+level moving object detector resulting in useful \emph{tracklets}.
+The tracklets can cue attention to times when vehicles visit locations
+of interest, and they can truly track vehicles in easy cases.  However
+the tracking fails if a vehicle gets close to other vehicles, stops,
+maneuvers erratically, or is not detected for more than five
+consecutive frames.  We can improve tracking with the following
+techniques:
+\begin{description}
+\item[Vehicle appearance model] In addition to reporting the location
+  of each moving object in each frame, each tracked vehicle will have
+  a model for it's appearance.  A model gives a probabilistic
+  description of the relationship of the location and orientation of
+  the vehicle to its appearance in a frame.  Appearance models will
+  let us make better guesses about which object in each frame maps to
+  which target. The models will let us use orientation information
+  from the still images to estimate direction of motion, and they will
+  help us detect vehicles when they are not moving.
+\item[Traffic model] We can use older observations to build
+  probabilistic models of vehicle motion.  The distribution of vehicle
+  motion will depend on location and time (either time of day or,
+  given enough historical data, time of week).  Such models can
+  improve tracking by making our guesses about where a tracked vehicle
+  will go in the next frame more accurate.  They will also enable us
+  to better flag anomalous behavior.
+\item[Models of maneuvers] With models that combine Gaussian noise
+  with a linear map for target vehicle motion and a linear map from
+  the vehicle \emph{state} to its appearance in a frame, MIT-LL (and
+  others) can use Kalman filters for tracking.  Kalman filters are
+  marvelously powerful and efficient, and we intend to continue using
+  them.  However, we augment simple Kalman filters with a technique
+  called \emph{interacting multiple models}, IMMs.  An IMM models a
+  collection of maneuvering modes by using a different linear map to
+  describe the target motion for each mode.  The technique has the
+  following two classes of benefits:
+  \begin{description}
+  \item[Better tracking] A multi-mode model more accurately describes
+    vehicle motion and consequently the resulting track estimates are
+    better.
+  \item[Identification of maneuver modes] Using IMMs, our tracking
+    algorithm naturally estimates a sequence of modes.  That sequence,
+    perhaps with some additional processing, is the information that
+    goes into the track event file.
+  \end{description}
+\item[Soft assignment of observations to targets] In the MIT-LL
+  tracking algorithm, for each new frame, each target gets assigned
+  the observation that is most probable unless there is no observation
+  above a certain plausibility threshold in which case the target is
+  not assigned an observation.  Thus the algorithm makes hard greedy
+  assignment choices as it processes each frame.  While that approach
+  yields code that runs quickly, it precludes the possibility of using
+  later frames to improve the assignment choices in earlier frames.
+  The state of the art technique, called \emph{multi-hypothesis
+    tracking}, MHT, uses information accumulated over a sequence of
+  frames to make assignment decisions.  MHT operates by maintaining as
+  hypotheses a collection of plausible assignment sequences.  As it
+  processes new frames, some sequences branch and others become
+  implausible.
+\item[Stopped mode] As a simple application of the IMM idea, we plan
+  to augment the single mode greedy approach of the MIT-LL tracker
+  with a simple greedy tracker that has two modes, \emph{moving} and
+  \emph{stopped}.  Targets in the new stopped mode will be associated
+  with stationary objects that escape the moving object detector.  The
+  technique will stitch together tracklet gaps that come from stops at
+  intersections.
+\end{description}
+
+None of the ideas in the preceding list is particularly novel or
+profound, but by integrating them we can build a persistent
+surveillance analysis tool that is reliable, flexible, and extendable.
+While we could buy code that uses some of the ideas, eg, the division
+of BAE that was formerly Alphatech uses MHT and IMM, in the resulting
+system we could neither integrate the models at different levels, nor
+optimize models and algorithms for performance.  The system would be
+brittle; without reliability, flexibility, or extendibility.
+
+\section*{Progress in 2008}
+\label{sec:progres}
+
+We have developed a theoretical framework for model based tracking,
+written prototype code that implements it, and tested the code on data
+from an Angle Fire collect.  Our prototype can incorporate a small
+variety of model types.  By using IMMs and MHT, we obtain a marginal
+performance improvement over a simple greedy approach.  We expect that
+margin to grow as we incorporate features that model vehicle
+appearance and position and time based traffic behavior.  In addition
+to being able to incorporate new model features, our approach will let
+us distribute a fixed budget of computational power flexibly; applying
+more power to regions and targets that a user or higher level software
+indicates are more important.
+
+\subsection*{Tracking vs filtering}
+\label{sec:track-filter}
+
+When we started work on the WATCHER project a year ago, no one on the
+team had studied tracking.  Beginning with the literature (eg,
+Bar-Shalom, Li, and Kirubarajan, \emph{Estimation with Applications to
+  Tracking and Navigation}) we found parallels to the problem of
+estimating states from observations in a dynamical system (eg, Fraser
+\emph{Hidden Markov Models and Dynamical Systems}) with which we are
+familiar.
+
+Suppose that at each integer time there is an \emph{observation}
+consisting of a list of detected vehicles and characterizations of
+their appearance, a \emph{state} consisting of a list of target
+positions, velocities, etc., and operating modes, and a nuisance
+variable called an \emph{association} consisting of a map from targets
+in the state to detected vehicles in the observation.  We want to know
+what a sequence of observations can tell us about the sequence of
+states.  Using the symbols $\ti{y}{t}$, $\ti{x}{t}$, and $\ti{A}{t}$
+for the observation, state, and association respectively in the frame
+at time $t$ and $\ts{y}{1}{T}$, $\ts{x}{1}{T}$, and $\ts{A}{1}{T}$ for
+the respective sequences, we want to characterize
+\begin{equation*}
+  P(\ts{x}{1}{T}|\ts{y}{1}{T}) = \sum_{\ts{A}{1}{T}}  P(\ts{x}{1}{T},
+  \ts{A}{1}{T}|\ts{y}{1}{T}).
+\end{equation*}
+An essential challenge is that the number of possible association
+sequences $\ts{A}{1}{T}$ is enormous.  If there are $N$ targets and
+observations in every frame the number of sequences is $N!^T$.
+Initially, we considered an approach analogous to Kalman filtering
+applied globally.  We hoped to approximate an estimate of
+$P(\ti{x}{t})|\ts{y}{1}{t})$ recursively.  That approach lead to
+complicated probability distributions for which simplifying
+approximations seemed difficult and it provided estimates of target
+locations without providing estimates of target trajectories.  As an
+alternative we chose to approximate the best guess about both the
+sequence of states and the sequence of associations, ie,
+\begin{equation}
+  \label{eq:bear}
+  \ts{{\hat x}}{1}{T},\ts{{\hat A}}{1}{T} =
+  \argmax_{\ts{x}{1}{T},\ts{A}{1}{T}}   P(\ts{x}{1}{T},
+  \ts{A}{1}{T}|\ts{y}{1}{T}).
+\end{equation}
+While solving \eqref{eq:bear} exactly requires considering an enormous
+number of possible association sequences, we have developed an
+algorithm that uses ideas from Kalman filtering and Viterbi decoding
+that yields approximate solutions with a computational cost that is
+linear in the number of frames.  The procedure produces plausible
+tracks, and it is easy to incorporate into the procedure model
+improvements and variations like those in the foregoing list.
+
+% \begin{verbatim}
+% $Id: $
+% \end{verbatim}
+
+\end{document}
+
+%%%---------------
+%%% Local Variables:
+%%% eval: (TeX-PDF-mode)
+%%% End:
