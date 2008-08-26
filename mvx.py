@@ -308,9 +308,18 @@ class TARGET5(CAUSE):
         assert (self.type is 'target'),'self.type=%s'%self.type
         if not self.children is None:
             return True  # make_children already called for this target
-        if self._invisible_count > self._mod.Invisible_Lifetime:
+        if self._invisible_count >= self._mod.Invisible_Lifetime:
             self._kill(t)
             return False # Have calling routine move this to dead_targets
+        ### Begin temporary hack for ABQ data
+        for i in xrange(len(self._mod.IMM.A)):
+            if self._invisible_count < 1:
+                continue # far out positions OK if visible
+            if self._mu_t[-1][i].min() < 0 or self._mu_t[-1][i].max() > 500:
+                #print 't=%2d, i=%1d mu='%(t,i),self._mu_t[-1][i].T
+                self._kill(t)
+                return False
+        ### End temporary hack
         self._forecast()
         child_list = []
         threshold = self._mod.log_min_pd
@@ -323,7 +332,7 @@ class TARGET5(CAUSE):
             child_list.append([u,k,child])
         child_list.sort()
         self.children = {}
-        max_child = 10 # FixMe: How should I set this parameter?
+        max_child = 60 # FixMe: How should I set this parameter?
         L = min(max_child,len(child_list))
         for u,k,child in child_list[:L]:
             self.children[k] = child
@@ -453,8 +462,8 @@ class TARGET5(CAUSE):
         self.type = 'dead_target'
         self.children = {}
         for List in self.m_t,self._mu_t,self._Sigma_t:
-            del(List[-self._mod.Invisible_Lifetime:])
-        self._last = t-self._mod.Invisible_Lifetime
+            del(List[-self._invisible_count:])
+        self._last = t-self._invisible_count
         return
     def target_time(self, # TARGET5
                     T):
@@ -599,7 +608,7 @@ class TARGET4(CAUSE):
         assert (self.type is 'target'),'self.type=%s'%self.type
         if not self.children is None:
             return True  # make_children already called for this target
-        if self._invisible_count > self._mod.Invisible_Lifetime:
+        if self._invisible_count >= self._mod.Invisible_Lifetime:
             self._kill(t)
             return False # Have calling routine move this to dead_targets
         self._forecast()
@@ -701,8 +710,8 @@ class TARGET4(CAUSE):
         self.type = 'dead_target'
         self.children = {}
         for List in self.m_t,self._mu_t,self._Sigma_t:
-            del(List[-self._mod.Invisible_Lifetime:])
-        self._last = t-self._mod.Invisible_Lifetime
+            del(List[-self._invisible_count:])
+        self._last = t-self._invisible_count
         return
     def target_time(self,T):
         """ To give MV*.decode_back the starting and ending times for
