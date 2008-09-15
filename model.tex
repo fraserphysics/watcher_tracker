@@ -1072,6 +1072,28 @@ $i^{\text th}$ row and $j^{\text th}$ column of the utility matrix
 $w$.  However, if $j\in {\cal J}$, I do not strike the $j^{\text th}$
 column.
 
+\section{Performance on Test Data}
+\label{sec:tests}
+
+After hacking \emph{make\_children} in \emph{mvx:TARGET5} to cut
+invisible tracks near the edges of the frame, the MHT tracker with IMM
+got a score of 117.17 with 508 tracks in 2:15 on the Albuquerque data
+the Christy marked up.  I used the following parameters:
+\begin{center}
+  \begin{tabular}[]{ll}
+    max\_child & 8 \\
+    floor (for children) & 4.0 \\
+    Number of predecessor associations to consider & 3 \\
+    Lambda\_new & 3.0 \\
+    log\_min\_pd & -30.0 \\
+    Max\_NA & 6 \\
+    A\_floor & 10
+  \end{tabular}
+\end{center}
+
+
+
+
 \section{Filtering}
 \label{sec:filtering}
 

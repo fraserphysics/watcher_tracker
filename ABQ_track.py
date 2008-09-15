@@ -285,10 +285,10 @@ if __name__ == '__main__':  # Test code
         # Read the fit model.  Fix several parameters
         Mod = pickle.load(open('IMM_Mod','r'))
         Mod.Lambda_new = 3.0
-        Mod.log_min_pd = -25.0
-        Mod.Max_NA = 5
+        Mod.log_min_pd = -30.0   # How far to look for children
+        Mod.Max_NA = 6
         Mod.Murty_Ex = 1000
-        Mod.A_floor = 6.0
+        Mod.A_floor = 10.0
         IMM = Mod.IMM
         dim = len(Sigma_init)
         safe = scipy.matrix(scipy.eye(dim))*1e-8
@@ -307,7 +307,7 @@ if __name__ == '__main__':  # Test code
             for triple in t_2_hits[t1]:
                 yts[t].append(scipy.matrix(triple[0:2]).T)
         d,y_A,nu,close_calls = Mod.decode(yts)
-        print 'nu=',nu
+        print 'nu=',nu,len(d),'Tracks'
         file = open('AMF_IMM_tracks.txt','w')
         print >>file,'START_FILE'
         for track in d:

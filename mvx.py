@@ -315,7 +315,7 @@ class TARGET5(CAUSE):
         for i in xrange(len(self._mod.IMM.A)):
             if self._invisible_count < 1:
                 continue # far out positions OK if visible
-            if self._mu_t[-1][i].min() < 0 or self._mu_t[-1][i].max() > 500:
+            if self._mu_t[-1][i].min() < 100 or self._mu_t[-1][i].max() > 400:
                 #print 't=%2d, i=%1d mu='%(t,i),self._mu_t[-1][i].T
                 self._kill(t)
                 return False
@@ -330,15 +330,20 @@ class TARGET5(CAUSE):
             child = self._spawn(k,t)
             assert(child.m_t[-1]==k)
             child_list.append([u,k,child])
-        child_list.sort()
         self.children = {}
-        max_child = 60 # FixMe: How should I set this parameter?
-        L = min(max_child,len(child_list))
-        for u,k,child in child_list[:L]:
-            self.children[k] = child
-        #if L < max_child:
-        #    print 'make_children: threshold=%f, %d children %d hits: %d%%'%(
-        #        threshold, L,len(y_t),100*L/len(y_t))
+        if len(child_list) > 0:
+            child_list.sort()
+            child_list.reverse()
+            floor = 4.0 # 0.4*self._mod.A_floor
+            max_child = 8 # FixMe: How should I set these parameters?
+            top = child_list[0][0]
+            L = 0
+            while L < max_child and \
+                    L < len(child_list) and \
+                    child_list[L][0] > top-floor:
+                L += 1
+            for u,k,child in child_list[:L]:
+                self.children[k] = child
         # Child for invisible y
         self._utility(None)
         self.children[-1] = self._spawn(-1,t)
@@ -824,7 +829,7 @@ class SUCCESSOR_DB:
         for suc in self.successors.values():
             sa = suc['associations']
             sa.sort(cmp_ass)
-            L = min(3,len(sa))
+            L = min(3,len(sa)) # FixMe: How many predecessors should I keep?
             rv += sa[:L]
             # FixMe could be dropping good associations with argmax
             #rv.append(suc['associations'][util.argmax(suc['u_primes'])])
