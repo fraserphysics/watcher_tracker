@@ -14,20 +14,20 @@ time python ABQ_track.py --track > temp
    Creates AMF_tracks.txt, estimated tracks
    
 """
-import scipy, mvx
+import scipy, mvx, numpy.random as N_random, sys
 def augment(A,floor=1.0): # make min eigenvalue floor
     dim = A.shape[0]
     min_e = min(scipy.linalg.eigvalsh(A))
     if min_e < floor:
         A += scipy.matrix(scipy.eye(dim))*(floor-min_e)
     return
-def parse_tracks(file):
+def parse_tracks(File):
     t_2_hits = {}     # Key: t, Value: [[x,y,track#], ...] 
     track_2_hits = {} # Key: track#, Value: [[x,y,t], ...]
     track = 0
     line_no = -1
     # Read and parse the tracks
-    for line in file.readlines():
+    for line in File.readlines():
         line_no += 1
         if line[0:5] == 'START':
             old_t = None
@@ -204,14 +204,65 @@ def reestimate_IMM(track_2_hits, # dict of tracks read by parse_tracks()
     pickle.dump(Mod,open('IMM_Mod','w'))
     return
 
+def set_par_IMM(Mod,min_pd=-30,Max_NA=6,A_floor=10.0,FA=1e-205,PM=1e-6):
+    Mod.Lambda_new = 3.0
+    Mod.log_min_pd = min_pd  # How far to look for children
+    Mod.Max_NA = Max_NA
+    Mod.Murty_Ex = 1000
+    Mod.A_floor = A_floor
+    IMM = Mod.IMM
+    dim = len(Sigma_init)
+    safe = scipy.matrix(scipy.eye(dim))*1e-8
+    Stop = scipy.matrix(scipy.eye(4))
+    Stop[1,1] = 0
+    Stop[3,3] = 0
+    IMM.mus[1] = Stop*IMM.mus[1]
+    IMM.Sigmas[1] = Stop*IMM.Sigmas[1]*Stop+safe
+    IMM.Sigma_D[1] = safe
+    augment(IMM.Sigma_O[0],floor=0.1) # Fudge
+    augment(IMM.Sigma_D[0],floor=0.1) # Fudge
+    Mod.Lambda_FA = FA
+    Mod.PV_V = scipy.matrix([[1.0-PM,PM],[1.0-PM,PM]])
+def make_test_yts(t_2_hits,FA=None,PM=None):
+    yts = []
+    N_random.seed(3)
+    for t1 in t_2_hits.keys():
+        t = t1-1 # FixMe
+        yts.append([])
+        for triple in t_2_hits[t1]:
+            if PM is None or N_random.random() > PM:
+                yts[t].append(scipy.matrix(triple[0:2]).T)
+        if not FA is None:
+            for i in xrange(N_random.poisson(FA)):
+                x = N_random.randint(1,500)
+                y = N_random.randint(1,500)
+                yts[t].append(scipy.matrix([x,y]).T)
+    return yts
+def decode_write(Mod,yts,filename):
+    File = open(filename,'w')
+    d,y_A,nu,close_calls = Mod.decode(yts)
+    print 'nu=',nu,'for filename=',filename
+    print >>File,'START_FILE'
+    for track in d:
+        print >>File,'START_TRACK'
+        t=0
+        for hit in track:
+            t += 1
+            if not hit is None:
+                print >>File,'0 %2d %3d %3d 0 0'%(t,int(hit[0][0]),
+                                                  int(hit[0][2]))
+        print >>File,'END_TRACK'
+    print >>File,'END_FILE'
+    File.close
 if __name__ == '__main__':  # Test code
-    import sys, getopt, pickle
+    import sys, getopt, pickle, os
     opts,pargs = getopt.getopt(sys.argv[1:],'',
                                ['count',
                                 'fit',
                                 'track',
                                 'fitIMM',
                                 'trackIMM',
+                                'surveyIMM',
                                 'test',
                                 'accel',
                                 'In_File='
@@ -223,38 +274,18 @@ if __name__ == '__main__':  # Test code
         else:
             opt_dict[opt[0]] = True  
     if opt_dict.has_key('In_File'):
-        file = open(opt_dict['In_File'],'r')
+        File = open(opt_dict['In_File'],'r')
     else:
-        file = open('groundTruthTracks.txt','r')
-    t_2_hits,track_2_hits = parse_tracks(file)
+        File = open('groundTruthTracks.txt','r')
+    t_2_hits,track_2_hits = parse_tracks(File)
     
     if opt_dict.has_key('--track'):
         Mod = mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
                     MaxD=5.0,A_floor=6.0,Max_NA=10,mu_init=mu_init,
                     Sigma_init=Sigma_init,Lambda_new=Lambda_new,Murty_Ex=10000)
         # Recall: t_2_hits[t].append([x,y,track])
-        yts = []
-        for t1 in t_2_hits.keys():
-            t = t1-1 # FixMe
-            yts.append([])
-            for triple in t_2_hits[t1]:
-                yts[t].append(scipy.matrix(triple[0:2]).T)
-        d,y_A,nu,close_calls = Mod.decode(yts)
-        print 'nu=',nu
-        file = open('AMF_tracks.txt','w')
-        print >>file,'START_FILE'
-        for track in d:
-            print >>file,'START_TRACK'
-            t=0
-            for hit in track:
-                t += 1
-                if not hit is None:
-                    print >>file,'0 %2d %3d %3d 0 0'%(t,int(hit[0][0]),
-                                                      int(hit[0][2]))
-                        # confidence, frame#, x, y, x_dot, y_dot
-            print >>file,'END_TRACK'
-        print >>file,'END_FILE'
-        file.close
+        yts = make_yts(t_2_hits)
+        decode_write(Mod,yts,'AMF_IMM_tracks.txt')
     if opt_dict.has_key('--fit') or opt_dict.has_key('--accel'):
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)
@@ -262,11 +293,11 @@ if __name__ == '__main__':  # Test code
         Mods = [mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
               mu_init=mu_init,Sigma_init=Sigma_init,Lambda_new=Lambda_new)]
         if opt_dict.has_key('--accel'): # Print estimated states/accelerations
-            file = open('AMF_accel.txt','w')
+            File = open('AMF_accel.txt','w')
             v_a = reestimate(track_2_hits,track_only=True)
             T,N = v_a.shape
             for t in xrange(T):
-                print >>file, (6*'%6.2f ')%(v_a[t,0],v_a[t,1],v_a[t,2],
+                print >>File, (6*'%6.2f ')%(v_a[t,0],v_a[t,1],v_a[t,2],
                            v_a[t,3],v_a[t,4],v_a[t,5])
         if opt_dict.has_key('--fit'):   # Fit model parameters
             for I in xrange(2):
@@ -284,45 +315,45 @@ if __name__ == '__main__':  # Test code
     if opt_dict.has_key('--trackIMM'):   # Track with IMM
         # Read the fit model.  Fix several parameters
         Mod = pickle.load(open('IMM_Mod','r'))
-        Mod.Lambda_new = 3.0
-        Mod.log_min_pd = -30.0   # How far to look for children
-        Mod.Max_NA = 6
-        Mod.Murty_Ex = 1000
-        Mod.A_floor = 10.0
-        IMM = Mod.IMM
-        dim = len(Sigma_init)
-        safe = scipy.matrix(scipy.eye(dim))*1e-8
-        Stop = scipy.matrix(scipy.eye(4))
-        Stop[1,1] = 0
-        Stop[3,3] = 0
-        IMM.mus[1] = Stop*IMM.mus[1]
-        IMM.Sigmas[1] = Stop*IMM.Sigmas[1]*Stop+safe
-        IMM.Sigma_D[1] = safe
-        augment(IMM.Sigma_O[0],floor=0.1) # Fudge
-        augment(IMM.Sigma_D[0],floor=0.1) # Fudge
-        yts = []
-        for t1 in t_2_hits.keys():
-            t = t1-1 # FixMe
-            yts.append([])
-            for triple in t_2_hits[t1]:
-                yts[t].append(scipy.matrix(triple[0:2]).T)
-        d,y_A,nu,close_calls = Mod.decode(yts)
-        print 'nu=',nu,len(d),'Tracks'
-        file = open('AMF_IMM_tracks.txt','w')
-        print >>file,'START_FILE'
-        for track in d:
-            print >>file,'START_TRACK'
-            t=0
-            for hit in track:
-                t += 1
-                if not hit is None:
-                    print >>file,'0 %2d %3d %3d 0 0'%(t,int(hit[0][0]),
-                                                      int(hit[0][2]))
-                        # confidence, frame#, x, y, x_dot, y_dot
-            print >>file,'END_TRACK'
-        print >>file,'END_FILE'
-        file.close
-            
+        set_par_IMM(Mod,min_pd=-14.0,Max_NA=4,A_floor=3.0,FA=3.0,PM=0.1)
+        yts = make_test_yts(t_2_hits)
+        decode_write(Mod,yts,'AMF_IMM_tracks.txt')
+    if opt_dict.has_key('--surveyIMM'):   # Survey over FA and missed hits
+        Mod = pickle.load(open('IMM_Mod','r'))
+        pid_dict = {}
+        for PM,name1 in [(1e-1,'-1'), (1e-2,'-2'), (1e-3,'-3'),(1e-4,'-4')]:
+            for FA,name0 in [(15.0,'15.0'),(10.0,'10.0'),(5.0,'5.0'),
+                             (2.0,'2.0'), (1.0,'1.0'),(1e-205,'0')]:
+                #### This next block to use single processor ####
+                """
+                set_par_IMM(Mod,min_pd=-15.0,Max_NA=4,A_floor=3.0,
+                                FA=FA,PM=PM)
+                yts = make_test_yts(t_2_hits,FA=FA,PM=PM)
+                sys.stderr = open('error_'+name0+'_'+name1,'w')
+                filename = 'survey/tracks_'+name0+'_'+name1
+                decode_write(Mod,yts,filename)
+                """
+                #### This next block to use many processors ####
+                pid = os.fork()
+                if pid:
+                    # This is the parent
+                    pid_dict[pid] = True
+                    while len(pid_dict) > 16:
+                        pid,status = os.waitpid(-1,0)
+                        del pid_dict[pid]
+                else:
+                    # This is the child
+                    set_par_IMM(Mod,min_pd=-15.0,Max_NA=4,A_floor=3.0,
+                                FA=FA,PM=PM)
+                    yts = make_test_yts(t_2_hits,FA=FA,PM=PM)
+                    sys.stderr = open('error_'+name0+'_'+name1,'w')
+                    #sys.exit(0)
+                    filename = 'survey/tracks_'+name0+'_'+name1
+                    decode_write(Mod,yts,filename)
+                    sys.exit(0)
+        for pid in pid_dict.keys():
+            os.waitpid(pid,0)
+            #### End of multiprocessor block ####
     if opt_dict.has_key('--test'):
         # Check for missed hits in each track
         for track in track_2_hits.values():

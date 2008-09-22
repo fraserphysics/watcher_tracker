@@ -236,7 +236,8 @@ class TARGET5(CAUSE):
             Child_Target_Counter += 1   # Inc child counter for debugging
             self.T0 = par_tar.T0
             self._best = best
-            self.tks = par_tar.tks.copy()
+            for key in par_tar.tks.keys():
+                self.tks[key] = self
             self.index = par_tar.index
             self.m_t = par_tar.m_t + [k]
         # Start common code for mode 2 and 3
@@ -257,7 +258,9 @@ class TARGET5(CAUSE):
             pass
         tks = self.tks.keys()
         tks.sort()
-        print '  tks=',tks
+        print '  These are the key/value pairs in tks='
+        for tk in tks:
+            print '     ',tk, self.tks[tk]
         print '             T0=%d, index=%d, len(mu_t)=%d t_last='%(self.T0,
                self.index,len(self._mu_t)),self._last
         print '   invisible_count=%d, R=%5.3f, R_sum=%5.3f'%(
@@ -334,8 +337,8 @@ class TARGET5(CAUSE):
         if len(child_list) > 0:
             child_list.sort()
             child_list.reverse()
-            floor = 4.0 # 0.4*self._mod.A_floor
-            max_child = 8 # FixMe: How should I set these parameters?
+            floor = 4.0 # Drop children that are more than floor below best
+            max_child = 2 # FixMe: How should I set these parameters?
             top = child_list[0][0]
             L = 0
             while L < max_child and \
@@ -547,7 +550,8 @@ class TARGET4(CAUSE):
                 self._invisible_count = 0
             Child_Target_Counter += 1   # Inc child counter for debugging
             self.T0 = par_tar.T0
-            self.tks = par_tar.tks.copy()
+            for key in par_tar.tks.keys():
+                self.tks[key] = self
             self.index = par_tar.index
             self.m_t = par_tar.m_t + [k]
         # Start common code for mode 2 and 3
@@ -917,8 +921,8 @@ class ASSOCIATION4:
         CA.tar_dict = {}
         CA.h2c = {}
         CA.Atks = {}
-        for old_C in CA.FAs.values() + CA.dead_targets.values():
-            CA.Atks.update(old_C.tks)
+        for old_cause in CA.FAs.values() + CA.dead_targets.values():
+            CA.Atks.update(old_cause.tks)
         return CA
     
     def Fork(self,  # ASSOCIATION4
@@ -961,8 +965,7 @@ class ASSOCIATION4:
             self.nu += FA.R
         for target in self.tar_dict.values() + self.dead_targets.values():
             self.nu += target.R_sum
-            for tk in target.tks.keys():
-                self.Atks[tk] = target
+            self.Atks.update(target.tks)
         return list_2_flat(self.Atks.keys())
         
     def verify(self,  # ASSOCIATION4
@@ -1536,7 +1539,7 @@ class Cluster_Flock:
     def compat_check(self,     # Cluster_Flock
                      asn,      # Proposed parent association
                      tk_2_NI,  # Map from (t,k) tuples to NI (new index)
-                     tk_2_dead # lists of dead targets indexed by (t,k)
+                     tk_2_dead # Index=(t,k) value = dict of targets
                      ):
         """ Check compatibility of asn.  Answers question, is
         fragmentation of this association possible that is consistent
@@ -1547,6 +1550,8 @@ class Cluster_Flock:
         """
         proposed_tk_2_NI = tk_2_NI.copy()
         proposed_tk_2_dead = tk_2_dead.copy()
+        for tk in proposed_tk_2_dead.keys():
+            proposed_tk_2_dead[tk] = tk_2_dead[tk].copy()
         # Check that history of live targets compatible.  Check dead
         # targets later.
         for target in asn.tar_dict.values():
@@ -1555,30 +1560,35 @@ class Cluster_Flock:
                 if not tk_2_NI.has_key(tk):
                     proposed_tk_2_NI[tk] = NI
                 else:
-                    if not tk_2_NI[tk] == NI:
+                    if tk_2_NI[tk] != NI:
                         return (False,tk_2_NI,tk_2_dead)
         # Begin check that no dead target connects two NIs
         #   Step 1: Update proposed_tk_2_dead with asn.dead_targets
         for target in asn.dead_targets.values():
             for tk in target.tks.keys():
-                if proposed_tk_2_dead.has_key(tk):
-                    proposed_tk_2_dead[tk].append(target)
-                else:
-                    proposed_tk_2_dead[tk] = [target]
+                if not proposed_tk_2_dead.has_key(tk):
+                    proposed_tk_2_dead[tk] = {}
+                proposed_tk_2_dead[tk][target] = True
         #   Step 2: For each target in proposed_tk_2_dead that
-        #   intersects proposed_tk_2_NI, use target to augment
-        #   proposed_tk_2_NI and remove the target from
-        #   proposed_tk_2_dead.
+        #   intersects proposed_tk_2_NI:
+        #   If target maps to more than one NI, return False
+        #   Else use target to augment proposed_tk_2_NI and remove 
+        #     the target from proposed_tk_2_dead.
         for tk,NI in proposed_tk_2_NI.items():
             if proposed_tk_2_dead.has_key(tk):
-                for target in proposed_tk_2_dead[tk]:
+                for target in proposed_tk_2_dead[tk].keys():
                     for dt_tk in target.tks.keys():
                         if proposed_tk_2_NI.has_key(dt_tk):
                             if proposed_tk_2_NI[dt_tk] != NI:
                                 return (False,tk_2_NI,tk_2_dead)
-                        else:
-                            proposed_tk_2_NI[dt_tk] = NI
-                del proposed_tk_2_dead[tk]
+                        # This dt_tk is OK to move from proposed dead
+                        assert (proposed_tk_2_dead.has_key(dt_tk)),\
+                     'dead target has dt_tk that is not in proposed_tk_2_dead'
+                        if len(proposed_tk_2_dead[dt_tk])>1:
+                            return (False,tk_2_NI,tk_2_dead) #FixMe:
+                        # Lazy.  Should follow all dead targets
+                        proposed_tk_2_NI[dt_tk] = NI
+                        del proposed_tk_2_dead[dt_tk][target]
         return (True,proposed_tk_2_NI,proposed_tk_2_dead) # End compat_check
     def recluster(self,   # Cluster_Flock
                   t,
