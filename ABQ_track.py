@@ -14,7 +14,7 @@ time python ABQ_track.py --track > temp
    Creates AMF_tracks.txt, estimated tracks
    
 """
-import scipy, mvx, numpy.random as N_random, sys
+import scipy, numpy, mvx, numpy.random as N_random, sys
 def augment(A,floor=1.0): # make min eigenvalue floor
     dim = A.shape[0]
     min_e = min(scipy.linalg.eigvalsh(A))
@@ -83,28 +83,34 @@ def reestimate(track_2_hits,    # dict of tracks read by parse_tracks()
     Mod = mvx.MV1(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
                   mu_init=mu_init,Sigma_init=Sigma_init,MaxD=11)
     # Now reestimate using decoded states as truth
-    N=0
+    N=0 
     N_i=0
-    y0 = scipy.matrix([[],[]])
-    x0 = scipy.matrix([[],[],[],[]])
-    x1 = scipy.matrix([[],[],[],[]])
-    x_i = scipy.matrix([[],[],[],[]])
+    y0 = []        # Observations at t for Sigma_O estimation
+    x0 = []        # Estimated states at t   
+    x1 = []        # Estimated states at t+1 
+    x_i = []       # Estimated initial states
     for track in track_2_hits.values():
         if len(track) < 10:
             continue
         Yts = extract_yts(track)
         d,tmp0,tmp1,tmp2 = Mod.decode(Yts) # d[k][t] is decoded x for
                                            # target k at time t
+        if len(d) != 1:
+            print 'More than one track decoded.  len(d)=%d'%len(d)
+            continue
         N_i += 1
-        x_i = scipy.concatenate((x_i,d[0][0]),1)
-        # Initial x; concatenate along axis #1 rather than axis #0
+        x_i.append(d[0][0][0].A[:,0])
         for t in xrange(0,len(track)-1):
             N += 1
-            y0 = scipy.concatenate((y0,Yts[t][0]),1)
-            x0 = scipy.concatenate((x0,d[0][t]),1)
-            x1 = scipy.concatenate((x1,d[0][t+1]),1)
+            y0.append(Yts[t][0].A[:,0])
+            x0.append(d[0][t  ][0].A[:,0])
+            x1.append(d[0][t+1][0].A[:,0])
+    x_i = numpy.matrix(x_i).T
+    y0 = numpy.matrix(y0).T
+    x0 = numpy.matrix(x0).T
+    x1 = numpy.matrix(x1).T
     # A,resids,rank,s = scipy.linalg.lstsq(x0.T,x1.T)
-    # A = A.T
+    # A = A.T Don't fit A.  It is known
     e = x1-A*x0
     if track_only:
         # x0.shape = (4,3603)
@@ -118,9 +124,9 @@ def reestimate(track_2_hits,    # dict of tracks read by parse_tracks()
             rv[t,4] = e[2,t]
             rv[t,5] = e[3,t]
         return rv
-    Sigma_D = e*e.T/N
+    Sigma_D = (4000*numpy.eye(4)+e*e.T)/(2000+N)
     e = y0 - O*x0
-    Sigma_O = e*e.T/N
+    Sigma_O = (4000*numpy.mat(numpy.eye(2))+e*e.T)/(2000+N)
     mu_init = x_i.sum(1)/N_i
     Sigma_init = x_i*x_i.T/N_i - mu_init*mu_init.T
     mu_init = mu_init.T
@@ -204,25 +210,30 @@ def reestimate_IMM(track_2_hits, # dict of tracks read by parse_tracks()
     pickle.dump(Mod,open('IMM_Mod','w'))
     return
 
-def set_par_IMM(Mod,min_pd=-30,Max_NA=6,A_floor=10.0,FA=1e-205,PM=1e-6):
+def set_par(Mod,min_pd=-15,Max_NA=6,A_floor=3.0,FA=1e-205,PM=1e-6):
     Mod.Lambda_new = 3.0
     Mod.log_min_pd = min_pd  # How far to look for children
     Mod.Max_NA = Max_NA
     Mod.Murty_Ex = 1000
     Mod.A_floor = A_floor
-    IMM = Mod.IMM
-    dim = len(Sigma_init)
-    safe = scipy.matrix(scipy.eye(dim))*1e-8
-    Stop = scipy.matrix(scipy.eye(4))
-    Stop[1,1] = 0
-    Stop[3,3] = 0
-    IMM.mus[1] = Stop*IMM.mus[1]
-    IMM.Sigmas[1] = Stop*IMM.Sigmas[1]*Stop+safe
-    IMM.Sigma_D[1] = safe
-    augment(IMM.Sigma_O[0],floor=0.1) # Fudge
-    augment(IMM.Sigma_D[0],floor=0.1) # Fudge
     Mod.Lambda_FA = FA
     Mod.PV_V = scipy.matrix([[1.0-PM,PM],[1.0-PM,PM]])
+    if Mod.__class__ == mvx.MV_ABQ:
+        return
+    elif Mod.__class__ == mvx.MV5:
+        dim = len(Sigma_init)
+        IMM = Mod.IMM
+        safe = scipy.matrix(scipy.eye(dim))*1e-8
+        Stop = scipy.matrix(scipy.eye(4))
+        Stop[1,1] = 0
+        Stop[3,3] = 0
+        IMM.mus[1] = Stop*IMM.mus[1]
+        IMM.Sigmas[1] = Stop*IMM.Sigmas[1]*Stop+safe
+        IMM.Sigma_D[1] = safe
+        augment(IMM.Sigma_O[0],floor=0.1) # Fudge
+        augment(IMM.Sigma_D[0],floor=0.1) # Fudge
+        return
+    raise RuntimeError,'Mod.__class__=%s'%str(Mod.__class__)
 def make_test_yts(t_2_hits,FA=None,PM=None):
     yts = []
     N_random.seed(3)
@@ -262,7 +273,7 @@ if __name__ == '__main__':  # Test code
                                 'track',
                                 'fitIMM',
                                 'trackIMM',
-                                'surveyIMM',
+                                'survey',
                                 'test',
                                 'accel',
                                 'In_File='
@@ -290,8 +301,6 @@ if __name__ == '__main__':  # Test code
         T = len(t_2_hits)
         N_tracks = len(track_2_hits)
         Lambda_new = float(N_tracks)/float(T)
-        Mods = [mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,Sigma_O=Sigma_O,
-              mu_init=mu_init,Sigma_init=Sigma_init,Lambda_new=Lambda_new)]
         if opt_dict.has_key('--accel'): # Print estimated states/accelerations
             File = open('AMF_accel.txt','w')
             v_a = reestimate(track_2_hits,track_only=True)
@@ -300,57 +309,70 @@ if __name__ == '__main__':  # Test code
                 print >>File, (6*'%6.2f ')%(v_a[t,0],v_a[t,1],v_a[t,2],
                            v_a[t,3],v_a[t,4],v_a[t,5])
         if opt_dict.has_key('--fit'):   # Fit model parameters
-            for I in xrange(2):
+            for I in xrange(25):
                 print 'I=%d, mu_init=\n'%I,mu_init
                 reestimate(track_2_hits)
-                Mods.append(mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,
+            Mod = mvx.MV_ABQ(N_tar=1,A=A,Sigma_D=Sigma_D,O=O,
                     Sigma_O=Sigma_O,mu_init=mu_init,Sigma_init=Sigma_init,
-                    Lambda_new=Lambda_new))
-            for I in xrange(len(Mods)):
-                print '\n\nDumping model %d'%I
-                Mods[I].dump()
+                    Lambda_new=Lambda_new)
+            Mod.dump()
+            pickle.dump(Mod,open('ModS','w'))
     if opt_dict.has_key('--fitIMM'):   # Fit IMM model parameters
         v_a = reestimate_IMM(track_2_hits,track_only=True)
     
     if opt_dict.has_key('--trackIMM'):   # Track with IMM
         # Read the fit model.  Fix several parameters
         Mod = pickle.load(open('IMM_Mod','r'))
-        set_par_IMM(Mod,min_pd=-14.0,Max_NA=4,A_floor=3.0,FA=3.0,PM=0.1)
+        set_par(Mod,min_pd=-14.0,Max_NA=4,A_floor=3.0,FA=3.0,PM=0.1)
         yts = make_test_yts(t_2_hits)
         decode_write(Mod,yts,'AMF_IMM_tracks.txt')
-    if opt_dict.has_key('--surveyIMM'):   # Survey over FA and missed hits
-        Mod = pickle.load(open('IMM_Mod','r'))
+    if opt_dict.has_key('--survey'):
+        # Survey FA (false alarm), PM (prob miss), etc
+        ModM = pickle.load(open('IMM_Mod','r')) # Multiple
+        ModS = pickle.load(open('ModS','r'))    # Single
         pid_dict = {}
-        for PM,name1 in [(1e-1,'-1'), (1e-2,'-2'), (1e-3,'-3'),(1e-4,'-4')]:
-            for FA,name0 in [(15.0,'15.0'),(10.0,'10.0'),(5.0,'5.0'),
-                             (2.0,'2.0'), (1.0,'1.0'),(1e-205,'0')]:
-                #### This next block to use single processor ####
-                """
-                set_par_IMM(Mod,min_pd=-15.0,Max_NA=4,A_floor=3.0,
-                                FA=FA,PM=PM)
-                yts = make_test_yts(t_2_hits,FA=FA,PM=PM)
-                sys.stderr = open('error_'+name0+'_'+name1,'w')
-                filename = 'survey/tracks_'+name0+'_'+name1
-                decode_write(Mod,yts,filename)
-                """
-                #### This next block to use many processors ####
-                pid = os.fork()
-                if pid:
-                    # This is the parent
-                    pid_dict[pid] = True
-                    while len(pid_dict) > 16:
-                        pid,status = os.waitpid(-1,0)
-                        del pid_dict[pid]
-                else:
-                    # This is the child
-                    set_par_IMM(Mod,min_pd=-15.0,Max_NA=4,A_floor=3.0,
-                                FA=FA,PM=PM)
-                    yts = make_test_yts(t_2_hits,FA=FA,PM=PM)
-                    sys.stderr = open('error_'+name0+'_'+name1,'w')
-                    #sys.exit(0)
-                    filename = 'survey/tracks_'+name0+'_'+name1
-                    decode_write(Mod,yts,filename)
-                    sys.exit(0)
+        mod_list = [[ModM,'M'],[ModS,'S']]
+        fa_list = [[1e-205,'0'],[2.5,'2.5'],[5,'5'],[7.5,'7.5']]
+        md_list = [[.1,'1'],[.01,'2'],[.001,'3'],[.0001,'4']]
+        #na_list = [[2,'2'],[3,'3'],[4,'4']]
+        na_list = [[1,'1']]
+        for MD,mdname in md_list:
+            for FA,faname in fa_list:
+                for Mod,modname in mod_list:
+                    for NA,naname in na_list:
+                        #### This next block to use single processor ####
+                        """
+                        set_par_IMM(Mod,min_pd=-15.0,Max_NA=4,A_floor=3.0,
+                                        FA=FA,PM=PM)
+                        yts = make_test_yts(t_2_hits,FA=FA,PM=PM)
+                        sys.stderr = open('error_'+name0+'_'+name1,'w')
+                        filename = 'survey/tracks_'+name0+'_'+name1
+                        decode_write(Mod,yts,filename)
+                        """
+                        #### This next block to use many processors ####
+                        pid = os.fork()
+                        if pid:
+                            # This is the parent
+                            pid_dict[pid] = True
+                            while len(pid_dict) > 16:
+                                pid,status = os.waitpid(-1,0)
+                                del pid_dict[pid]
+                        else:
+                            # This is the child
+                            name='.MD-%s.FA-%s.Mod-%s.NA-%s'%(
+                                mdname,faname,modname,naname)
+                            set_par(Mod,
+                                    min_pd=-15.0, # Log_min_pd: Limit children
+                                    Max_NA=NA,    # Limit number associations
+                                    A_floor=3.0,  # Limit associations
+                                    FA=FA,        # False alarms/frame
+                                    PM=MD         # Detection miss prob
+                                    )
+                            yts = make_test_yts(t_2_hits,FA=FA,PM=MD)
+                            sys.stderr = open('error'+name,'w')
+                            #sys.exit(0)
+                            decode_write(Mod,yts,'survey/T'+name)
+                            sys.exit(0)
         for pid in pid_dict.keys():
             os.waitpid(pid,0)
             #### End of multiprocessor block ####

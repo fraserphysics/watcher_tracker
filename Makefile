@@ -11,6 +11,11 @@ AMF_tracks.txt: ABQ_track.py
 
 IMM_Mod: ABQ_track.py
 	python ABQ_track.py --fitIMM
+ModS: ABQ_track.py
+	python ABQ_track.py --fit
+survey: ABQ_track.py IMM_Mod ModS
+	mkdir -p survey
+	python ABQ_track.py --survey
 
 AMF_IMM_tracks.txt: ABQ_track.py IMM_Mod
 	python ABQ_track.py --trackIMM
