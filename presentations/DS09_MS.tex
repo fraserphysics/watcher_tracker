@@ -1,44 +1,32 @@
 \documentclass{article}
 
-%\topmargin +1in % was +27pt
-%\textheight 625pt % was 505
-\title{Model Based Tracking}
-\author{Organizer: Andy Fraser}
+% These are the contributed presentation proposals that I submitted.
+% The first one is a reduced version of the minisymposium proposal
+% that I did not submit.  The second one is for a poster.
 
 \begin{document}
 \begin{description}
-\item[Title:] Video target tracking: State estimation, dynamical
-  models, and uncertain associations
-\item[Organizer:] Andrew M.~Fraser, Los Alamos National Laboratory,
-  Mailstop B244, Los Alamos, NM 87545, phone: 505 665 9448, email:
-  afraser@lanl.gov
-\item[Summary:] %Describe your minisymposium in not more than 100
-                %words
-  Exploiting image sequences like surveillance of vehicle or human
-  movements or particles in fluid flows requires estimating target
-  trajectories.  Although the dynamical systems community often maps
-  sequences of non-invertible stochastic measurements to state
-  sequences, the uncertain association between objects detected in
-  successive images leads to combinatorial growth in the number of
-  possibilities and may not be so familiar.  Commercial algorithms
-  combine Kalman filters with multihypothesis tracking.  Research
-  areas include belief propagation and particle filters.  We develop
-  analogies to ideas the dynamical systems community have long
-  considered followed by new applications and new techniques motivated
-  by those applications.
-  \item[Speakers:]\hspace{1em}
-    \begin{description}
-    \item[Andrew M.~Fraser] Los Alamos National Laboratory, Mailstop
-      B244, Los Alamos, NM 87545
-    \item[Reid B.~Porter]
-    \item[Donald R.~Hush]
-    \item[Anthony Hoogs] 
-    \end{description}
-%     Provide the full name, affiliation, and address of
-%     each speaker and the title of his/her presentation. Presentation
-%     titles and abstracts should be added to the Conference Management
-%     System (CMS) by the presentation abstract deadline. The CMS will
-%    re-open for updates after the program schedule is complete.
+\item[Title:] Video target tracking: Uncertain associations, dynamical
+  models, and state estimation
+\item[Abstract:] % 75 word limit
+  Multi-target tracking algorithms for exploiting low frame rate video
+  of urban traffic must contend with a combinatorial number of
+  possible associations between objects detected in successive frames.
+  While the mapping of sequences of non-invertible stochastic
+  measurements to state sequences is familiar to the dynamical systems
+  community, the combinatorial association aspect of this application
+  may not be.  I use analogies to ideas the dynamical systems
+  community have long considered to explain current algorithms.
+% Next is the poster proposal that I submitted for the meeting
+\item[Title:] Fidelity criteria and entropy
+\item[Abstract:] % 75 word limit
+  I propose expected log likelihood per time (the cross entropy rate)
+  as a fidelity measure for dynamical models.  By this measure the
+  performance of any model fit to a \emph{true} system is bound to be
+  worse than Kolmogorov and Sinai's entropy rate.  I illustrate with a
+  sequence of more and more complex hidden Markov models that
+  approximate the Lorenz system and find that approaching the KS bound
+  requires millions of discrete states.
 \end{description}
 
 \end{document}
