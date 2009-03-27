@@ -1,0 +1,269 @@
+\documentclass{beamer}
+\usepackage{amsmath,amsfonts}
+\usepackage[pdftex]{rotating}
+\newcommand{\argmax}{\operatorname*{argmax}}
+\newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
+\newcommand{\ts}[3]{{#1}_{#2}^{#3}} % Time series
+\title{Multi-Target Tracking from Dynamic Programming}
+\author{Andy Fraser}
+\date{March 27, 2008}
+
+%\usetheme{Pittsburgh}
+\usetheme{default}
+\usefonttheme[]{serif}
+\begin{document}
+\frame{\titlepage}
+
+%\frame{\tableofcontents}
+
+\frame{
+  \frametitle{Big Picture}
+  \begin{description}
+  \item[Goal:] Low Frame-rate Video $\Rightarrow$ Vehicle Tracks
+  \item[Method:] \hspace{1em}
+    \begin{itemize}
+    \item Apply detector to frame  $\Rightarrow$ \emph{hits}$(t)$
+    \item Connect \emph{hits} $\Rightarrow$ \emph{tracks}
+    \end{itemize}
+  \end{description}
+}
+
+\frame{
+  \frametitle{For now}
+  \begin{description}
+  \item[Input:] List of \textbf{hits} $\left\{ y_i(t) \right\}$ for
+    frame at each time $t$
+    \begin{equation*}
+      y_i(t) = \text{Position \& Attributes}
+    \end{equation*}
+  \item[Output:] List of \textbf{trajectories} for each
+    \textbf{target}
+    \begin{equation*}
+      \left\{ x_j(t): T_i
+        \leq t \leq T_f \right\}
+    \end{equation*}
+    where
+    \begin{equation*}
+      x_j(t) = \text{Position \& Velocity}
+    \end{equation*}
+  \end{description}
+(Future: Track info.\ $\rightarrow$ detector.  Use appearance,
+orientation, illumination)
+}
+
+\frame{
+  \frametitle{Solution Strategy}
+  \begin{description}
+  \item[Want] to characterize
+\begin{equation*}
+  P(\ts{x}{1}{T}|\ts{y}{1}{T}) = \sum_{\ts{A}{1}{T}}  P(\ts{x}{1}{T},
+  \ts{A}{1}{T}|\ts{y}{1}{T}).
+\end{equation*}
+\item[Approximate by]   As an
+alternative we chose to approximate the best guess about both the
+sequence of states and the sequence of associations, ie,
+\begin{equation}
+  \label{eq:bear}
+  \ts{{\hat x}}{1}{T},\ts{{\hat A}}{1}{T} =
+  \argmax_{\ts{x}{1}{T},\ts{A}{1}{T}}   P(\ts{x}{1}{T},
+  \ts{A}{1}{T}|\ts{y}{1}{T}).
+\end{equation}
+While solving \eqref{eq:bear} exactly requires considering an enormous
+number of possible association sequences, we have developed an
+algorithm that uses ideas from Kalman filtering and Viterbi decoding
+that yields approximate solutions with a computational cost that is
+linear in the number of frames.  The procedure produces plausible
+tracks, and it is easy to incorporate into the procedure model
+improvements and variations like those in the foregoing list.
+
+  \item[State space model:] Linear target dynamics, Gaussian accelerations:
+    $x_j(t+1) = A \cdot x_j(t) + \eta(t)$.  Seek \textbf{M.A.P:}
+    \begin{equation*}
+      \bf{\hat x}_1^T = \argmax_{\bf{x}_1^T} P(\bf{x}_1^T|\bf{y}_1^T)
+    \end{equation*}
+  \item[Challenge:] Find correct \textbf{association} (targets $\mapsto$
+    hits) for each frame.
+  \item[Solution:] Multi-hypothesis tracking.  (MHT: DB Reid IEEE
+    Trans AC 1979)\\ Use information from sequences that include
+    future frames to choose associations.
+  \end{description}
+}
+
+\frame{
+  \frametitle{Novelty?}
+  \begin{itemize}
+  \item Variant of Viterbi algorithm, ie, dynamic programming
+  \item Use entire sequence $\bf{y}_1^T$ to guess $\bf{\hat x}_1^T$
+  \item At time $t$, \emph{state} $\bf{s}(t)$ has two components:
+    \begin{description}
+    \item[continuous $\bf{x}(t)$:] (position, velocity) of each target
+    \item[discrete $\bf{a}(t)$:] association of targets to hits
+    \end{description}
+  \end{itemize}
+}
+
+\frame{
+  \frametitle{Notation for Viterbi decoding}
+\begin{align*}
+  u(\ts{s}{1}{t}) & \quad \text{Utility of state sequence }
+  \ts{s}{1}{t}\\
+  & \quad \equiv \log \left( P(\ts{y}{1}{t},\ts{s}{1}{t}) \right)
+  \\
+  \nu(s,t) & \quad \text{Utility of best sequence ending with }
+  \ti{s}{t} = s \\
+  &  \quad \equiv \max_{\ts{s}{1}{t}:\ti{s}{t}=s} u(\ts{s}{1}{t}) \\
+  B(s',t) & \quad \text{Best predecessor state given } \ti{s}{t+1}=s'\\
+  & \quad \equiv \argmax_{s} \max_{\ts{s}{1}{t+1}:\ti{s}{t}=s
+    \&\ti{s}{t+1}=s'} u(\ts{s}{1}{t+1})
+\end{align*}
+Insights:
+\begin{itemize}
+\item Calculate $\nu(s,t)$ and $B(s,t)$ $\forall s \& t$ recursively
+\item For most $\ts{s}{1}{t}$, never calculate $u(\ts{s}{1}{t})$
+\item Complexity linear in number of frames $T$
+\end{itemize}
+}
+
+\frame{
+  \frametitle{Viterbi Algorithm Picture}
+  \begin{columns}
+    \begin{column}[l]{0.5\textwidth}
+      At $t=0$:
+      \begin{equation*}
+        \vspace{2cm}
+        \nu(s,0) = \log\left( P(s) P(y(0)|s) \right)
+      \end{equation*}
+    \end{column}
+    \begin{column}[r]{0.3\textwidth}
+      \resizebox{0.99\textwidth}{!}{\includegraphics{viterbi.pdf}}
+    \end{column}
+  \end{columns}
+      At $t=1$:
+      \begin{align*}
+        \nu(s,1) &= {\color{red}{\max_{s'}}} \left( \nu(s',0) +
+          \log\left( P(s|s') 
+            P(y(1)|s) \right) \right) \\
+        B(s,1) &=  {\color{red}{\argmax_{s'}}} \left( \nu(s',0) +
+          \log\left( P(s|s') 
+            P(y(1)|s) \right) \right)
+      \end{align*}
+      Need {\color{magenta}{only keep}} {\color{cyan}{$\nu(s,t)$}} and
+      {\color{cyan}{$B(s,t)$}} $\forall~s,t$
+
+}
+
+\frame{ \frametitle{Pruning and Approximation}
+  Considering all associations: Complexity $= N!T$\\
+  Improve scaling by:
+  \begin{itemize}
+  \item Cluster hits via targets
+  \item Cutoff associations for each cluster by requiring
+    \begin{itemize}
+    \item $N_{\bf a} < N_{\text{max}}$
+    \item $\nu({\bf a}) > \nu_{\text{best}} - \Delta_{\text{max}}$
+    \end{itemize}
+  \item Prune sequences that match for 5 frames
+  \end{itemize}
+
+}
+
+\frame{
+  \frametitle{Code Demo}
+  \newcommand{\entrywidth}{4em}
+  \begin{center}
+    \begin{tabular}[t]
+      {|p{\entrywidth}|p{\entrywidth}|p{\entrywidth}|p{\entrywidth}|}
+      \hline
+      Models & Variable Visibility & False Alarms & Variable Num.\ Targets \\
+      \hline 1   &   &   & \\
+      \hline 2   & Y &   & \\
+      \hline 3   & Y & Y & \\
+      \hline 4   & Y & Y & Y \\
+      \hline ABQ &   &   & Y \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \href{run:start_View.sh}{\color{red}{Start GUI}}
+}
+
+\frame{
+  \frametitle{Challenging Scene}
+  \href{run:movie_script1.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}orig.mpg here}
+  }
+}
+
+\frame{ \frametitle{Grade Against Marked Ground Truth}
+  \href{run:movie_script2.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}markup.mpg here}
+  }
+}
+
+\frame{
+  \frametitle{Reduce density by $\frac{1}{3}$, MHT}
+  \href{run:movie_script3.sh}{
+    \framebox[\textwidth]{\rule{0cm}{6cm}track1.mpg here}
+  }
+}
+
+% \frame{
+%   \frametitle{Pruning Techniques}
+%   \begin{itemize}
+%   \item Cluster hits, and set threshold distance
+%   \item 10 best associations for each cluster
+%   \item Prune sequences that match for 5 frames
+%   \end{itemize}
+%   \newcommand{\fudgeA}{0.4}
+%   \parbox{\fudgeA\textwidth}{\center{Hits vs Time}\\
+%     \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figA3.png}}}
+%   \hspace{-0.02\textwidth}
+%   \parbox{\fudgeA\textwidth}{\center{Trajectories}\\
+%     \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figB3.png}}}
+% }
+
+\frame{
+  \frametitle{Status:}
+  \begin{itemize}
+  \item Good results for sparse traffic from extreme pruning
+  \item For moderate traffic, MHT helpful
+  \item Can't do dense traffic
+  \item Current code implements Hungarian/Murty algorithm and
+    clustering; \emph{usually} runs and \emph{often} finds
+    \emph{plausible} tracks
+  \end{itemize}
+}
+
+\frame{
+  \frametitle{Next steps:}
+  \begin{itemize}
+  \item Debug: (\emph{usually/often} $\rightarrow$ \emph{always})
+  \item Make model parameters depend on position
+  \item Exploit attributes, eg, size/shape
+  \item Flag difficult decisions
+  \item Spend computational budget on \emph{important} tracks
+  \end{itemize}
+}
+
+\end{document}
+
+% To get evince to run shell scripts put this line in
+% ~/.local/share/applications/mimeinfo.cache:
+
+% application/x-shellscript=bash-usercreated.desktop
+
+% In bash-usercreated.desktop put:
+
+%[Desktop Entry]
+%Encoding=UTF-8
+%Name=bash
+%MimeType=application/x-shellscript;
+%Exec=/bin/bash %f
+%Type=Application
+%Terminal=false
+%NoDisplay=true
+
+
+%%%---------------
+%%% Local Variables:
+%%% eval: (TeX-PDF-mode)
+%%% End:
