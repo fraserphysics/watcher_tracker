@@ -3,7 +3,8 @@
 %.pdf %.pdf_t: %.fig
 	fig2dev -L pdftex $*.fig $*.pdf
 	fig2dev -L pdftex_t -p $*.pdf $*.fig $*.pdf_t
-WAMI_3_08.pdf: WAMI_3_08.tex viterbi.pdf
+PoA409.pdf: viterbi.pdf
+WAMI_3_08.pdf: viterbi.pdf
 distribution: model.pdf
 	mkdir -p distribution
 	for file in SeqKeys.el View.py ha* mvx.py util.py model.pdf model.tex README demo.py; do cp $$file distribution/$$file; done
