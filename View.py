@@ -49,7 +49,7 @@ class PlotPanelA(demo.PlotPanel):
     def draw(self):
         if not hasattr(self, 'subplot'):
             self.subplot = self.figure.add_subplot(111)
-        if self.y is None:
+        if self.y == None:
             return
         self.subplot.hold(True)
         self.subplot.clear()

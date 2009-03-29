@@ -1,58 +1,48 @@
 #!/usr/bin/env python
 
 """
-A demonstration of creating a matlibplot window from within wx.
-A resize only causes a single redraw of the panel.
-The WXAgg backend is used as it is quicker.
+New version based on the original by Edward Abraham, incorporating some
+forum discussion, minor bugfixes, and working for Python 2.5.2,
+wxPython 2.8.7.1, and Matplotlib 0.98.3.
 
-Edward Abraham, Datamine, April, 2006
-(works with wxPython 2.6.1, Matplotlib 0.87 and Python 2.4)
-http://new.scipy.org/Matplotlib_figure_in_a_wx_panel
+I haven't found an advantage to using the NoRepaintCanvas, so it's removed.
+
+John Bender, CWRU, 10 Sep 08
+
+From http://www.scipy.org/Matplotlib_figure_in_a_wx_panel
 """
 
-import matplotlib, matplotlib.figure
-matplotlib.interactive(False)
-#matplotlib.interactive(True)
-#Use the WxAgg back end. The Wx one takes too long to render
-matplotlib.use('WXAgg')
-from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg
-#used in the particular example
-from matplotlib.numerix import arange, sin, cos, pi
+import matplotlib
+matplotlib.interactive( True )
+matplotlib.use( 'WXAgg' )
+
+import numpy as num
 import wx
 
-class NoRepaintCanvas(FigureCanvasWxAgg):
-    """We subclass FigureCanvasWxAgg, overriding the _onPaint method, so that
-    the draw method is only called for the first two paint events. After that,
-    the canvas will only be redrawn when it is resized.
-    """
-    def __init__(self, *args, **kwargs):
-        FigureCanvasWxAgg.__init__(self, *args, **kwargs)
-        self._drawn = 0
+class PlotPanel (wx.Panel):
+    """The PlotPanel has a Figure and a Canvas. OnSize events simply set a 
+flag, and the actual resizing of the figure is triggered by an Idle event."""
+    def __init__( self, parent, color=None, ylabel='y', xlabel='x',
+          title='title', dpi=None, **kwargs ):
+        from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg
+        from matplotlib.figure import Figure
 
-    def _onPaint(self, evt):
-        """
-        Called when wxPaintEvt is generated
-        """
-        if not self._isRealized:
-            self.realize()
-        if self._drawn < 2:
-            self.draw(repaint = False)
-            self._drawn += 1
-        self.gui_repaint(drawDC=wx.PaintDC(self))
+        # initialize Panel
+        if 'id' not in kwargs.keys():
+            kwargs['id'] = wx.ID_ANY
+        if 'style' not in kwargs.keys():
+            kwargs['style'] = wx.NO_FULL_REPAINT_ON_RESIZE
+        wx.Panel.__init__( self, parent, **kwargs )
 
-class PlotPanel(wx.Panel):
-    """
-    The PlotPanel has a Figure and a Canvas. OnSize events simply set a 
-    flag, and the actually redrawing of the
-    figure is triggered by an Idle event.
-    """
-    def __init__(self, parent, id = -1, color = None, ylabel='y', xlabel='x',
-          title='title', dpi = None, style = wx.NO_FULL_REPAINT_ON_RESIZE,
-                 **kwargs):
-        wx.Panel.__init__(self, parent, id = id, style = style, **kwargs)
-        self.figure = matplotlib.figure.Figure(None, dpi)
-        self.canvas = NoRepaintCanvas(self, -1, self.figure)
-        self.SetColor(color)
+        # initialize matplotlib stuff
+        self.figure = Figure( None, dpi )
+        self.canvas = FigureCanvasWxAgg( self, -1, self.figure )
+        self.SetColor( color )
+
+        self._SetSize()
+
+        self._resizeflag = False
+
         self.Bind(wx.EVT_IDLE, self._onIdle)
         self.Bind(wx.EVT_SIZE, self._onSize)
         self._resizeflag = True
@@ -76,7 +66,7 @@ class PlotPanel(wx.Panel):
     def _onSize(self, event):
         self._resizeflag = True
 
-    def _onIdle(self, evt):
+    def _onIdle( self, evt ):
         if self._resizeflag:
             self._resizeflag = False
             self._SetSize()
@@ -98,39 +88,46 @@ class PlotPanel(wx.Panel):
         pass
 
 if __name__ == '__main__':
-    class DemoPlotPanel(PlotPanel):
-        """An example plotting panel. The only method that needs 
-        overriding is the draw method"""
-        def draw(self):
-            if not hasattr(self, 'subplot'):
-                self.subplot = self.figure.add_subplot(111)
-            theta = arange(0, 45*2*pi, 0.02)
-            rad = (0.8*theta/(2*pi)+1)
-            r = rad*(8 + sin(theta*7+rad/1.8))
-            x = r*cos(theta)
-            y = r*sin(theta)
-            #Now draw it
-            self.subplot.plot(x,y, '-r')
-            #Set some plot attributes
-            self.subplot.set_title("A polar flower (%s points)"%len(x), fontsize = 12)
-            self.subplot.set_xlabel("Flower is from  http://www.physics.emory.edu/~weeks/ideas/rose.html", fontsize = 8)
-            self.subplot.set_xlim([-400, 400])
-            self.subplot.set_ylim([-400, 400])
+    class DemoPlotPanel (PlotPanel):
+        """Plots several lines in distinct colors."""
+        def __init__( self, parent, point_lists, clr_list, **kwargs ):
+            self.parent = parent
+            self.point_lists = point_lists
+            self.clr_list = clr_list
 
+            # initiate plotter
+            PlotPanel.__init__( self, parent, **kwargs )
+            self.SetColor( (255,255,255) )
 
-    app = wx.PySimpleApp(0)
-    #Initialise a frame ...
-    frame = wx.Frame(None, -1, 'WxPython and Matplotlib')
-    #Make a child plot panel...
-    panel = DemoPlotPanel(frame)
+        def draw( self ):
+            """Draw data."""
+            if not hasattr( self, 'subplot' ):
+                self.subplot = self.figure.add_subplot( 111 )
 
-    #Put it in a sizer ...   
-    sizer = wx.BoxSizer(wx.HORIZONTAL)
-    panel.SetSizer(sizer)
-    sizer.SetItemMinSize(panel, 300, 300)
-    panel.Fit()
-    panel._SetSize()
-    #And we are done ...    
+            for i, pt_list in enumerate( self.point_lists ):
+                plot_pts = num.array( pt_list )
+                clr = [float( c )/255. for c in self.clr_list[i]]
+                self.subplot.plot( plot_pts[:,0], plot_pts[:,1], color=clr )
+
+    theta = num.arange( 0, 45*2*num.pi, 0.02 )
+
+    rad0 = (0.8*theta/(2*num.pi) + 1)
+    r0 = rad0*(8 + num.sin( theta*7 + rad0/1.8 ))
+    x0 = r0*num.cos( theta )
+    y0 = r0*num.sin( theta )
+
+    rad1 = (0.8*theta/(2*num.pi) + 1)
+    r1 = rad1*(6 + num.sin( theta*7 + rad1/1.9 ))
+    x1 = r1*num.cos( theta )
+    y1 = r1*num.sin( theta )
+
+    points = [[(xi,yi) for xi,yi in zip( x0, y0 )],
+              [(xi,yi) for xi,yi in zip( x1, y1 )]]
+    clrs = [[225,200,160], [219,112,147]]
+
+    app = wx.PySimpleApp( 0 )
+    frame = wx.Frame( None, wx.ID_ANY, 'WxPython and Matplotlib', size=(300,300) )
+    panel = DemoPlotPanel( frame, points, clrs )
     frame.Show()
     app.MainLoop()
 
