@@ -3,7 +3,7 @@
 %.pdf %.pdf_t: %.fig
 	fig2dev -L pdftex $*.fig $*.pdf
 	fig2dev -L pdftex_t -p $*.pdf $*.fig $*.pdf_t
-PoA409.pdf: viterbi.pdf
+PoA409.pdf: viterbi.pdf bayes.pdf
 WAMI_3_08.pdf: viterbi.pdf
 distribution: model.pdf
 	mkdir -p distribution
