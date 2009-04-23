@@ -1,8 +1,8 @@
-\documentclass[12pt]{article}
+\documentclass[11pt]{article}
 
 \usepackage{amsmath,amsfonts}
 \usepackage{graphicx}
-\usepackage{showlabels}
+%\usepackage{showlabels}
 
 \newcommand{\normal}[2]{{\cal N}(#1,#2)}
 \newcommand{\NormalE}[3]{{\mathcal{N}}\left.\left(#1,#2\right)\right|_{#3}}
@@ -178,7 +178,7 @@ $\ti{s}{t}$ would produce observation $\ti{y}{t}$ is\footnote{This
   \label{eq:ob}
   P(\ti{y}{t}|\ti{s}{t}) =
     \frac{1}{\left|\M \right|} \sum_{M \in \M}
-    \prod_{i=1}^{N} P(\ti{y}{t,M(i)}|\ti{s}{t,i}).
+    \prod_{i=1}^{N} P(\ti{y}{t,M(i)}|\ti{s}{t,i}),
 \end{equation}
 with normal conditional observation distributions
 \begin{equation*}
@@ -356,50 +356,52 @@ The independence assumptions permit the following decomposition:
   P(\ti{x_k}{\tau}|\ti{x_k}{\tau-1}) \right).
 \end{align}
 \newcommand{\mmm}{\max_{\ts{M}{\tau}{1}{t}:\ti{M}{t}=M}}
-\newcommand{\mxx}{\max_{\ts{\bx}{\tau}{1}{t}:\ti{\bx}{t}=\bx}} Now I
-use Eqn.~\eqref{eq:factors} to define $\nu_k(x_k,t|M))$, which is the
-contribution to the total utility by the $k^{\text{th}}$ target and
-its observations given the best sequence of $M$s that ends in $M$, as
-follows:
+\newcommand{\mxx}{\max_{\ts{\bx}{\tau}{1}{t}:\ti{\bx}{t}=\bx}}
+
+When I began writing the code, I believed that I only needed to keep
+track of the best sequence of predecessor associations that led to
+each association at each succesive time $t$ and that it would be
+suffcient to use Eqn.~\eqref{eq:factors} to define and characterize
+$\nu_k(x_k,t|M))$, the contribution to the total utility by the
+$k^{\text{th}}$ target and its observations given the best sequence of
+$M$s that ends in $M$.  If that were true, the complexity of the
+algorithm would be linear in the number of frames or time steps.  Alan
+Willsky and Don Hush corrected my naive optimism, pointing out that
+the effects of future observations can influence the optimal
+association sequence that leads to a particular association $M$ at
+time $t$.  Thus, to ensure optimality, for each target $k$ and time
+$t$, I should keep track of $\nu_k(x_k,t|\ts{M}{}{1}{t}))$ for each of
+the possible $(N!)^t$ sequences of associations.  In other words, the
+computational complexity is exponential rather than linear in the
+number of time steps.
+
+Rather than abandon the approach, I carry forward a small subset of
+association histories at each time step.  I discard association
+sequences whose utilities fall too far below the sequence with the
+highest utility to be plausible.  For each target $k$, each time $t$,
+and each plausible association sequence $\ts{M}{}{1}{t}$, I characterize
+$\nu_k(x_k,t|\ts{M}{}{1}{t}))$, which is the contribution to the total
+utility by the $k^{\text{th}}$ target and its observations given the specified
+association sequence.  I write
 \begin{align*}
-  \nu(M,\bx,t) &= \mmm \quad \mxx \quad \log(\mathbf{P})\\
-  &= t\log(N!) + \mmm \quad \mxx \quad \sum_k \sum_\tau \Big(\\
+  \nu(\ts{M}{}{1}{t},\bx,t) &= \mxx \quad \log(\mathbf{P})\\
+  &= t\log(N!) +  \mxx \quad \sum_k \sum_{\tau=1}^t \Big(\\
   & \quad \quad \log(P(\ti{y_{M_k(\tau)}}{\tau}|\ti{x_k}{\tau})) +
   \log( P(\ti{x_k}{\tau}|\ti{x_k}{\tau-1}) ) \Big) \\
-  & \equiv t\log(N!) + \sum_k \nu_k(x_k,t|M).
+  & \equiv t\log(N!) + \sum_k \nu_k(x_k,t|\ts{M}{}{1}{t}).
 \end{align*}
-Letting $\mu(k,t|M)$, $\Sigma^{-1}(k,t|M)$ and $R(k,t|M)$ denote the
-parameters that characterize $\nu_k(x_k,t|M)$, and recognizing that
-$R(k,t|M) = \nu_k(\mu(k,t|M),t|M)$, I write
+Letting $\mu(k,t|\ts{M}{}{1}{t})$, $\Sigma^{-1}(k,t|\ts{M}{}{1}{t})$ and
+$R(k,t|\ts{M}{}{1}{t})$ denote the parameters that characterize
+$\nu_k(x_k,t|\ts{M}{}{1}{t})$, and recognizing that $R(k,t|\ts{M}{}{1}{t})
+= \nu_k(\mu(k,t|\ts{M}{}{1}{t}),t|\ts{M}{}{1}{t})$, I write
 \begin{align*}
-  \nu(M,\bx,t) &= t\log(N!) + \sum_k \Big( R(k,t|M) \\
-  &\quad - \frac{1}{2} \left( x_k-\mu(k,t|M) \right)^T
-  \Sigma^{-1}(k,t|M) \left( x_k-\mu(k,t|M) \right) \Big).
+  \nu(\ts{M}{}{1}{t},\bx,t) &= t\log(N!) + \sum_k \Big( R(k,t|\ts{M}{}{1}{t}) \\
+  &\quad - \frac{1}{2} \left( x_k-\mu(k,t|\ts{M}{}{1}{t}) \right)^T
+  \Sigma^{-1}(k,t|\ts{M}{}{1}{t}) \left( x_k-\mu(k,t|\ts{M}{}{1}{t})
+  \right) \Big).
 \end{align*}
-Each $B(s,t)$ maps from $(M',\bx')$ at time $t+1$ to the best pair
-$(M,\bx)$ at time $t$, and each $\nu(s,t)$ maps from a pair $(M,\bx)$
-at time $t$ to the utility of the best path ending at $(M,\bx,t)$.
-For each $M$, I use the values of $\sum_k R(k,t|M)$ to determine the
-best predecessor permutation, and I drop the term $\log(N!)$ because
-it is independent of both $M$ and $\bx$.
-
-I have implemented an algorithm around the following recursion step:
-\begin{verse}
-  At time $t$ given $(\mu(k,t|M), \Sigma(k,t|M), R(k,t|M))~\forall
-  (M,k)$:\\
-  For each possible permutation $M'$ at time $t+1$:\\
-  \hspace{2em} For each possible predecessor $M$ at time $t$:\\
-  \hspace{4em} Calculate $\omega(M,M',t) = \sum_k R(k,t+1|M,M')$ \\
-  \hspace{2em} Set $B_M(M',t+1) = \tilde M = \argmax_{M}\omega(M,M',t)$\\
-  \hspace{2em} For each object $k$:\\
-  \hspace{4em} Calculate $(\mu(k,t+1|M'), \Sigma(k,t+1|M'), R(k,t+1|M'))$\\
-  \hspace{4em} from Eqns.~\eqref{eq:Sigma_alg}--\eqref{eq:R_alg} using
-  the initial values\\
-  \hspace{4em} $(\mu(k,t|\tilde M), \Sigma(k,t|\tilde M),R(k,t|\tilde
-  M))$
-\end{verse}
-(Note: The calculation of $\omega$ on the fourth line is incorrect
-and will be revised in the next version.)
+I drop the term $t\log(N!)$ because it is independent of both $M$ and
+$\bx$.
 
 \section{Model Version Two: Variable Visibility}
 \label{sec:model2}
@@ -507,7 +509,7 @@ value of $\nu$.\marginpar{Are you sure?}
 
 \emph{MVIV} creates $N_{\text{new}}$ new targets at each time step.
 $N_{\text{new}}$ has a Poisson distribution with a small mean; at most
-times there are no new states.  The positions and velocities of the
+times there are no new targets.  The positions and velocities of the
 new states have the same distribution as initial states.  I assume
 that new states are visible when they arise to avoid carrying many
 invisible states for decoding.
@@ -529,7 +531,7 @@ two kinds of events.
 we should make sure that the results of algorithms do not depend on
 coordinates.
 
-Ultimately MVIV will have the following properties:
+MVIV has the following properties:
 \begin{itemize}
 \item Start with a random number of targets
 \item New targets created randomly
@@ -1008,8 +1010,8 @@ u= [ 5.  4.] v= [ 0.  0.  3.] pi= [ 80.  80.  80.]
 \subsection{Variation on Hungarian Algorithm}
 \label{sec:variation}
 
-For my application, I want allow any number of hits to be explained by
-false alarms or new targets, which corresponds to relaxing the
+For my application, I want to allow any number of hits to be explained
+by false alarms or new targets.  That corresponds to relaxing the
 constraint $\sum_i x_{i,j} \leq 1$ for two values of $j$.  I need a
 variant of the Hungarian algorithm that recognizes ${\cal J} \subset
 T$ a subset of nodes with \emph{unlimited capacity}.  To illustrate, I
@@ -1032,17 +1034,6 @@ With the same utility matrix:
   \end{bmatrix}
 \end{equation*}
 \end{description}
-The only required modifications of the Hungarian algorithm are for
-$j\in {\cal J}$ in the following steps:
-\begin{itemize}
-\item In augmentation processing, put the link $(i,j)$ in a special
-  set $Y$ and henceforth consider the node $i$ as \emph{covered}, ie,
-  as if it were in $X$.  It is an error if any link to $j$ ever
-  appears in $X$.
-\item In adjusting the dual variables for step 3, set $v_j$ and
-  $\pi_j$ to zero.
-\item When finished report both $X$ and $Y$
-\end{itemize}
 
 The circuit corresponding to this problem appears in
 Figure~\ref{fig:assignment2}
@@ -1054,6 +1045,27 @@ Figure~\ref{fig:assignment2}
   \label{fig:assignment2}
 \end{figure*}
 
+\subsubsection{Idea}
+\label{sec:idea}
+
+I have solved this class of problem using a standard linear
+programming package.  I hope that I can develop a variation of the
+Hungarian algorithm to find solutions faster.  My attempts to
+implement the following idea have not worked yet.  I suspect I need to
+think about idea more carefully.
+
+I only modify the Hungarian algorithm for $j\in {\cal J}$ in the
+following steps:
+\begin{itemize}
+\item In augmentation processing, put the link $(i,j)$ in a special
+  set $Y$ and henceforth consider the node $i$ as \emph{covered}, ie,
+  as if it were in $X$.  It is an error if any link to $j$ ever
+  appears in $X$.
+\item In adjusting the dual variables for step 3, set $v_j$ and
+  $\pi_j$ to zero.
+\item When finished report both $X$ and $Y$
+\end{itemize}
+
 \subsection{Murty's Algorithm}
 \label{sec:murty}
 
@@ -1064,7 +1076,7 @@ paper\footnote{\emph{An Algorithm for Ranking all the Assignments in
 collection of assignments or solutions that \emph{includes} a set of
 links $I$ and excludes another set of links $E$ as the
 \underline{node} $N(I,E)$.  To avoid confusion with the vertices or
-nodes of the Hungarian algorithm, will underline Murty's concept of
+nodes of the Hungarian algorithm, I will underline Murty's concept of
 \underline{node}.  I have modified the algorithm for vertices with
 unlimited capacity as follows: After appending a link $(i,j)$ to the
 list $I$ for \underline{node} $N(I,E)$, Murty's algorithm strikes the
