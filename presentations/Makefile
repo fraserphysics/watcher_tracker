@@ -43,6 +43,8 @@ ha.png: hackt.ckt
 model.pdf: model.tex ha.pdf ha2.pdf
 	pdflatex model.tex
 
+images1.png: orig.mpg
+	ffmpeg -i orig.mpg -r 5 -t 1 -f image2 images%01d.png
 %.pdf: %.tex
 	pdflatex $<
 # Local Variables:
