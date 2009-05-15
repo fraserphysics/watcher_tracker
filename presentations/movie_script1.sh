@@ -1,2 +1,2 @@
 #! /bin/bash
-vlc -f orig.mpg
+vlc --no-qt-privacy-ask -f --no-video-title-show /home/andy/projects/ps/trunk/presentations/orig.mpg
