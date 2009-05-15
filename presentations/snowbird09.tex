@@ -1,12 +1,14 @@
+% Use ffmpeg to extract stills from mpeg
 \documentclass{beamer}
 \usepackage{amsmath,amsfonts}
 \usepackage[pdftex]{rotating}
 \newcommand{\argmax}{\operatorname*{argmax}}
 \newcommand{\ti}[2]{{#1}{(#2)}}                         % Index
 \newcommand{\ts}[3]{{#1}_{#2}^{#3}} % Time series
-\title{Multi-Hypothesis Tracking}
+\title{Video target tracking: Uncertain associations, dynamical
+  models, and state estimation}
 \author{Andy Fraser}
-\date{March 31, 2009}
+\date{May 17, 2009}
 
 %\usetheme{Pittsburgh}
 \usetheme{default}
@@ -23,9 +25,17 @@
   \item[Method:] \hspace{1em}
     \begin{itemize}
     \item Apply detector to frame  $\Rightarrow$ \emph{hits}$(t)$
+
     \item Connect \emph{hits} $\Rightarrow$ \emph{tracks}
     \end{itemize}
   \end{description}
+}
+
+\frame{
+  \frametitle{Challenging Scene}
+  \href{run:movie_script1.sh}{
+    \resizebox{0.7\textwidth}{!}{\includegraphics{images00001.png}}
+  }
 }
 
 \frame{
@@ -179,39 +189,11 @@ Insights:
 }
 
 \frame{
-  \frametitle{Challenging Scene}
-  \href{run:movie_script1.sh}{
-    \framebox[\textwidth]{\rule{0cm}{6cm}orig.mpg here}
-  }
-}
-
-\frame{ \frametitle{Grade Against Marked Ground Truth}
-  \href{run:movie_script2.sh}{
-    \framebox[\textwidth]{\rule{0cm}{6cm}markup.mpg here}
-  }
-}
-
-\frame{
   \frametitle{MHT}
   \href{run:movie_script3.sh}{
-    \framebox[\textwidth]{\rule{0cm}{6cm}track1.mpg here}
+    \resizebox{0.7\textwidth}{!}{\includegraphics{images00001.png}} %track1.mpg
   }
 }
-
-% \frame{
-%   \frametitle{Pruning Techniques}
-%   \begin{itemize}
-%   \item Cluster hits, and set threshold distance
-%   \item 10 best associations for each cluster
-%   \item Prune sequences that match for 5 frames
-%   \end{itemize}
-%   \newcommand{\fudgeA}{0.4}
-%   \parbox{\fudgeA\textwidth}{\center{Hits vs Time}\\
-%     \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figA3.png}}}
-%   \hspace{-0.02\textwidth}
-%   \parbox{\fudgeA\textwidth}{\center{Trajectories}\\
-%     \resizebox{\fudgeA\textwidth}{!}{\includegraphics{figB3.png}}}
-% }
 
 \frame{
   \frametitle{Status:}
