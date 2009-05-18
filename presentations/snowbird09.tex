@@ -9,6 +9,8 @@
   models, and state estimation}
 \author{Andy Fraser}
 \date{May 17, 2009}
+\institute{Los Alamos National Laboratory\\
+Software and documentation: LA-CC-08-03}
 
 %\usetheme{Pittsburgh}
 \usetheme{default}
@@ -69,8 +71,9 @@ orientation, illumination)
       P(\ts{x}{1}{T}|\ts{y}{1}{T}) = \sum_{\ts{A}{1}{T}}  P(\ts{x}{1}{T},
       \ts{A}{1}{T}|\ts{y}{1}{T})
     \end{equation*}
-    But density has $N^T$ components
-  \item[Approximate:]  with sequence of states $\otimes$ associations:
+    But sum over $(N!)^T$ terms and PDF is in $4N$ dimensions
+  \item[Approximate:] By searching for sequence of states $\otimes$
+    associations:
     \begin{equation}
       \label{eq:bear}
       \ts{{\hat x}}{1}{T},\ts{{\hat A}}{1}{T} =
@@ -79,8 +82,11 @@ orientation, illumination)
     \end{equation}
     Like Kalman filtering and Viterbi decoding
   \item[State space model:] Linear target dynamics, Gaussian accelerations:
-    $x_j(t+1) = A \cdot x_j(t) + \eta(t)$
-  \item[Similar to:] Multi-hypothesis tracking.  (MHT: DB Reid IEEE
+    $x_j(t+1) = A \cdot x_j(t) + \eta(t)$ where $A$ has structure $
+    \begin{bmatrix}
+      1 & \Delta t \\ 0 & 1
+    \end{bmatrix}$
+  \item[Basic ideas:] Multi-hypothesis tracking.  (MHT: DB Reid IEEE
     Trans AC 1979)
   \end{description}
 }
@@ -90,7 +96,6 @@ orientation, illumination)
 }
 
 \frame{
-  \frametitle{Novelty?}
   \begin{itemize}
   \item Variant of Viterbi algorithm, ie, dynamic programming
   \item Use entire sequence $\bf{y}_1^T$ to guess $\bf{\hat x}_1^T$
@@ -103,7 +108,9 @@ orientation, illumination)
 }
 
 \frame{
-  \frametitle{Notation for Viterbi decoding}
+  \frametitle{Viterbi decoding}
+Given $\ts{y}{1}{T}$ find $\ts{\hat s}{1}{T} = \argmax_{\ts{s}{1}{T}}
+P(\ts{y}{1}{T},\ts{s}{1}{T})$
 \begin{align*}
   u(\ts{s}{1}{t}) & \quad \text{Utility of state sequence }
   \ts{s}{1}{t}\\
@@ -120,7 +127,6 @@ Insights:
 \begin{itemize}
 \item Calculate $\nu(s,t)$ and $B(s,t)$ $\forall s \& t$ recursively
 \item For most $\ts{s}{1}{t}$, never calculate $u(\ts{s}{1}{t})$
-\item Complexity linear in number of frames $T$
 \end{itemize}
 }
 
@@ -129,10 +135,11 @@ Insights:
   \begin{columns}
     \begin{column}[l]{0.5\textwidth}
       At $t=0$:
-      \begin{equation*}
+      \begin{align*}
         \vspace{2cm}
-        \nu(s,0) = \log\left( P(s) P(y(0)|s) \right)
-      \end{equation*}
+        \nu(s,0) &= \log\left( P(y(0),s) \right) \\
+        &= \log\left( P(s) P(y(0)|s) \right)
+      \end{align*}
     \end{column}
     \begin{column}[r]{0.3\textwidth}
       \resizebox{0.99\textwidth}{!}{\includegraphics{viterbi.pdf}}
@@ -147,13 +154,22 @@ Insights:
           \log\left( P(s|s') 
             P(y(1)|s) \right) \right)
       \end{align*}
-      Need {\color{magenta}{only keep}} {\color{cyan}{$\nu(s,t)$}} and
+      \begin{itemize}
+      \item Need {\color{magenta}{only keep}} {\color{cyan}{$\nu(s,t)$}} and
       {\color{cyan}{$B(s,t)$}} $\forall~s,t$
-
+    \item At $t=T$ assign $\ti{\hat s}{T} = \argmax_{s} \nu(s,T)$,
+      then use $B$ values to find $\ts{\hat s}{1}{T-1}$
+      \end{itemize}
 }
 
 \frame{ \frametitle{Pruning and Approximation}
-  Considering all associations: Complexity $= N!^T$\\
+  \begin{itemize}
+  \item If $s$ is discrete, complexity of algorithm is linear in $T$
+  \item If dynamics and observations are linear functions with
+    Gaussian noise, complexity is linear in $T$
+  \item But for our mixed states, complexity of exact algorithm is
+    $(N!)^T$
+  \end{itemize}
   Improve scaling by:
   \begin{itemize}
   \item Cluster hits via targets
@@ -162,7 +178,6 @@ Insights:
     \item $N_{\bf a} < N_{\text{max}}$
     \item $\nu({\bf a}) > \nu_{\text{best}} - \Delta_{\text{max}}$
     \end{itemize}
-  \item Prune sequences that match for 5 frames
   \end{itemize}
 
 }
@@ -201,8 +216,7 @@ Insights:
   \item Good results for sparse traffic from extreme pruning
   \item For moderate traffic, MHT and multiple modes helpful
   \item Can't do dense traffic
-  \item Current code implements Hungarian/Murty algorithm, multiple
-    modes, and clustering
+  \item Current code implements multiple modes and clustering
   \end{itemize}
 }
 
