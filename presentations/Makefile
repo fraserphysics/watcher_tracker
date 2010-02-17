@@ -47,6 +47,10 @@ images1.png: orig.mpg
 	ffmpeg -i orig.mpg -r 5 -t 1 -f image2 images%01d.png
 %.pdf: %.tex
 	pdflatex $<
+
+snowbird09.pdf: snowbird09.tex images1.png viterbi.pdf
+	pdflatex $<
+
 # Local Variables:
 # mode: makefile
 # folded-file: t
