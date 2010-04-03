@@ -48,7 +48,7 @@ images1.png: orig.mpg
 %.pdf: %.tex
 	pdflatex $<
 
-snowbird09.pdf: snowbird09.tex images1.png viterbi.pdf
+snowbird09.pdf: snowbird09.tex images1.png viterbi.pdf bayes.pdf_t
 	pdflatex $<
 
 # Local Variables:
