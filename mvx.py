@@ -848,7 +848,8 @@ class ASSOCIATION4:
 
      __init__:
 
-     Enter: Put cause in association
+     Enter: Put cause in association.  Called by Fork, Spoon,
+         exhaustive, and Cluster.Append
 
      Fork: Create a child association that explains one more hit
 
@@ -869,7 +870,6 @@ class ASSOCIATION4:
      Murty: Find self.mod.Max_NA best next associations by Murty's
          algorithm
 
-     forward:  Create plausible successor associations
     """
     def __init__(self,      # ASSOCIATION4
                  nu,mod,t=None):
@@ -1265,8 +1265,8 @@ class ASSOCIATION4:
         association S. 3. The value of u'(self,S,t+1).  On entry,
         self.nu is correct for time t-1.
         """
-        global Murty_calls
-        self.t = t # Make t available to other methods
+        global Murty_calls # Available as diagnostic
+        self.t = t         # Make t available to other methods
         self.verify(None)
         m = max(len(k_list), 1) # 1 for N_hat calculation with all invisible
         causes = []

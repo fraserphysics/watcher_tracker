@@ -12,8 +12,8 @@ set style data lines
 set xlabel "-log(Prob MD)"
 set ylabel "FA rate"
 set zlabel "error"
-set terminal png
-set output 'Mega.png'
+set terminal epslatex color solid "normal" 9
+set output 'Mega.tex'
 """
 gp_pipe = os.popen ("gnuplot",'w')
 gp_pipe.write(splot_preface)
