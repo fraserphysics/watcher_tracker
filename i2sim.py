@@ -2,15 +2,15 @@ import numpy, random
 
 class REGION(object):
     def __init__(self,_pass,period,n,limits):
-        self.pass = _pass
+        self._pass = _pass
         self.period = period
         self.n = n
-        self.limits
+        self.limits = limits
         return
     def limit(self,t):
         return self.limits[int(self.n*t/self.period)%self.n]
-   def Pass(self):
-       return self.pass
+    def _Pass(self):
+        return self._pass
 class GEOMETRY(object):
     """
     Describes road
@@ -29,17 +29,24 @@ class GEOMETRY(object):
                }
     def __init__(self):
         return
-    def region(self,pos):
+    def region(self,   # GEOMETRY
+               pos):
+        """ Return the index of the region in which 'pos' lies.
+        """
         assert pos >= self.boundaries[0]
         for r in xrange(len(self.boundaries)-1):
-            if pos < boundaries[r+1]:
+            # For many regions should avoid this linear search
+            if pos < self.boundaries[r+1]:
                 return r
-        print('pos=%f is beyond last boundary'%pos)
         return r
-    def limit(self,pos):
+    def limit(self,pos,t):
         return self.regions[self.region(pos)].limit(t)
-    def Pass(self,pos):
-        return self.regions[self.region(pos)].Pass()
+    def _Pass(self,pos):
+        return self.regions[self.region(pos)]._Pass()
+    def bounds(self,pos):
+        if pos < self.boundaries[0] or pos > self.boundaries[-1]:
+            return False
+        return True
 class TARGET(object):
     """
     A class whose instances have invariant characteristics and
@@ -56,21 +63,42 @@ class TARGET(object):
         self.mean = random.gauss(1,TARGET.speed_dev**2) # Preferred rvel
         self.rvel = random.gauss(self.mean,TARGET.accel_var/TARGET.relax)
         return
-    def step(self, limit, other, Pass):
-        old_limit = self.G.limit(self.pos)
-        self.rvel = random.gauss(0,TARGET.accel) + TARGET.relax*self.mean + (
-            1-TARGET.relax)*self.revel
+    def step(self, t, other):
+        old_limit = self.G.limit(self.pos,t)
+        self.rvel = random.gauss(0,TARGET.accel_var) + TARGET.relax*self.mean +(
+            1-TARGET.relax)*self.rvel
         self.vel = old_limit*self.rvel
         self.pos += self.vel
-        if (not G.Pass(self.pos)) and (other.pos + TARGET.close < self.pos):
+        if (other != None and
+            (not G._Pass(self.pos)) and
+            (other.pos + TARGET.close < self.pos)):
             #If passing forbidden and next target too close
             self.pos = other.pos - TARGET.close
             self.vel = other.vel
-        new_limit = self.G.limit(self.pos)
+        new_limit = self.G.limit(self.pos,t)
         self.rvel = self.vel/new_limit
-        return
+        return self.G.bounds(self.pos)
     
 if __name__ == '__main__': # Test code
+    import operator
+    T = 1000
+    G = GEOMETRY()
+    targets = []
+    for t in xrange(T):
+        if t%50 == 0:
+            targets.append(TARGET(G))
+        targets.sort(key=operator.attrgetter('pos'))
+        for i in xrange(len(targets)-1,-1,-1):
+            if i == len(targets)-1:
+                other = None
+            else:
+                other = targets[i+1]
+            if targets[i].step(t,other):
+                print('t=%3d pos[%2d]=%f'%(t,i, targets[i].pos))
+            else:
+                del targets[i]
+                print('targets[%d] rolled off the end'%i)
+
 #---------------
 # Local Variables:
 # eval: (python-mode)
