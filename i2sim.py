@@ -1,4 +1,75 @@
-import numpy, random
+import numpy, random, fltk
+
+class my_image:
+    """ Image with metadata describing how it should appear.
+    """
+    def __init__(self,A,exp=1,top=None,bottom=None):
+        self.A = A
+        W,H,three = A.shape
+        assert three == 3
+        if top == None:
+            self.top = numpy.ones(3)*A.max()
+        else:
+            self.top = top
+        if bottom == None:
+            self.bottom = numpy.ones(3)*A.min()
+        else:
+            self.bottom = bottom
+        self.scale = 1.0/(self.top-self.bottom)
+        self.exp = exp
+        return
+    def display(self):
+        A = numpy.minimum(((self.A-self.bottom)*self.scale)**self.exp,1)*255.0
+        return numpy.array(A.transpose((1,0,2))[::-1,:,:],numpy.uint8)
+    def float_line(self,line):
+        """ Return values in 'line' mapped to interval [0,1)
+        """
+        return numpy.minimum(((line-self.bottom)*self.scale)**self.exp,1)
+
+class FltkCanvas(fltk.Fl_Widget):
+    """ A widget that has an array of type uint8 in self._image.  For
+    displaying images
+    """
+    def __init__(self, #FltkCanvas
+                 x,y,w,h,A):
+        fltk.Fl_Widget.__init__(self, x, y, w, h, "canvas")
+        self._oldsize=(None,None)
+        self._draw_overlay = False
+        self._button = None
+        self._key = None
+        self.new_image(A)
+    def new_image(self, #FltkCanvas
+                 A,MAX=None):
+        if isinstance(A,my_image):
+            self._image = A.display()
+            return
+        if A.ndim == 3:
+            W,H,D = A.shape
+        if A.ndim == 2:
+            W,H = A.shape
+            D = 1
+            A = A.reshape(W,H,D)
+        if A.dtype == numpy.dtype(numpy.bool):
+            A = numpy.array(A*255,numpy.uint8)
+        if A.dtype != numpy.dtype(numpy.uint8):
+            if MAX == None:
+                MAX = A.max(0).max(0)
+            MIN = A.min(0).min(0)
+            scale = 255.0/(MAX-MIN)
+            A = numpy.array((A-MIN)*scale,numpy.uint8)
+	self._image=A.transpose((1,0,2))[::-1,:,:].copy()
+        # Transpose (W,H,D) => (H,W,D) for fltk drawing.  ::-1 to put
+        # origin in lower left copy() to make buffer interface work
+        return
+    def draw(self #FltkCanvas
+                 ):
+        newsize=(self.w(),self.h())
+        if(self._oldsize !=newsize):
+            self._oldsize =newsize
+        H,W,D = self._image.shape # fl_draw_image assumes different axes order
+        fltk.fl_draw_image(self._image,self.x(),self.y(),W,H,D,0)
+        self.redraw()
+        return
 
 class REGION(object):
     def __init__(self,_pass,period,n,limits):
@@ -87,6 +158,7 @@ class animator(object):
         self.targets = []
         return
     def update(self,ptr):
+        import time
         A = self.canvas._image
         if self.t%5 == 0:
             self.targets.append(TARGET(self.G))
@@ -101,18 +173,19 @@ class animator(object):
             else:
                 del self.targets[i]
         X,Y,D = A.shape
-        y = self.t%Y
-        A[y,:,0] *= 0
+        A[1:,:,:] = A[:-1,:,:]
+        A[0,:,0] *= 0
         for target in self.targets:
             x = int(target.pos)
             #A[x,y,0] = int(target.albedo)%256
-            A[y,x,0] = 255
+            A[0,x,0] = 255
         self.canvas.redraw()
         self.t += 1
+        time.sleep(0.02)
         return    
 
 if __name__ == '__main__': # Test code
-    import operator, sys, fltk, numpy, utilities
+    import operator, sys, fltk, numpy
     def slider_cb(slider,args): # Call back for sliders
         global slide_dict
         key = args[0]
@@ -177,7 +250,7 @@ if __name__ == '__main__': # Test code
         H_Pack.children.append(Slide(slide[0]))
     H_Pack.end()
     A = numpy.zeros((WIDTH-SWIDTH,HEIGHT),numpy.uint8)
-    canvas = utilities.FltkCanvas(SWIDTH,0,SWIDTH,HEIGHT,A)
+    canvas = FltkCanvas(SWIDTH,0,SWIDTH,HEIGHT,A)
     canvas.new_image(A)
     window.end()
     window.show(len(sys.argv), sys.argv)
