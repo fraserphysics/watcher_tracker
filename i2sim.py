@@ -186,50 +186,46 @@ if __name__ == '__main__': # Test code
         for i in xrange(1,len(keys)):
             t_dict[keys[i]]=slide[i]
         slide_dict[slide[0]] = t_dict
-    N_s = len(slide_list)
-    HEIGHT =  400     # Height of window
-    VPH=HEIGHT-20     # Height of V_Pack
-    S_LENGTH=VPH-10   # Length of sliders
-    R_HEIGHT= S_LENGTH# Height of each row
-    VPS     = 10      # Space between elements in V_Pack
-    V_SPACE = 40      # Vertical space between rows of sliders
-    WIDTH =   1000    # Width of window
-    SWIDTH  = 390     # Width of slider region
-    H_SPACE = 20      # Horizontal space between sliders
-    VPW = int((SWIDTH)/N_s - H_SPACE) # Width of V_Pack
-    Y_      = 5       # Starting y position in window
-    X_row   = 5       # Gap from left edge of window to first slider
-    BS      = 10      # Button size.  I don't understand
-    def Slide(key,V_Pack=None):  # from pi_track/support.py
+    def Slide(key,x=0,y=0,width=30,height=100,Pack=None):
+        # from pi_track/support.py
+        assert Pack != None
         sd = slide_dict[key]
-        if V_Pack == None:
-            V_Pack = fltk.Fl_Pack(0,0,VPW,VPH)
-            V_Pack.align(fltk.FL_ALIGN_BOTTOM)
-            V_Pack.type(fltk.FL_VERTICAL)
-            V_Pack.spacing(VPS)
-            V_Pack.children = []
-        s = fltk.Fl_Value_Slider(0,0,0,S_LENGTH,key)
+        s = fltk.Fl_Value_Slider(x,y,width,height,key)
         s.range(sd['min'],sd['max'])
         s.step(sd['step'])
         s.callback(slider_cb,(key,sd['acts']))
         s.value(sd['value'])
-        V_Pack.children.append(s)
-        V_Pack.end()
+        Pack.children.append(s)
         return
-    
+    def Button(key,x=0,y=0,width=30,height=100,Pack=None):
+        b = fltk.Fl_Button(col_2,Y_widget,button_w,button_y)
+        b.label(key)
+        b.callback(cb_fly)
+        Pack.children.append(b)
+        return
+    HEIGHT =  400     # Height of window
+    BHEIGHT = 100     # Height of button row
+    SHEIGHT = HEIGHT-BHEIGHT     # Height of slider row
+    WIDTH =   1000    # Width of window
+    CWIDTH  = 390     # Width of control region
+    H_SPACE = 20      # Horizontal space between sliders
+    X_row   = 10      # Gap from left edge of window to first slider
+    SW = int((CWIDTH - 2*X_row)/(len(slide_list)+2)) # Spacing of sliders
+    Y_      = 5       # Starting y position in window
     X,Y = (0,0)       # Position on screen
     window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
+    window.color(fltk.FL_WHITE)
     X,Y = (X_row,Y_)
-    W,H = (0,R_HEIGHT)
+    W,H = (0,SHEIGHT)
     H_Pack = fltk.Fl_Pack(X,Y,W,H)
     H_Pack.type(fltk.FL_HORIZONTAL)
-    H_Pack.spacing(H_SPACE)
+    H_Pack.spacing(SW)
     H_Pack.children = []
     for slide in slide_list:
-        H_Pack.children.append(Slide(slide[0]))
+        H_Pack.children.append(Slide(slide[0],width=SW/2,Pack=H_Pack))
     H_Pack.end()
-    A = numpy.zeros((HEIGHT,WIDTH-SWIDTH,3),numpy.uint8)
-    canvas = FltkCanvas(SWIDTH,0,WIDTH-SWIDTH,HEIGHT,A)
+    A = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8)
+    canvas = FltkCanvas(CWIDTH,0,WIDTH-CWIDTH,HEIGHT,A)
     canvas.new_image(A)
     window.end()
     window.show(len(sys.argv), sys.argv)
