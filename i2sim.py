@@ -128,6 +128,9 @@ class animator(object):
     def update(self,ptr):
         import time
         
+        if pause:
+            time.sleep(delay)
+            return 
         rate = self.sliders['rate']['value']
         accel_var = self.sliders['accel_dev']['value']**2
         speed_var = self.sliders['speed_dev']['value']**2
@@ -170,6 +173,38 @@ if __name__ == '__main__': # Test code
         for act in args[1]:
             act()
         return
+    color = False
+    def color_cb(button,args): # The color call back
+        global color
+        if color == True:
+            button.label('color')
+            color = False
+        else:
+            button.label('gray')
+            color = True
+    pause = False
+    def pause_cb(button,args): # The pause call back
+        global pause
+        if pause == True:
+            button.label('pause')
+            pause = False
+        else:
+            button.label('continue')
+            pause = True
+    def quit_cb(ptr,args): # The Quit call back
+	sys.exit(0)
+    def button_cb(button,args): # Call back for buttons
+        global button_dict
+        button.label('clear')
+        key = args[0]
+        print('button: %s has label %s'%(key,button.label()))
+        return
+    def Button(key,Pack,cb,x=0,y=0,width=70,height=20):
+        b = fltk.Fl_Button(x,y,width,height)
+        b.label(key)
+        b.callback(cb,(key,[1,2,3]))
+        Pack.children.append(b)
+        return
     # Set up GUI
     keys = [
         'key',      'value','min','max','step','acts']
@@ -197,15 +232,9 @@ if __name__ == '__main__': # Test code
         s.value(sd['value'])
         Pack.children.append(s)
         return
-    def Button(key,x=0,y=0,width=30,height=100,Pack=None):
-        b = fltk.Fl_Button(col_2,Y_widget,button_w,button_y)
-        b.label(key)
-        b.callback(cb_fly)
-        Pack.children.append(b)
-        return
     HEIGHT =  400     # Height of window
-    BHEIGHT = 100     # Height of button row
-    SHEIGHT = HEIGHT-BHEIGHT     # Height of slider row
+    BHEIGHT = 30     # Height of button row
+    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
     WIDTH =   1000    # Width of window
     CWIDTH  = 390     # Width of control region
     H_SPACE = 20      # Horizontal space between sliders
@@ -215,6 +244,17 @@ if __name__ == '__main__': # Test code
     X,Y = (0,0)       # Position on screen
     window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
     window.color(fltk.FL_WHITE)
+    X,Y = (X_row,Y_)
+    W,H = (0,BHEIGHT)
+    H_Pack = fltk.Fl_Pack(X,Y,W,H)
+    H_Pack.type(fltk.FL_HORIZONTAL)
+    H_Pack.spacing(60)
+    H_Pack.children = []
+    H_Pack.children.append(Button('color',H_Pack,color_cb))
+    H_Pack.children.append(Button('pause',H_Pack,pause_cb))
+    H_Pack.children.append(Button('quit',H_Pack,quit_cb))
+    H_Pack.end()
+    Y_ += BHEIGHT + 30
     X,Y = (X_row,Y_)
     W,H = (0,SHEIGHT)
     H_Pack = fltk.Fl_Pack(X,Y,W,H)
