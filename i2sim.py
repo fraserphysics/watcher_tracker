@@ -118,12 +118,13 @@ class TARGET(object):
 class animator(object):
     """ Keeps track of targets and pixels in display
     """
-    def __init__(self,CA,GA,canvas,G,sliders):
+    def __init__(self,CA,GA,canvas,G,buttons,sliders):
         self.CA = CA
         self.GA = GA
         self.canvas = canvas
         self.t = 0
         self.G = G
+        self.buttons = buttons
         self.sliders = sliders
         self.targets = []
         return
@@ -138,12 +139,12 @@ class animator(object):
         # Display before update to allow gray/color switching during pause
         CA = self.CA
         GA = self.GA
-        if color:
+        if self.buttons['color']['button'].value():
             self.canvas.new_image(CA)
         else:
             self.canvas.new_image(GA)
         self.canvas.redraw()
-        if pause:
+        if self.buttons['pause']['button'].value():
             time.sleep(delay)
             return 
 
@@ -172,16 +173,46 @@ class animator(object):
         self.t += 1
         time.sleep(delay)
         return
+def slider_cb(slider,args):
+    """ Call back for sliders
+    slider  An fltk slider object
+    args    The tuple (slider_dict, key)
+    """
+    slider_dict_key = args[0][args[1]]
+    slider_dict_key['value'] = slider.value()
+    for act in slider_dict_key['acts']:
+        act()
+    return
+def Slide(slide_dict,key,Pack,cb=slider_cb,x=0,y=0,width=30,height=100):
+    """ Function to put slider into GUI.  Derived from pi_track/support.py
+    """
+    sd = slide_dict[key]
+    s = fltk.Fl_Value_Slider(x,y,width,height,key)
+    s.range(sd['min'],sd['max'])
+    s.step(sd['step'])
+    s.value(sd['value'])
+    s.callback(cb,(slide_dict,key))
+    Pack.children.append(s)
+    return
+def button_cb(button,args):
+    """ Call back for buttons
+    button  An fltk button object
+    args    The tuple (b_dict, key)
+    b_dict[key][string] is a list of functions to call to do the action
+    """
+    for act in args[0][args[1]][button.label()]:
+        act(button)
+    return
+def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=70,height=20):
+    b = fltk.Fl_Button(x,y,width,height)
+    b.label(key)
+    b.callback(cb,(b_dict,key))
+    Pack.children.append(b)
+    b_dict[key]['button'] = b
+    return
 
 if __name__ == '__main__': # Test code
     import operator, sys, fltk, numpy
-    def slider_cb(slider,args): # Call back for sliders
-        global slide_dict
-        key = args[0]
-        slide_dict[key]['value'] = slider.value()
-        for act in args[1]:
-            act()
-        return
     color = False
     def color_cb(button,args): # The color call back
         global color
@@ -200,20 +231,8 @@ if __name__ == '__main__': # Test code
         else:
             button.label('continue')
             pause = True
-    def quit_cb(ptr,args): # The Quit call back
+    def quit_cb(ptr): # The Quit call back
 	sys.exit(0)
-    def button_cb(button,args): # Call back for buttons
-        global button_dict
-        button.label('clear')
-        key = args[0]
-        print('button: %s has label %s'%(key,button.label()))
-        return
-    def Button(key,Pack,cb,x=0,y=0,width=70,height=20):
-        b = fltk.Fl_Button(x,y,width,height)
-        b.label(key)
-        b.callback(cb,(key,[1,2,3]))
-        Pack.children.append(b)
-        return
     # Set up GUI
     keys = [
         'key',      'value','min','max','step','acts']
@@ -230,17 +249,19 @@ if __name__ == '__main__': # Test code
         for i in xrange(1,len(keys)):
             t_dict[keys[i]]=slide[i]
         slide_dict[slide[0]] = t_dict
-    def Slide(key,x=0,y=0,width=30,height=100,Pack=None):
-        # from pi_track/support.py
-        assert Pack != None
-        sd = slide_dict[key]
-        s = fltk.Fl_Value_Slider(x,y,width,height,key)
-        s.range(sd['min'],sd['max'])
-        s.step(sd['step'])
-        s.callback(slider_cb,(key,sd['acts']))
-        s.value(sd['value'])
-        Pack.children.append(s)
-        return
+    button_dict = {
+        'quit':  {'quit':(lambda button : sys.exit(0),)},
+        'pause': {'pause':(lambda button : button.label('continue'),
+                           lambda button : button.value(True)),
+                  'continue':(lambda button : button.label('pause'),
+                            lambda button : button.value(False))
+                  },
+        'color': {'color':(lambda button : button.label('gray'),
+                           lambda button : button.value(True)),
+                  'gray':(lambda button : button.label('color'),
+                            lambda button : button.value(False))
+                  }
+        }
     HEIGHT =  400     # Height of window
     BHEIGHT = 30     # Height of button row
     SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
@@ -259,9 +280,11 @@ if __name__ == '__main__': # Test code
     H_Pack.type(fltk.FL_HORIZONTAL)
     H_Pack.spacing(60)
     H_Pack.children = []
-    H_Pack.children.append(Button('color',H_Pack,color_cb))
-    H_Pack.children.append(Button('pause',H_Pack,pause_cb))
-    H_Pack.children.append(Button('quit',H_Pack,quit_cb))
+    #H_Pack.children.append(Button('color',H_Pack,color_cb))
+    #H_Pack.children.append(Button('pause',H_Pack,pause_cb))
+    #H_Pack.children.append(Button('quit',H_Pack,quit_cb))
+    for key in button_dict.keys():
+        H_Pack.children.append(Button(button_dict,key,H_Pack))
     H_Pack.end()
     Y_ += BHEIGHT + H_SPACE
     X,Y = (X_row,Y_)
@@ -271,14 +294,14 @@ if __name__ == '__main__': # Test code
     H_Pack.spacing(SW)
     H_Pack.children = []
     for slide in slide_list:
-        H_Pack.children.append(Slide(slide[0],width=SW/2,Pack=H_Pack))
+        H_Pack.children.append(Slide(slide_dict,slide[0],H_Pack,width=SW/2))
     H_Pack.end()
     CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
     GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
     canvas = FltkCanvas(CWIDTH,0,WIDTH-CWIDTH,HEIGHT,CA)
     window.end()
     window.show(len(sys.argv), sys.argv)
-    anim = animator(CA,GA,canvas,GEOMETRY(),slide_dict)
+    anim = animator(CA,GA,canvas,GEOMETRY(),button_dict,slide_dict)
     fltk.Fl.add_idle(anim.update)
     fltk.Fl.run()
     
