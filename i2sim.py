@@ -17,7 +17,7 @@ class FltkCanvas(fltk.Fl_Widget):
             W,H = A.shape
             D = 1
             A = A.reshape(W,H,D)
-	self._image=A.copy()
+	self._image=A
         return
     def draw(self #FltkCanvas
                  ):
@@ -118,7 +118,9 @@ class TARGET(object):
 class animator(object):
     """ Keeps track of targets and pixels in display
     """
-    def __init__(self,canvas,G,sliders):
+    def __init__(self,CA,GA,canvas,G,sliders):
+        self.CA = CA
+        self.GA = GA
         self.canvas = canvas
         self.t = 0
         self.G = G
@@ -128,16 +130,24 @@ class animator(object):
     def update(self,ptr):
         import time
         
-        if pause:
-            time.sleep(delay)
-            return 
         rate = self.sliders['rate']['value']
         accel_var = self.sliders['accel_dev']['value']**2
         speed_var = self.sliders['speed_dev']['value']**2
         relax = self.sliders['relax']['value']
         delay = self.sliders['delay']['value']
-        close = 5.0
+        # Display before update to allow gray/color switching during pause
+        CA = self.CA
+        GA = self.GA
+        if color:
+            self.canvas.new_image(CA)
+        else:
+            self.canvas.new_image(GA)
+        self.canvas.redraw()
+        if pause:
+            time.sleep(delay)
+            return 
 
+        close = 5.0
         if random.random() < rate:
             self.targets.append(TARGET(self.G,accel_var,close,speed_var,relax))
         self.targets.sort(key=operator.attrgetter('pos'),reverse=False)
@@ -150,19 +160,18 @@ class animator(object):
                 pass
             else:
                 del self.targets[i]
-        A = self.canvas._image
-        X,Y,D = A.shape
+        X,Y,D = CA.shape
         B = 20 # Width of upper band
-        A[B:,:,:] = A[(B-1):-1,:,:]
-        A[0:B,:,:] *= 0
+        CA[B:,:,:] = CA[(B-1):-1,:,:]
+        CA[0:B,:,:] *= 0
+        GA[0:B,:,:] *= 0
         for target in self.targets:
             x = int(target.pos)
-            #A[x,y,0] = int(target.albedo)%256
-            A[0:B,max(0,x-close):x,:] = target.albedo
-        self.canvas.redraw()
+            GA[0:B,max(0,x-close):x,:] = 128
+            CA[0:B,max(0,x-close):x,:] = target.albedo
         self.t += 1
         time.sleep(delay)
-        return    
+        return
 
 if __name__ == '__main__': # Test code
     import operator, sys, fltk, numpy
@@ -209,9 +218,9 @@ if __name__ == '__main__': # Test code
     keys = [
         'key',      'value','min','max','step','acts']
     slide_list = [
-        ['rate',      0.03,  0,   .5,    0.01, []],
+        ['rate',      0.10,  0,   .5,    0.01,  []],
         ['accel_dev', 0.03,  0,   .1,    0.001, []],
-        ['speed_dev', 0.2,   0,   .5,    0.002, []],
+        ['speed_dev', 0.40,  0,   .5,    0.002, []],
         ['relax',     0.05, .001, .5,    0.001, []],
         ['delay',     0.02,  0,   .5,    0.005, []]
         ]
@@ -254,7 +263,7 @@ if __name__ == '__main__': # Test code
     H_Pack.children.append(Button('pause',H_Pack,pause_cb))
     H_Pack.children.append(Button('quit',H_Pack,quit_cb))
     H_Pack.end()
-    Y_ += BHEIGHT + 30
+    Y_ += BHEIGHT + H_SPACE
     X,Y = (X_row,Y_)
     W,H = (0,SHEIGHT)
     H_Pack = fltk.Fl_Pack(X,Y,W,H)
@@ -264,12 +273,12 @@ if __name__ == '__main__': # Test code
     for slide in slide_list:
         H_Pack.children.append(Slide(slide[0],width=SW/2,Pack=H_Pack))
     H_Pack.end()
-    A = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8)
-    canvas = FltkCanvas(CWIDTH,0,WIDTH-CWIDTH,HEIGHT,A)
-    canvas.new_image(A)
+    CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
+    GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
+    canvas = FltkCanvas(CWIDTH,0,WIDTH-CWIDTH,HEIGHT,CA)
     window.end()
     window.show(len(sys.argv), sys.argv)
-    anim = animator(canvas,GEOMETRY(),slide_dict)
+    anim = animator(CA,GA,canvas,GEOMETRY(),slide_dict)
     fltk.Fl.add_idle(anim.update)
     fltk.Fl.run()
     
