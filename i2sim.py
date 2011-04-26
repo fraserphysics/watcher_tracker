@@ -203,7 +203,7 @@ def button_cb(button,args):
     for act in args[0][args[1]][button.label()]:
         act(button)
     return
-def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=70,height=20):
+def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
     b = fltk.Fl_Button(x,y,width,height)
     b.label(key)
     b.callback(cb,(b_dict,key))
@@ -213,26 +213,6 @@ def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=70,height=20):
 
 if __name__ == '__main__': # Test code
     import operator, sys, fltk, numpy
-    color = False
-    def color_cb(button,args): # The color call back
-        global color
-        if color == True:
-            button.label('color')
-            color = False
-        else:
-            button.label('gray')
-            color = True
-    pause = False
-    def pause_cb(button,args): # The pause call back
-        global pause
-        if pause == True:
-            button.label('pause')
-            pause = False
-        else:
-            button.label('continue')
-            pause = True
-    def quit_cb(ptr): # The Quit call back
-	sys.exit(0)
     # Set up GUI
     keys = [
         'key',      'value','min','max','step','acts']
@@ -260,6 +240,11 @@ if __name__ == '__main__': # Test code
                            lambda button : button.value(True)),
                   'gray':(lambda button : button.label('color'),
                             lambda button : button.value(False))
+                  },
+        'record': {'record':(lambda button : button.label('analyze'),
+                           lambda button : button.value(True)),
+                  'analyze':(lambda button : button.label('record'),
+                            lambda button : button.value(False))
                   }
         }
     HEIGHT =  400     # Height of window
@@ -278,13 +263,11 @@ if __name__ == '__main__': # Test code
     W,H = (0,BHEIGHT)
     H_Pack = fltk.Fl_Pack(X,Y,W,H)
     H_Pack.type(fltk.FL_HORIZONTAL)
-    H_Pack.spacing(60)
+    H_Pack.spacing(30)   # Gap between buttons
     H_Pack.children = []
-    #H_Pack.children.append(Button('color',H_Pack,color_cb))
-    #H_Pack.children.append(Button('pause',H_Pack,pause_cb))
-    #H_Pack.children.append(Button('quit',H_Pack,quit_cb))
     for key in button_dict.keys():
-        H_Pack.children.append(Button(button_dict,key,H_Pack))
+        H_Pack.children.append(
+            Button(button_dict,key,H_Pack,width=60,height=20))
     H_Pack.end()
     Y_ += BHEIGHT + H_SPACE
     X,Y = (X_row,Y_)
