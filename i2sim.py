@@ -118,34 +118,51 @@ class TARGET(object):
 class animator(object):
     """ Keeps track of targets and pixels in display
     """
-    def __init__(self,CA,GA,canvas,G,buttons,sliders):
+    def __init__(self,CA,GA,G):
         self.CA = CA
         self.GA = GA
-        self.canvas = canvas
         self.t = 0
         self.G = G
-        self.buttons = buttons
-        self.sliders = sliders
+        self.record = False
         self.targets = []
+        return
+    def set_canvas(self,canvas):
+        self.canvas = canvas
+        return
+    def set_buttons(self,buttons):
+        self.buttons = buttons
+        return
+    def set_sliders(self,sliders):
+        self.sliders = sliders
+        return
+    def start_record(self,button):
+        self.history = []
+        self.record = True
+        return
+    def end_record(self,button):
+        print('Finished Recording.  Should launch analysis GUI on %d steps.'%
+              len(self.history))
+        self.record = False
         return
     def update(self,ptr):
         import time
         
-        rate = self.sliders['rate']['value']
+        time_start = time.time()
+        rate = self.sliders['new_rate']['value']
         accel_var = self.sliders['accel_dev']['value']**2
         speed_var = self.sliders['speed_dev']['value']**2
         relax = self.sliders['relax']['value']
-        delay = self.sliders['delay']['value']
+        fps = self.sliders['view_fps']['value']
         # Display before update to allow gray/color switching during pause
-        CA = self.CA
-        GA = self.GA
+        CA = self.CA  # Color array
+        GA = self.GA  # Grey array
         if self.buttons['color']['button'].value():
             self.canvas.new_image(CA)
         else:
             self.canvas.new_image(GA)
         self.canvas.redraw()
         if self.buttons['pause']['button'].value():
-            time.sleep(delay)
+            time.sleep(1.0/fps)
             return 
 
         close = 5.0
@@ -170,8 +187,12 @@ class animator(object):
             x = int(target.pos)
             GA[0:B,max(0,x-close):x,:] = 128
             CA[0:B,max(0,x-close):x,:] = target.albedo
+        delay = time_start + 1.0/fps - time.time()
+        if self.record:
+            self.history.append((self.t,self.targets))
+        if delay > 0:
+            time.sleep(delay)
         self.t += 1
-        time.sleep(delay)
         return
 def slider_cb(slider,args):
     """ Call back for sliders
@@ -214,14 +235,28 @@ def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
 if __name__ == '__main__': # Test code
     import operator, sys, fltk, numpy
     # Set up GUI
+
+    HEIGHT =  400     # Height of window
+    BHEIGHT = 30     # Height of button row
+    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
+    WIDTH =   1000    # Width of window
+    CWIDTH  = 390     # Width of control region
+    CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
+    GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
+    anim = animator(CA,GA,GEOMETRY())
+    H_SPACE = 20      # Horizontal space between sliders
+    X_row   = 10      # Gap from left edge of window to first slider
+    Y_      = 5       # Starting y position in window
+    X,Y = (0,0)       # Position on screen
+
     keys = [
         'key',      'value','min','max','step','acts']
     slide_list = [
-        ['rate',      0.10,  0,   .5,    0.01,  []],
+        ['new_rate',  0.10,  0,   .5,    0.01,  []],
         ['accel_dev', 0.03,  0,   .1,    0.001, []],
-        ['speed_dev', 0.40,  0,   .5,    0.002, []],
         ['relax',     0.05, .001, .5,    0.001, []],
-        ['delay',     0.02,  0,   .5,    0.005, []]
+        ['speed_dev', 0.40,  0,   .5,    0.002, []],
+        ['view_fps',  30.0,  5.0, 100.0, 1.0,   []]
         ]
     slide_dict = {}
     for slide in slide_list:
@@ -242,21 +277,12 @@ if __name__ == '__main__': # Test code
                             lambda button : button.value(False))
                   },
         'record': {'record':(lambda button : button.label('analyze'),
-                           lambda button : button.value(True)),
+                             anim.start_record),
                   'analyze':(lambda button : button.label('record'),
-                            lambda button : button.value(False))
+                             anim.end_record)
                   }
         }
-    HEIGHT =  400     # Height of window
-    BHEIGHT = 30     # Height of button row
-    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
-    WIDTH =   1000    # Width of window
-    CWIDTH  = 390     # Width of control region
-    H_SPACE = 20      # Horizontal space between sliders
-    X_row   = 10      # Gap from left edge of window to first slider
-    SW = int((CWIDTH - 2*X_row)/(len(slide_list)+2)) # Spacing of sliders
-    Y_      = 5       # Starting y position in window
-    X,Y = (0,0)       # Position on screen
+
     window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
     window.color(fltk.FL_WHITE)
     X,Y = (X_row,Y_)
@@ -267,24 +293,25 @@ if __name__ == '__main__': # Test code
     H_Pack.children = []
     for key in button_dict.keys():
         H_Pack.children.append(
-            Button(button_dict,key,H_Pack,width=60,height=20))
+            Button(button_dict,key,H_Pack,width=65,height=20))
     H_Pack.end()
     Y_ += BHEIGHT + H_SPACE
     X,Y = (X_row,Y_)
     W,H = (0,SHEIGHT)
     H_Pack = fltk.Fl_Pack(X,Y,W,H)
     H_Pack.type(fltk.FL_HORIZONTAL)
+    SW = int((CWIDTH - 2*X_row)/(len(slide_list)+2)) # Spacing of sliders
     H_Pack.spacing(SW)
     H_Pack.children = []
     for slide in slide_list:
         H_Pack.children.append(Slide(slide_dict,slide[0],H_Pack,width=SW/2))
     H_Pack.end()
-    CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
-    GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
     canvas = FltkCanvas(CWIDTH,0,WIDTH-CWIDTH,HEIGHT,CA)
+    anim.set_canvas(canvas)
+    anim.set_buttons(button_dict)
+    anim.set_sliders(slide_dict)
     window.end()
     window.show(len(sys.argv), sys.argv)
-    anim = animator(CA,GA,canvas,GEOMETRY(),button_dict,slide_dict)
     fltk.Fl.add_idle(anim.update)
     fltk.Fl.run()
     
