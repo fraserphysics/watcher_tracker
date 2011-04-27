@@ -141,12 +141,7 @@ class animator(object):
         self.record = True
         return
     def end_record(self,button):
-        print('Finished Recording.  Trying to launch analysis GUI on %d steps.'%
-              len(self.history))
         analyze(self.history)
-              # /usr/share/pyshared/fltk/test/demos.py does
-              # os.system("python "+demoList.text(demoList.value()))
-              # Could use ideas from delwin.py in same directory
         self.record = False
         return
     def update(self,ptr):
@@ -199,6 +194,16 @@ class animator(object):
             time.sleep(delay)
         self.t += 1
         return
+class analyzer(animator):
+    """ Does grouping for Ried
+    """
+    def __init__(self,CA,GA,G,history):
+        self.CA = CA
+        self.GA = GA
+        self.t = 0
+        self.G = G
+        self.history = history
+        return
 def slider_cb(slider,args):
     """ Call back for sliders
     slider  An fltk slider object
@@ -244,6 +249,10 @@ def analyze(history):
     if analysis_window != None:
         print("Can only do one analysis at a time")
         return
+    def quit(button):
+        global analysis_window
+        analysis_window.thisown = 1
+        analysis_window = None
     X,Y = (100,100)           # Position on screen
     WIDTH,HEIGHT = (1000,400) # Shape of window
     BHEIGHT = 30     # Height of button row
@@ -251,13 +260,13 @@ def analyze(history):
     CWIDTH  = 390     # Width of control region
     CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
     GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
-    anim = animator(CA,GA,GEOMETRY())
+    grouper = analyzer(CA,GA,GEOMETRY(),history)
     H_SPACE = 20      # Horizontal space between sliders
     X_row   = 10      # Gap from left edge of window to first slider
     Y_      = 5       # Starting y position in window
     s_dict = {'t':{'value':0,'min':0,'max':len(history),'step':1,'acts':[]}}
     b_dict = {
-        'quit':  {'quit':(lambda button : sys.exit(0),)},
+        'quit':  {'quit':(quit,)},
         'color': {'color':(lambda button : button.label('gray'),
                            lambda button : button.value(True)),
                   'gray':(lambda button : button.label('color'),
@@ -266,7 +275,28 @@ def analyze(history):
         }
     window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
     window.color(fltk.FL_WHITE)
-    window.show()
+    X,Y = (X_row,Y_)
+    W,H = (0,BHEIGHT)
+    H_Pack = fltk.Fl_Pack(X,Y,W,H)
+    H_Pack.type(fltk.FL_HORIZONTAL)
+    H_Pack.spacing(30)   # Gap between buttons
+    H_Pack.children = []
+    for key in b_dict.keys():
+        H_Pack.children.append(
+            Button(b_dict,key,H_Pack,width=65,height=20))
+    H_Pack.end()
+    Y_ += BHEIGHT + H_SPACE
+    X,Y = (X_row,Y_)
+    W,H = (0,SHEIGHT)
+    H_Pack = fltk.Fl_Pack(X,Y,W,H)
+    H_Pack.type(fltk.FL_HORIZONTAL)
+    SW = int((CWIDTH - 2*X_row)/(len(slide_list)+2)) # Spacing of sliders
+    H_Pack.spacing(SW)
+    H_Pack.children = []
+    for key in ['t']:
+        H_Pack.children.append(Slide(s_dict,key,H_Pack,width=SW/2))
+    H_Pack.end()
+    window.show(3,['A','B','C'])
     analysis_window = window
     return
 
@@ -295,30 +325,25 @@ if __name__ == '__main__': # Test code
         ['speed_dev', 0.40,  0,   .5,    0.002, []],
         ['view_fps',  30.0,  5.0, 100.0, 1.0,   []]
         ]
-    slide_dict = {}
-    for slide in slide_list:
-        t_dict = {}
-        for i in xrange(1,len(keys)):
-            t_dict[keys[i]]=slide[i]
-        slide_dict[slide[0]] = t_dict
-    button_dict = {
-        'quit':  {'quit':(lambda button : sys.exit(0),)},
-        'pause': {'pause':(lambda button : button.label('continue'),
+    button_list = [
+        ('quit',  {'quit':(lambda button : sys.exit(0),)}),
+        ('pause', {'pause':(lambda button : button.label('continue'),
                            lambda button : button.value(True)),
                   'continue':(lambda button : button.label('pause'),
                             lambda button : button.value(False))
-                  },
-        'color': {'color':(lambda button : button.label('gray'),
+                  }),
+        ('color', {'color':(lambda button : button.label('gray'),
                            lambda button : button.value(True)),
                   'gray':(lambda button : button.label('color'),
                             lambda button : button.value(False))
-                  },
-        'record': {'record':(lambda button : button.label('analyze'),
+                  }),
+        ('record', {'record':(lambda button : button.label('analyze'),
                              anim.start_record),
                   'analyze':(lambda button : button.label('record'),
                              anim.end_record)
-                  }
-        }
+                  })
+        ] # Did list first to enable control of layout order
+    button_dict = dict(button_list)
 
     window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
     window.color(fltk.FL_WHITE)
@@ -328,7 +353,7 @@ if __name__ == '__main__': # Test code
     H_Pack.type(fltk.FL_HORIZONTAL)
     H_Pack.spacing(30)   # Gap between buttons
     H_Pack.children = []
-    for key in button_dict.keys():
+    for key,value in button_list:
         H_Pack.children.append(
             Button(button_dict,key,H_Pack,width=65,height=20))
     H_Pack.end()
@@ -340,7 +365,12 @@ if __name__ == '__main__': # Test code
     SW = int((CWIDTH - 2*X_row)/(len(slide_list)+2)) # Spacing of sliders
     H_Pack.spacing(SW)
     H_Pack.children = []
+    slide_dict = {}
     for slide in slide_list:
+        t_dict = {}
+        for i in xrange(1,len(keys)):
+            t_dict[keys[i]]=slide[i]
+        slide_dict[slide[0]] = t_dict
         H_Pack.children.append(Slide(slide_dict,slide[0],H_Pack,width=SW/2))
     H_Pack.end()
     canvas = FltkCanvas(CWIDTH,0,WIDTH-CWIDTH,HEIGHT,CA)
