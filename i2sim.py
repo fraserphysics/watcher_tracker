@@ -241,6 +241,40 @@ def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
     Pack.children.append(b)
     b_dict[key]['button'] = b
     return
+class My_win(object):
+    WIDTH,HEIGHT = (1000,400) # Shape of window
+    BHEIGHT = 30     # Height of button row
+    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
+    CWIDTH  = 390     # Width of control region
+    H_SPACE = 20      # Horizontal space between sliders
+    X_row   = 10      # Gap from left edge of window to first slider
+    def __init__(self,X,Y,b_list,s_list):
+        self.CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
+        self.GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
+        self._Y = 5       # Starting y position in window
+        window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
+        window.color(fltk.FL_WHITE)
+        SW = int((CWIDTH - 2*X_row)/(len(s_list)+2)) # Spacing of sliders
+        self.pack_row(b_list, 0, BHEIGHT, 65,    20,   H_SPACE, Button)
+        self.pack_row(s_list, 0, SHEIGHT, 30,    100,  H_SPACE, Slide)
+        window.show(3,['A','B','C'])
+        self.window = window
+    def pack_row(self,_list,  W, H,       width, height,space, init):
+        _dict = dict(_list)
+        keys = [item[0] for item in _list]
+        H_Pack = fltk.Fl_Pack(X_row,self._Y,W,H)
+        H_Pack.type(fltk.FL_HORIZONTAL)
+        H_Pack.spacing(space)
+        H_Pack.children = []
+        for key in keys:
+            H_Pack.children.append(init(
+                _dict,key,H_Pack,width=width,height=height))
+        H_Pack.end()
+        self._Y += BHEIGHT + H_SPACE
+        return
+    def win(self):
+        return self.window
+ 
 analysis_window = None
 def analyze(history):
     """ Open new window to support analyst exploitation of data
@@ -253,51 +287,18 @@ def analyze(history):
         global analysis_window
         analysis_window.thisown = 1
         analysis_window = None
-    X,Y = (100,100)           # Position on screen
-    WIDTH,HEIGHT = (1000,400) # Shape of window
-    BHEIGHT = 30     # Height of button row
-    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
-    CWIDTH  = 390     # Width of control region
-    CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
-    GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
-    grouper = analyzer(CA,GA,GEOMETRY(),history)
-    H_SPACE = 20      # Horizontal space between sliders
-    X_row   = 10      # Gap from left edge of window to first slider
-    Y_      = 5       # Starting y position in window
-    s_dict = {'t':{'value':0,'min':0,'max':len(history),'step':1,'acts':[]}}
-    b_dict = {
-        'quit':  {'quit':(quit,)},
-        'color': {'color':(lambda button : button.label('gray'),
+    s_list = [('t',{'value':0,'min':0,'max':len(history),'step':1,'acts':[]})]
+    b_list = [
+        ('quit',  {'quit':(quit,)}),
+        ('color', {'color':(lambda button : button.label('gray'),
                            lambda button : button.value(True)),
                   'gray':(lambda button : button.label('color'),
                             lambda button : button.value(False))
-                  }
-        }
-    window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
-    window.color(fltk.FL_WHITE)
-    X,Y = (X_row,Y_)
-    W,H = (0,BHEIGHT)
-    H_Pack = fltk.Fl_Pack(X,Y,W,H)
-    H_Pack.type(fltk.FL_HORIZONTAL)
-    H_Pack.spacing(30)   # Gap between buttons
-    H_Pack.children = []
-    for key in b_dict.keys():
-        H_Pack.children.append(
-            Button(b_dict,key,H_Pack,width=65,height=20))
-    H_Pack.end()
-    Y_ += BHEIGHT + H_SPACE
-    X,Y = (X_row,Y_)
-    W,H = (0,SHEIGHT)
-    H_Pack = fltk.Fl_Pack(X,Y,W,H)
-    H_Pack.type(fltk.FL_HORIZONTAL)
-    SW = int((CWIDTH - 2*X_row)/(len(slide_list)+2)) # Spacing of sliders
-    H_Pack.spacing(SW)
-    H_Pack.children = []
-    for key in ['t']:
-        H_Pack.children.append(Slide(s_dict,key,H_Pack,width=SW/2))
-    H_Pack.end()
-    window.show(3,['A','B','C'])
-    analysis_window = window
+                  })
+        ]
+    X,Y = (100,100)           # Position on screen
+    win = My_win(X,Y,b_list,s_list)
+    analysis_window = win.win()
     return
 
 if __name__ == '__main__': # Test code
