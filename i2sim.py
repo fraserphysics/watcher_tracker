@@ -45,6 +45,7 @@ class GEOMETRY(object):
     Describes road
     """
     time = 0
+    close = 5 # Minimum following distance
     boundaries = numpy.array([0,200,400,600],numpy.float64)
     regions = {0:REGION(False,     # No passing
                         1,[2]      # One speed limit of 2.0
@@ -85,10 +86,9 @@ class TARGET(object):
     A class whose instances have constant characteristics and position
     and velocity
     """
-    def __init__(self,G,accel_var,close,speed_var,relax):
+    def __init__(self,G,accel_var,speed_var,relax):
         self.G = G
         self.accel_var = accel_var
-        self.close = close
         self.relax = relax
         self.pos = 0.0
         albedo = numpy.array([random.randint(1,255) for x in xrange(3)],
@@ -107,9 +107,10 @@ class TARGET(object):
         self.vel = old_limit*self.rvel
         self.pos += self.vel
         #Follow leader if passing forbidden and next target too close
+        close = self.G.close
         if (other != None and (not self.G._Pass(self.pos)) and
-                (other.pos < self.close + self.pos)):
-            self.pos = max(.1,other.pos - self.close)
+                (other.pos < close + self.pos)):
+            self.pos = max(.1,other.pos - close)
             self.vel = other.vel
         new_limit = self.G.limit(self.pos,t)
         self.rvel = self.vel/new_limit
@@ -140,8 +141,12 @@ class animator(object):
         self.record = True
         return
     def end_record(self,button):
-        print('Finished Recording.  Should launch analysis GUI on %d steps.'%
+        print('Finished Recording.  Trying to launch analysis GUI on %d steps.'%
               len(self.history))
+        analyze(self.history)
+              # /usr/share/pyshared/fltk/test/demos.py does
+              # os.system("python "+demoList.text(demoList.value()))
+              # Could use ideas from delwin.py in same directory
         self.record = False
         return
     def update(self,ptr):
@@ -165,9 +170,8 @@ class animator(object):
             time.sleep(1.0/fps)
             return 
 
-        close = 5.0
         if random.random() < rate:
-            self.targets.append(TARGET(self.G,accel_var,close,speed_var,relax))
+            self.targets.append(TARGET(self.G,accel_var,speed_var,relax))
         self.targets.sort(key=operator.attrgetter('pos'),reverse=False)
         for i in xrange(len(self.targets)-1,-1,-1):
             if i == len(self.targets)-1:
@@ -183,6 +187,7 @@ class animator(object):
         CA[B:,:,:] = CA[(B-1):-1,:,:]
         CA[0:B,:,:] *= 0
         GA[0:B,:,:] *= 0
+        close = self.G.close
         for target in self.targets:
             x = int(target.pos)
             GA[0:B,max(0,x-close):x,:] = 128
@@ -231,15 +236,18 @@ def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
     Pack.children.append(b)
     b_dict[key]['button'] = b
     return
-
-if __name__ == '__main__': # Test code
-    import operator, sys, fltk, numpy
-    # Set up GUI
-
-    HEIGHT =  400     # Height of window
+analysis_window = None
+def analyze(history):
+    """ Open new window to support analyst exploitation of data
+    """
+    global analysis_window
+    if analysis_window != None:
+        print("Can only do one analysis at a time")
+        return
+    X,Y = (100,100)           # Position on screen
+    WIDTH,HEIGHT = (1000,400) # Shape of window
     BHEIGHT = 30     # Height of button row
     SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
-    WIDTH =   1000    # Width of window
     CWIDTH  = 390     # Width of control region
     CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
     GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
@@ -247,7 +255,36 @@ if __name__ == '__main__': # Test code
     H_SPACE = 20      # Horizontal space between sliders
     X_row   = 10      # Gap from left edge of window to first slider
     Y_      = 5       # Starting y position in window
-    X,Y = (0,0)       # Position on screen
+    s_dict = {'t':{'value':0,'min':0,'max':len(history),'step':1,'acts':[]}}
+    b_dict = {
+        'quit':  {'quit':(lambda button : sys.exit(0),)},
+        'color': {'color':(lambda button : button.label('gray'),
+                           lambda button : button.value(True)),
+                  'gray':(lambda button : button.label('color'),
+                            lambda button : button.value(False))
+                  }
+        }
+    window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
+    window.color(fltk.FL_WHITE)
+    window.show()
+    analysis_window = window
+    return
+
+if __name__ == '__main__': # Test code
+    import operator, sys, fltk, numpy
+    # Set up GUI
+
+    WIDTH,HEIGHT = (1000,400) # Shape of window
+    X,Y = (0,0)               # Position on screen
+    BHEIGHT = 30     # Height of button row
+    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
+    CWIDTH  = 390     # Width of control region
+    CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
+    GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
+    anim = animator(CA,GA,GEOMETRY())
+    H_SPACE = 20      # Horizontal space between sliders
+    X_row   = 10      # Gap from left edge of window to first slider
+    Y_      = 5       # Starting y position in window
 
     keys = [
         'key',      'value','min','max','step','acts']
