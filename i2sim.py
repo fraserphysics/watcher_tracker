@@ -120,6 +120,7 @@ class FltkCanvas(fltk.Fl_Widget):
 class animator(object):
     """ Keeps track of targets and pixels in display
     """
+    B = 20 # Height of upper band
     def __init__(self,win,G):
         self.CA = win.CA
         self.GA = win.GA
@@ -139,11 +140,13 @@ class animator(object):
         analyze(self.history)
         self.record = False
         return
-    def update(self,ptr):
-        import time
+    def update(self, # animator
+               ptr):
+        import time,copy
         
         time_start = time.time()
         rate = self.sliders['new_rate']['value']
+        t_samp = self.sliders['t_samp']['value']
         accel_var = self.sliders['accel_dev']['value']**2
         speed_var = self.sliders['speed_dev']['value']**2
         relax = self.sliders['relax']['value']
@@ -173,7 +176,7 @@ class animator(object):
             else:
                 del self.targets[i]
         X,Y,D = CA.shape
-        B = 20 # Width of upper band
+        B = self.B # Height of upper band
         CA[B:,:,:] = CA[(B-1):-1,:,:]
         CA[0:B,:,:] *= 0
         GA[0:B,:,:] *= 0
@@ -183,8 +186,8 @@ class animator(object):
             GA[0:B,max(0,x-close):x,:] = 128
             CA[0:B,max(0,x-close):x,:] = target.albedo
         delay = time_start + 1.0/fps - time.time()
-        if self.record:
-            self.history.append((self.t,self.targets))
+        if self.record and self.t%t_samp==0:
+            self.history.append((self.t,copy.deepcopy(self.targets)))
         if delay > 0:
             time.sleep(delay)
         self.t += 1
@@ -195,10 +198,44 @@ class analyzer(animator):
     def __init__(self,win,G,history):
         self.CA = win.CA
         self.GA = win.GA
+        self.canvas = win.canvas
+        self.buttons = win.b_dict
+        self.sliders = win.s_dict
         self.t = 0
         self.G = G
         self.history = history
         return
+    def update(self, # analyzer
+               ptr):
+        """
+        Display part of self.history that fits on screen.  History is
+        a list of pairs (time, targets).  Time is an intiger, and each
+        element of targets is a TARGET.
+        """
+        self.t = int(self.sliders['-t']['value'])
+        CA = self.CA  # Color array
+        GA = self.GA  # Grey array
+        CA *= 0
+        GA *= 0
+        X,Y,D = CA.shape
+        B = self.B        # Vehicle height
+        C = self.G.close  # Vehicle width
+        y_ = 0
+        t = self.t
+        while y_ < Y + B and t < len(self.history):
+            time,targets = self.history[-1-t]
+            for target in targets:
+                x = int(target.pos)
+                GA[y_:y_+B,max(0,x-C):x,:] = 128
+                GA[(y_+2):(y_+B-2),max(0,x-C/2-1),:] = 255
+                CA[y_:y_+B,max(0,x-C):x,:] = target.albedo
+            y_ += B
+            t += 1
+        if self.buttons['color']['button'].value():
+            self.canvas.new_image(CA)
+        else:
+            self.canvas.new_image(GA)
+        self.canvas.redraw()
 def slider_cb(slider,args):
     """ Call back for sliders
     slider  An fltk slider object
@@ -207,7 +244,7 @@ def slider_cb(slider,args):
     slider_dict_key = args[0][args[1]]
     slider_dict_key['value'] = slider.value()
     for act in slider_dict_key['acts']:
-        act()
+        act(slider)
     return
 def Slide(slide_dict,key,Pack,cb=slider_cb,x=0,y=0,width=30,height=100):
     """ Function to put slider into GUI.  Derived from pi_track/support.py
@@ -245,12 +282,11 @@ class My_win(object):
     pack_row    Places a row of buttons or sliders
     close       Clears references to all items so that they disappear
     """
-    WIDTH,HEIGHT = (1000,400) # Shape of window
+    WIDTH,HEIGHT = (1100,400) # Shape of window
     BHEIGHT = 30     # Height of button row
     SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
-    CWIDTH  = 390     # Width of control region
-    H_SPACE = 20      # Horizontal space between sliders
-    X_row   = 10      # Gap from left edge of window to first slider
+    CWIDTH  = 490     # Width of control region
+    V_SPACE = 20      # Vertical space between buttons and sliders
     def __init__(self,Title,X,Y,b_list,s_list):
         self.CA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,3),
                               numpy.uint8) # Color array
@@ -259,22 +295,30 @@ class My_win(object):
         self._Y = 5       # Starting y position in window
         window = fltk.Fl_Window(X,Y,self.WIDTH,self.HEIGHT)
         window.color(fltk.FL_WHITE)
-        SW = int((self.CWIDTH - 2*self.X_row)/(len(s_list)+2)
-                 ) # Spacing of sliders
-        self.b_dict = self.pack_row(b_list, 0, self.BHEIGHT, 65, 20,
-                                    self.H_SPACE, Button)
-        self.s_dict = self.pack_row(s_list, 0, self.SHEIGHT, 30, 100,
-                                    self.H_SPACE, Slide)
+        self.b_dict = self.pack_row(b_list, self.CWIDTH, self.BHEIGHT, 65, 20,
+                                    Button)
+        self.s_dict = self.pack_row(s_list, self.CWIDTH, self.SHEIGHT, 30, 50,
+                                    Slide)
         self.canvas = FltkCanvas(self.CWIDTH,0,self.WIDTH-self.CWIDTH,
                                  self.HEIGHT, self.CA)
         window.end()
         window.show(len(Title),Title)
         self.window = window
         return
-    def pack_row(self,_list,  W, H,       width, height,space, init):
+    def pack_row(self,_list, # Describes each item
+                 W,          # Width of entire row
+                 H,          # Height of entire row
+                 width,      # Width of each item
+                 height,     # Height of each item
+                 init        # Function to make an item
+                 ):
+        N = len(_list)
+        total_space = W - N*width
+        space = int(total_space/N)
+        start_x = int(space/2)
         _dict = dict(_list)
         keys = [item[0] for item in _list]
-        H_Pack = fltk.Fl_Pack(self.X_row,self._Y,W,H)
+        H_Pack = fltk.Fl_Pack(start_x,self._Y,W,H)
         H_Pack.type(fltk.FL_HORIZONTAL)
         H_Pack.spacing(space)
         H_Pack.children = []
@@ -282,7 +326,7 @@ class My_win(object):
             H_Pack.children.append(init(
                 _dict,key,H_Pack,width=width,height=height))
         H_Pack.end()
-        self._Y += self.BHEIGHT + self.H_SPACE
+        self._Y += self.BHEIGHT + self.V_SPACE
         return _dict
     def close(self):
         self.window = None
@@ -302,9 +346,11 @@ def analyze(history):
         global Awin
         Awin.close()
         Awin = None
-    s_list = [('t',{'value':0,'min':0,'max':len(history),'step':1,'acts':[]})]
+    s_list = [
+        ('-t',{'value':0,'min':0,'max':len(history),'step':1,'acts':[]}),
+        ]
     b_list = [
-        ('quit',  {'quit':(quit,)}),
+        ('close',  {'close':(quit,)}),
         ('color', {'color':(lambda button : button.label('gray'),
                            lambda button : button.value(True)),
                   'gray':(lambda button : button.label('color'),
@@ -314,8 +360,10 @@ def analyze(history):
     X,Y = (100,100)           # Position on screen
     Awin = My_win(['Analysis Window'],X,Y,b_list,s_list)
     analyze = analyzer(Awin,GEOMETRY(),history)
-    Awin.s_dict['t']['acts'] = [dummy] # FixMe: Define responses to
-                                       # user actions here
+    Awin.s_dict['-t']['acts'] = [analyze.update]
+    Awin.b_dict['color']['color'] += (analyze.update,)
+    Awin.b_dict['color']['gray'] += (analyze.update,)
+    analyze.update(None)
     return
 
 if __name__ == '__main__': # Test code
@@ -329,7 +377,8 @@ if __name__ == '__main__': # Test code
         ['accel_dev', 0.03,  0,   .1,    0.001, []],
         ['relax',     0.05, .001, .5,    0.001, []],
         ['speed_dev', 0.40,  0,   .5,    0.002, []],
-        ['view_fps',  30.0,  5.0, 100.0, 1.0,   []]
+        ['view_fps',  60.0,  5.0, 100.0, 1.0,   []],
+        ['t_samp',       5,  5,   50,       1,  []],
         ]
     s_list = []
     for slide in slide_list:
