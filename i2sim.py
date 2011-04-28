@@ -1,32 +1,6 @@
 import numpy, random, fltk
 
-class FltkCanvas(fltk.Fl_Widget):
-    """ A widget that has an array of type uint8 in self._image.  For
-    displaying images.  Variant of class in pushbroom/utilities.py
-    """
-    def __init__(self, #FltkCanvas
-                 x,y,w,h,A):
-        fltk.Fl_Widget.__init__(self, x, y, w, h, "canvas")
-        self._draw_overlay = False
-        self._button = None
-        self._key = None
-        self.new_image(A)
-    def new_image(self, #FltkCanvas
-                 A,MAX=None):
-        if A.ndim == 2:
-            W,H = A.shape
-            D = 1
-            A = A.reshape(W,H,D)
-	self._image=A
-        return
-    def draw(self #FltkCanvas
-                 ):
-        newsize=(self.w(),self.h())
-        H,W,D = self._image.shape # fl_draw_image assumes different axes order
-        fltk.fl_draw_image(self._image,self.x(),self.y(),W,H,D,0)
-        self.redraw()
-        return
-
+##################### Begin Simulation Code ##########################
 class REGION(object):
     """ A component of the geometry of a simulation.
     """
@@ -115,26 +89,47 @@ class TARGET(object):
         new_limit = self.G.limit(self.pos,t)
         self.rvel = self.vel/new_limit
         return self.G.bounds(self.pos)
+##################### End of simulation code #########################
+class FltkCanvas(fltk.Fl_Widget):
+    """ A widget that has an array of type uint8 in self._image.  For
+    displaying images.  Variant of class in pushbroom/utilities.py
+    """
+    def __init__(self, #FltkCanvas
+                 x,y,w,h,A):
+        fltk.Fl_Widget.__init__(self, x, y, w, h, "canvas")
+        self._draw_overlay = False
+        self._button = None
+        self._key = None
+        self.new_image(A)
+    def new_image(self, #FltkCanvas
+                 A,MAX=None):
+        if A.ndim == 2:
+            W,H = A.shape
+            D = 1
+            A = A.reshape(W,H,D)
+	self._image=A
+        return
+    def draw(self #FltkCanvas
+                 ):
+        newsize=(self.w(),self.h())
+        H,W,D = self._image.shape # fl_draw_image assumes different axes order
+        fltk.fl_draw_image(self._image,self.x(),self.y(),W,H,D,0)
+        self.redraw()
+        return
 
 class animator(object):
     """ Keeps track of targets and pixels in display
     """
-    def __init__(self,CA,GA,G):
-        self.CA = CA
-        self.GA = GA
+    def __init__(self,win,G):
+        self.CA = win.CA
+        self.GA = win.GA
+        self.canvas = win.canvas
+        self.buttons = win.b_dict
+        self.sliders = win.s_dict
         self.t = 0
         self.G = G
         self.record = False
         self.targets = []
-        return
-    def set_canvas(self,canvas):
-        self.canvas = canvas
-        return
-    def set_buttons(self,buttons):
-        self.buttons = buttons
-        return
-    def set_sliders(self,sliders):
-        self.sliders = sliders
         return
     def start_record(self,button):
         self.history = []
@@ -197,9 +192,9 @@ class animator(object):
 class analyzer(animator):
     """ Does grouping for Ried
     """
-    def __init__(self,CA,GA,G,history):
-        self.CA = CA
-        self.GA = GA
+    def __init__(self,win,G,history):
+        self.CA = win.CA
+        self.GA = win.GA
         self.t = 0
         self.G = G
         self.history = history
@@ -235,6 +230,8 @@ def button_cb(button,args):
         act(button)
     return
 def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
+    """ Function to put button into GUI
+    """
     b = fltk.Fl_Button(x,y,width,height)
     b.label(key)
     b.callback(cb,(b_dict,key))
@@ -242,27 +239,42 @@ def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
     b_dict[key]['button'] = b
     return
 class My_win(object):
+    """
+    Class to make fltk window.  Methods:
+    __init__    Initializes entire appearance of window and calls show()
+    pack_row    Places a row of buttons or sliders
+    close       Clears references to all items so that they disappear
+    """
     WIDTH,HEIGHT = (1000,400) # Shape of window
     BHEIGHT = 30     # Height of button row
     SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
     CWIDTH  = 390     # Width of control region
     H_SPACE = 20      # Horizontal space between sliders
     X_row   = 10      # Gap from left edge of window to first slider
-    def __init__(self,X,Y,b_list,s_list):
-        self.CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
-        self.GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
+    def __init__(self,Title,X,Y,b_list,s_list):
+        self.CA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,3),
+                              numpy.uint8) # Color array
+        self.GA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,1),
+                              numpy.uint8) # Gray array
         self._Y = 5       # Starting y position in window
-        window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
+        window = fltk.Fl_Window(X,Y,self.WIDTH,self.HEIGHT)
         window.color(fltk.FL_WHITE)
-        SW = int((CWIDTH - 2*X_row)/(len(s_list)+2)) # Spacing of sliders
-        self.pack_row(b_list, 0, BHEIGHT, 65,    20,   H_SPACE, Button)
-        self.pack_row(s_list, 0, SHEIGHT, 30,    100,  H_SPACE, Slide)
-        window.show(3,['A','B','C'])
+        SW = int((self.CWIDTH - 2*self.X_row)/(len(s_list)+2)
+                 ) # Spacing of sliders
+        self.b_dict = self.pack_row(b_list, 0, self.BHEIGHT, 65, 20,
+                                    self.H_SPACE, Button)
+        self.s_dict = self.pack_row(s_list, 0, self.SHEIGHT, 30, 100,
+                                    self.H_SPACE, Slide)
+        self.canvas = FltkCanvas(self.CWIDTH,0,self.WIDTH-self.CWIDTH,
+                                 self.HEIGHT, self.CA)
+        window.end()
+        window.show(len(Title),Title)
         self.window = window
+        return
     def pack_row(self,_list,  W, H,       width, height,space, init):
         _dict = dict(_list)
         keys = [item[0] for item in _list]
-        H_Pack = fltk.Fl_Pack(X_row,self._Y,W,H)
+        H_Pack = fltk.Fl_Pack(self.X_row,self._Y,W,H)
         H_Pack.type(fltk.FL_HORIZONTAL)
         H_Pack.spacing(space)
         H_Pack.children = []
@@ -270,23 +282,26 @@ class My_win(object):
             H_Pack.children.append(init(
                 _dict,key,H_Pack,width=width,height=height))
         H_Pack.end()
-        self._Y += BHEIGHT + H_SPACE
+        self._Y += self.BHEIGHT + self.H_SPACE
+        return _dict
+    def close(self):
+        self.window = None
         return
-    def win(self):
-        return self.window
- 
-analysis_window = None
+
+def dummy():
+    print('Here in dummy()')
+Awin = None
 def analyze(history):
     """ Open new window to support analyst exploitation of data
     """
-    global analysis_window
-    if analysis_window != None:
+    global Awin
+    if Awin != None:
         print("Can only do one analysis at a time")
         return
     def quit(button):
-        global analysis_window
-        analysis_window.thisown = 1
-        analysis_window = None
+        global Awin
+        Awin.close()
+        Awin = None
     s_list = [('t',{'value':0,'min':0,'max':len(history),'step':1,'acts':[]})]
     b_list = [
         ('quit',  {'quit':(quit,)}),
@@ -297,25 +312,15 @@ def analyze(history):
                   })
         ]
     X,Y = (100,100)           # Position on screen
-    win = My_win(X,Y,b_list,s_list)
-    analysis_window = win.win()
+    Awin = My_win(['Analysis Window'],X,Y,b_list,s_list)
+    analyze = analyzer(Awin,GEOMETRY(),history)
+    Awin.s_dict['t']['acts'] = [dummy] # FixMe: Define responses to
+                                       # user actions here
     return
 
 if __name__ == '__main__': # Test code
     import operator, sys, fltk, numpy
     # Set up GUI
-
-    WIDTH,HEIGHT = (1000,400) # Shape of window
-    X,Y = (0,0)               # Position on screen
-    BHEIGHT = 30     # Height of button row
-    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
-    CWIDTH  = 390     # Width of control region
-    CA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,3),numpy.uint8) # Color array
-    GA = numpy.zeros((HEIGHT,WIDTH-CWIDTH,1),numpy.uint8) # Gray array
-    anim = animator(CA,GA,GEOMETRY())
-    H_SPACE = 20      # Horizontal space between sliders
-    X_row   = 10      # Gap from left edge of window to first slider
-    Y_      = 5       # Starting y position in window
 
     keys = [
         'key',      'value','min','max','step','acts']
@@ -326,6 +331,13 @@ if __name__ == '__main__': # Test code
         ['speed_dev', 0.40,  0,   .5,    0.002, []],
         ['view_fps',  30.0,  5.0, 100.0, 1.0,   []]
         ]
+    s_list = []
+    for slide in slide_list:
+        t_dict = {}
+        for i in xrange(1,len(keys)):
+            t_dict[keys[i]]=slide[i]
+        s_list.append((slide[0],t_dict))
+    slide_list = s_list
     button_list = [
         ('quit',  {'quit':(lambda button : sys.exit(0),)}),
         ('pause', {'pause':(lambda button : button.label('continue'),
@@ -338,48 +350,14 @@ if __name__ == '__main__': # Test code
                   'gray':(lambda button : button.label('color'),
                             lambda button : button.value(False))
                   }),
-        ('record', {'record':(lambda button : button.label('analyze'),
-                             anim.start_record),
-                  'analyze':(lambda button : button.label('record'),
-                             anim.end_record)
-                  })
+        ('record', {})  # Specify after anim defined
         ] # Did list first to enable control of layout order
-    button_dict = dict(button_list)
-
-    window = fltk.Fl_Window(X,Y,WIDTH,HEIGHT)
-    window.color(fltk.FL_WHITE)
-    X,Y = (X_row,Y_)
-    W,H = (0,BHEIGHT)
-    H_Pack = fltk.Fl_Pack(X,Y,W,H)
-    H_Pack.type(fltk.FL_HORIZONTAL)
-    H_Pack.spacing(30)   # Gap between buttons
-    H_Pack.children = []
-    for key,value in button_list:
-        H_Pack.children.append(
-            Button(button_dict,key,H_Pack,width=65,height=20))
-    H_Pack.end()
-    Y_ += BHEIGHT + H_SPACE
-    X,Y = (X_row,Y_)
-    W,H = (0,SHEIGHT)
-    H_Pack = fltk.Fl_Pack(X,Y,W,H)
-    H_Pack.type(fltk.FL_HORIZONTAL)
-    SW = int((CWIDTH - 2*X_row)/(len(slide_list)+2)) # Spacing of sliders
-    H_Pack.spacing(SW)
-    H_Pack.children = []
-    slide_dict = {}
-    for slide in slide_list:
-        t_dict = {}
-        for i in xrange(1,len(keys)):
-            t_dict[keys[i]]=slide[i]
-        slide_dict[slide[0]] = t_dict
-        H_Pack.children.append(Slide(slide_dict,slide[0],H_Pack,width=SW/2))
-    H_Pack.end()
-    canvas = FltkCanvas(CWIDTH,0,WIDTH-CWIDTH,HEIGHT,CA)
-    anim.set_canvas(canvas)
-    anim.set_buttons(button_dict)
-    anim.set_sliders(slide_dict)
-    window.end()
-    window.show(len(sys.argv), sys.argv)
+    X,Y = (0,0) # Window postion
+    win = My_win(sys.argv,X,Y,button_list,slide_list)
+    anim = animator(win,GEOMETRY())
+    win.b_dict['record'] = {
+        'record':(lambda button : button.label('analyze'), anim.start_record),
+        'analyze':(lambda button : button.label('record'), anim.end_record)}
     fltk.Fl.add_idle(anim.update)
     fltk.Fl.run()
     
