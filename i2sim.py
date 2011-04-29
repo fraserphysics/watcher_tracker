@@ -277,6 +277,30 @@ def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
     Pack.children.append(b)
     b_dict[key]['button'] = b
     return
+def menu_button_cb(menu,args):
+    """ Call back for menu_buttons
+    menu    An fltk menu_button object
+    args    The tuple (b_dict, key)
+    b_dict[key][string] is a list of functions to call to do the action
+    """
+    print('In menu_button_cb, menu.mvalue()=',menu.mvalue().label(),
+          'key=',args[1])
+    return
+    for act in args[0][args[1]][button.label()]:
+        act(button)
+    return
+def Menu_Button(b_dict,key,Pack,cb=menu_button_cb,x=0,y=0,width=60,height=20):
+    """ Function to put button into GUI
+    See /usr/share/pyshared/fltk/test/menubar.py
+    """
+    entry = b_dict[key]
+    b = fltk.Fl_Menu_Button(x,y,width,height,key)
+    b.text = key
+    b.copy(entry['pulldown'])
+    b.callback(cb,(b_dict,key))
+    Pack.children.append(b)
+    b_dict[key]['button'] = b
+    return
 class My_win(object):
     """
     Class to make fltk window.  Methods:
@@ -284,16 +308,18 @@ class My_win(object):
     pack_row    Places a row of buttons or sliders
     close       Clears references to all items so that they disappear
     """
-    WIDTH,HEIGHT = (1100,400) # Shape of window
     BHEIGHT = 30     # Height of button row
-    SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
-    CWIDTH  = 490     # Width of control region
     V_SPACE = 20      # Vertical space between buttons and sliders
-    def __init__(self,Title,X,Y,b_list,s_list,WIDTH=None,CWIDTH=None):
-        if WIDTH != None:
-            self.WIDTH = WIDTH
-        if CWIDTH != None:
-            self.CWIDTH = CWIDTH
+    def __init__(self,Title,X,Y,b_list,s_list,
+                 WIDTH=1100,
+                 HEIGHT=400,
+                 CWIDTH=490,
+                 Button=Button
+                 ):
+        self.WIDTH = WIDTH
+        self.HEIGHT = HEIGHT
+        self.CWIDTH = CWIDTH
+        self.SHEIGHT = HEIGHT-self.BHEIGHT - 50     # Height of slider row
         self.CA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,3),
                               numpy.uint8) # Color array
         self.GA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,1),
@@ -301,7 +327,7 @@ class My_win(object):
         self._Y = 5       # Starting y position in window
         window = fltk.Fl_Window(X,Y,self.WIDTH,self.HEIGHT)
         window.color(fltk.FL_WHITE)
-        self.b_dict = self.pack_row(b_list, self.CWIDTH, self.BHEIGHT, 65, 20,
+        self.b_dict = self.pack_row(b_list, self.CWIDTH, self.BHEIGHT, 90, 20,
                                     Button)
         self.s_dict = self.pack_row(s_list, self.CWIDTH, self.SHEIGHT, 30, 50,
                                     Slide)
@@ -338,8 +364,8 @@ class My_win(object):
         self.window = None
         return
 
-def dummy():
-    print('Here in dummy()')
+def dummy(*args):
+    print('Here in dummy() len(args)=%d\nargs=%s'%(len(args),args.__str__()))
 Awin = None
 def analyze(history):
     """ Open new window to support analyst exploitation of data
@@ -356,20 +382,18 @@ def analyze(history):
         ('-t',{'value':0,'min':0,'max':len(history),'step':1,'acts':[]}),
         ]
     b_list = [
-        ('close',  {'close':(quit,)}),
-        ('color', {'color':(lambda button : button.label('gray'),
-                           lambda button : button.value(True)),
-                  'gray':(lambda button : button.label('color'),
-                            lambda button : button.value(False))
+        ('Action', {'pulldown':(('New View',0,dummy,5),('New Instance',),
+                                ('New Relation',),('Close',))
                   })
         ]
     X,Y = (100,100)           # Position on screen
-    Awin = My_win(['Analysis Window'],X,Y,b_list,s_list,WIDTH=800,CWIDTH=190)
+    Awin = My_win(['Analysis Window'],X,Y,b_list,s_list,WIDTH=800,
+                  CWIDTH=190,Button=Menu_Button)
     analyze = analyzer(Awin,GEOMETRY(),history)
     Awin.s_dict['-t']['acts'] = [analyze.update]
-    Awin.b_dict['color']['color'] += (analyze.update,)
-    Awin.b_dict['color']['gray'] += (analyze.update,)
-    analyze.update(None)
+    #Awin.b_dict['color']['color'] += (analyze.update,)
+    #Awin.b_dict['color']['gray'] += (analyze.update,)
+    #analyze.update(None)
     return
 
 if __name__ == '__main__': # Test code
