@@ -1,3 +1,5 @@
+"""http://www.velocityreviews.com/forums/t325406-generated-code-that-is-exec-ed-to-simulate-import-cannot-importos-path.html
+"""
 import numpy, random, fltk
 
 ##################### Begin Simulation Code ##########################
@@ -287,7 +289,11 @@ class My_win(object):
     SHEIGHT = HEIGHT-BHEIGHT - 50     # Height of slider row
     CWIDTH  = 490     # Width of control region
     V_SPACE = 20      # Vertical space between buttons and sliders
-    def __init__(self,Title,X,Y,b_list,s_list):
+    def __init__(self,Title,X,Y,b_list,s_list,WIDTH=None,CWIDTH=None):
+        if WIDTH != None:
+            self.WIDTH = WIDTH
+        if CWIDTH != None:
+            self.CWIDTH = CWIDTH
         self.CA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,3),
                               numpy.uint8) # Color array
         self.GA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,1),
@@ -358,7 +364,7 @@ def analyze(history):
                   })
         ]
     X,Y = (100,100)           # Position on screen
-    Awin = My_win(['Analysis Window'],X,Y,b_list,s_list)
+    Awin = My_win(['Analysis Window'],X,Y,b_list,s_list,WIDTH=800,CWIDTH=190)
     analyze = analyzer(Awin,GEOMETRY(),history)
     Awin.s_dict['-t']['acts'] = [analyze.update]
     Awin.b_dict['color']['color'] += (analyze.update,)
