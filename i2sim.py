@@ -120,7 +120,7 @@ class FltkCanvas(fltk.Fl_Widget):
         return
 
 class animator(object):
-    """ Keeps track of targets and pixels in display
+    """ Keeps track of targets and pixels in simulation display
     """
     B = 20 # Height of upper band
     def __init__(self,win,G):
@@ -194,50 +194,6 @@ class animator(object):
             time.sleep(delay)
         self.t += 1
         return
-class analyzer(animator):
-    """ Does grouping for Ried
-    """
-    def __init__(self,win,G,history):
-        self.CA = win.CA
-        self.GA = win.GA
-        self.canvas = win.canvas
-        self.buttons = win.b_dict
-        self.sliders = win.s_dict
-        self.t = 0
-        self.G = G
-        self.history = history
-        return
-    def update(self, # analyzer
-               ptr):
-        """
-        Display part of self.history that fits on screen.  History is
-        a list of pairs (time, targets).  Time is an intiger, and each
-        element of targets is a TARGET.
-        """
-        self.t = int(self.sliders['-t']['value'])
-        CA = self.CA  # Color array
-        GA = self.GA  # Grey array
-        CA *= 0
-        GA *= 0
-        X,Y,D = CA.shape
-        B = self.B        # Vehicle height
-        C = self.G.close  # Vehicle width
-        y_ = 0
-        t = self.t
-        while y_ < Y + B and t < len(self.history):
-            time,targets = self.history[-1-t]
-            for target in targets:
-                x = int(target.pos)
-                GA[y_:y_+B,max(0,x-C):x,:] = 128
-                GA[(y_+2):(y_+B-2),max(0,x-C/2-1),:] = 255
-                CA[y_:y_+B,max(0,x-C):x,:] = target.albedo
-            y_ += B
-            t += 1
-        if self.buttons['color']['button'].value():
-            self.canvas.new_image(CA)
-        else:
-            self.canvas.new_image(GA)
-        self.canvas.redraw()
 def slider_cb(slider,args):
     """ Call back for sliders
     slider  An fltk slider object
@@ -277,19 +233,7 @@ def Button(b_dict,key,Pack,cb=button_cb,x=0,y=0,width=60,height=20):
     Pack.children.append(b)
     b_dict[key]['button'] = b
     return
-def menu_button_cb(menu,args):
-    """ Call back for menu_buttons
-    menu    An fltk menu_button object
-    args    The tuple (b_dict, key)
-    b_dict[key][string] is a list of functions to call to do the action
-    """
-    print('In menu_button_cb, menu.mvalue()=',menu.mvalue().label(),
-          'key=',args[1])
-    return
-    for act in args[0][args[1]][button.label()]:
-        act(button)
-    return
-def Menu_Button(b_dict,key,Pack,cb=menu_button_cb,x=0,y=0,width=60,height=20):
+def Menu_Button(b_dict,key,Pack,x=0,y=0,width=60,height=20):
     """ Function to put button into GUI
     See /usr/share/pyshared/fltk/test/menubar.py
     """
@@ -297,7 +241,6 @@ def Menu_Button(b_dict,key,Pack,cb=menu_button_cb,x=0,y=0,width=60,height=20):
     b = fltk.Fl_Menu_Button(x,y,width,height,key)
     b.text = key
     b.copy(entry['pulldown'])
-    b.callback(cb,(b_dict,key))
     Pack.children.append(b)
     b_dict[key]['button'] = b
     return
@@ -349,12 +292,11 @@ class My_win(object):
         space = int(total_space/N)
         start_x = int(space/2)
         _dict = dict(_list)
-        keys = [item[0] for item in _list]
         H_Pack = fltk.Fl_Pack(start_x,self._Y,W,H)
         H_Pack.type(fltk.FL_HORIZONTAL)
         H_Pack.spacing(space)
         H_Pack.children = []
-        for key in keys:
+        for key in [item[0] for item in _list]: # Preserves order of keyskeys:
             H_Pack.children.append(init(
                 _dict,key,H_Pack,width=width,height=height))
         H_Pack.end()
@@ -363,37 +305,165 @@ class My_win(object):
     def close(self):
         self.window = None
         return
+class HIT(object):
+    C = 5
+    B = 20
+    def __init__(self,t,x,parent=None):
+        self.t = t
+        self.x = x
+        self._parent = parent
+        return
+    def display(self, # HIT
+                CA,   # Color array
+                t=0,  # Time offset 
+                color=[127,127,127]):
+        t -= self.t
+        if (t < 0) or (t > 20):
+            return
+        C = 5
+        B = 20
+        x = self.x
+        y_ = t*B
+        CA[y_:y_+B,max(0,x-C):x,:] = color
+        CA[(y_+2):(y_+B-2),max(0,x-C/2-1),:] = 255
+    def parent(self, parent=None):
+        if parent == None:
+            return self.parent
+        self._parent = parent
+        return
+    def display_parent(self, # HIT
+                CA,   # Color array
+                t=0,  # Time offset  
+                color=[127,127,127]):
+        if self.parent == None:
+            self.display(CA,t=t,color=color)
+            return
+        self._parent.display_parent(CA,t=t,color=color)
+        return
+class SET(set,HIT):
+    """ 
+    """
+    def __init__(self,*args,**kwargs):
+        set.__init__(self,*args[:1])
+        self.title = args[1]
+        self._parent = None
+        if kwargs.has_key('parent'):
+            self._parent = kwargs['parent']
+    def display(self, # HIT
+                CA,   # Color array
+                t=0,  # Time offset  
+                color=[127,127,127]):
+        for x in self:
+            x.display(CA,t=t,color=color)
+        return
+class SEQ(list,HIT):
+    """ 
+    """
+    def __init__(self,*args,**kwargs):
+        list.__init__(self,*args[:1])
+        self._parent = None
+        if kwargs.has_key('parent'):
+            self._parent = kwargs['parent']
+    def display(self, # HIT
+                CA,   # Color array
+                t=0,  # Time offset  
+                color=[127,127,127]):
+        for x in self:
+            x.display(CA,t=t,color=color)
+        return
+
+class VIEWER(object):
+    def __init__(self, collection, analyzer):
+        self.collection = collection
+        self.analyzer = analyzer
+        s_list = [
+            ('-t',{'value':analyzer.t_max,
+                   'min':(analyzer.t_min-1),
+                   'max':(analyzer.t_max+1),
+                   'step':1,'acts':[self.time]}),
+            ]
+        b_list = [
+            ('Action', {'pulldown':(
+                        ('New View',0,analyzer.new_view),
+                        ('New Instance',0,analyzer.new_instance),
+                        ('New Relation',0,analyzer.new_relation),
+                        ('Close',0,analyzer.close,self))
+                        })
+            ]
+        X,Y = (100,100)           # Position on screen
+        self.win = My_win([collection.title],X,Y,b_list,s_list,WIDTH=800,
+                          CWIDTH=190,Button=Menu_Button)
+        self.canvas = self.win.canvas
+        self._image = self.canvas._image
+        self.s_dict = self.win.s_dict
+        self.b_dict = self.win.b_dict
+        return
+    def menu_cb(self,junk,args):
+        print '\n In VIEWER.menu_cb len(args)=%d\nargs='%len(args),args
+    def time(self,slider):
+        CA = self._image
+        CA *= 0
+        t = self.s_dict['-t']['value']
+        for item in self.collection:
+            item.display(CA,t=t)
+        self.canvas.draw()
+class ANALYZER(object):
+    """ Holds all of the data and analysis results.  Also is parent of
+    all viewers
+    """ 
+    def __init__(self, history):
+        assert(len(history) > 0)
+        # Note:  Discard simulation time and use index of history
+        self.t_min = 0
+        self.t_max = len(history)+1
+        self.history = history
+        self.hits = SET([],'hits')
+        #self.tracks = SET([],'tracks')
+        self.tracks = {}
+        traj_dict = {}
+        for t in xrange(len(history)):
+            dum,targets = history[t]
+            for target in targets:
+                hit = HIT(t,int(target.pos))
+                if not traj_dict.has_key(target):
+                    traj_dict[target] = SEQ([hit])
+                else:
+                    traj_dict[target].append(hit)
+                self.hits.add(hit)
+        self.tracks = SET([],'tracks')
+        for key in traj_dict.keys():
+            self.tracks.add(tuple(traj_dict[key]))
+        self.viewers = [VIEWER(self.hits,self)]
+        return
+    def new_view(self,swig_menu_item):
+        print('new_view')
+    def new_instance(self,swig_menu_item):
+        print('new_instance')
+    def new_relation(self,swig_menu_item):
+        print('new_relation')
+    def close(self,swig_menu_item,viewer):
+        global analysis
+        if len(self.viewers) <= 1:
+            print('<=1')
+            viewer.win = None
+            self.viewers.remove(viewer)
+            analysis = None
 
 def dummy(*args):
-    print('Here in dummy() len(args)=%d\nargs=%s'%(len(args),args.__str__()))
-Awin = None
+    print('Here in dummy() len(args)=%d'%(len(args),))
+    for arg in args:
+        print('  %s'%arg.__str__())
+    return
+         
+analysis = None
 def analyze(history):
     """ Open new window to support analyst exploitation of data
     """
-    global Awin
-    if Awin != None:
+    global analysis
+    if analysis != None:
         print("Can only do one analysis at a time")
         return
-    def quit(button):
-        global Awin
-        Awin.close()
-        Awin = None
-    s_list = [
-        ('-t',{'value':0,'min':0,'max':len(history),'step':1,'acts':[]}),
-        ]
-    b_list = [
-        ('Action', {'pulldown':(('New View',0,dummy,5),('New Instance',),
-                                ('New Relation',),('Close',))
-                  })
-        ]
-    X,Y = (100,100)           # Position on screen
-    Awin = My_win(['Analysis Window'],X,Y,b_list,s_list,WIDTH=800,
-                  CWIDTH=190,Button=Menu_Button)
-    analyze = analyzer(Awin,GEOMETRY(),history)
-    Awin.s_dict['-t']['acts'] = [analyze.update]
-    #Awin.b_dict['color']['color'] += (analyze.update,)
-    #Awin.b_dict['color']['gray'] += (analyze.update,)
-    #analyze.update(None)
+    analysis = ANALYZER(history)
     return
 
 if __name__ == '__main__': # Test code
