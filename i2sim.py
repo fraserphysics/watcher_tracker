@@ -244,7 +244,7 @@ def Menu_Button(b_dict,key,Pack,x=0,y=0,width=60,height=20):
     Pack.children.append(b)
     b_dict[key]['button'] = b
     return
-class My_win(object):
+class My_win(fltk.Fl_Window):
     """
     Class to make fltk window.  Methods:
     __init__    Initializes entire appearance of window and calls show()
@@ -259,6 +259,8 @@ class My_win(object):
                  CWIDTH=490,
                  Button=Button
                  ):
+        fltk.Fl_Window.__init__(self,X,Y,WIDTH,HEIGHT)
+        self.color(fltk.FL_WHITE)
         self.WIDTH = WIDTH
         self.HEIGHT = HEIGHT
         self.CWIDTH = CWIDTH
@@ -268,19 +270,17 @@ class My_win(object):
         self.GA = numpy.zeros((self.HEIGHT,self.WIDTH-self.CWIDTH,1),
                               numpy.uint8) # Gray array
         self._Y = 5       # Starting y position in window
-        window = fltk.Fl_Window(X,Y,self.WIDTH,self.HEIGHT)
-        window.color(fltk.FL_WHITE)
         self.b_dict = self.pack_row(b_list, self.CWIDTH, self.BHEIGHT, 90, 20,
                                     Button)
         self.s_dict = self.pack_row(s_list, self.CWIDTH, self.SHEIGHT, 30, 50,
                                     Slide)
         self.canvas = FltkCanvas(self.CWIDTH,0,self.WIDTH-self.CWIDTH,
                                  self.HEIGHT, self.CA)
-        window.end()
-        window.show(len(Title),Title)
-        self.window = window
+        self.end()
+        self.show(len(Title),Title)
         return
-    def pack_row(self,_list, # Describes each item
+    def pack_row(self,       # My_win
+                 _list,      # Describes each item
                  W,          # Width of entire row
                  H,          # Height of entire row
                  width,      # Width of each item
@@ -302,9 +302,6 @@ class My_win(object):
         H_Pack.end()
         self._Y += self.BHEIGHT + self.V_SPACE
         return _dict
-    def close(self):
-        self.window = None
-        return
 class HIT(object):
     C = 5
     B = 20
@@ -361,6 +358,8 @@ class SEQ(list,HIT):
     """
     def __init__(self,*args,**kwargs):
         list.__init__(self,*args[:1])
+        if len(args) > 1:
+            self.title = args[1]            
         self._parent = None
         if kwargs.has_key('parent'):
             self._parent = kwargs['parent']
@@ -398,8 +397,6 @@ class VIEWER(object):
         self.s_dict = self.win.s_dict
         self.b_dict = self.win.b_dict
         return
-    def menu_cb(self,junk,args):
-        print '\n In VIEWER.menu_cb len(args)=%d\nargs='%len(args),args
     def time(self,slider):
         CA = self._image
         CA *= 0
@@ -409,7 +406,7 @@ class VIEWER(object):
         self.canvas.draw()
 class ANALYZER(object):
     """ Holds all of the data and analysis results.  Also is parent of
-    all viewers
+    all viewers.
     """ 
     def __init__(self, history):
         assert(len(history) > 0)
@@ -417,9 +414,7 @@ class ANALYZER(object):
         self.t_min = 0
         self.t_max = len(history)+1
         self.history = history
-        self.hits = SET([],'hits')
-        #self.tracks = SET([],'tracks')
-        self.tracks = {}
+        hits = SET([],'hits')
         traj_dict = {}
         for t in xrange(len(history)):
             dum,targets = history[t]
@@ -429,26 +424,58 @@ class ANALYZER(object):
                     traj_dict[target] = SEQ([hit])
                 else:
                     traj_dict[target].append(hit)
-                self.hits.add(hit)
-        self.tracks = SET([],'tracks')
+                hits.add(hit)
+        tracks = SEQ([],'tracks')
         for key in traj_dict.keys():
-            self.tracks.add(tuple(traj_dict[key]))
-        self.viewers = [VIEWER(self.hits,self)]
+            tracks.append(traj_dict[key])
+        self.collections = {'hits':hits,'tracks':tracks}
+        self.viewers = [VIEWER(self.collections['hits'],self)]
         return
-    def new_view(self,swig_menu_item):
-        print('new_view')
+    def new_view(self,           # ANALYZER
+                 swig_menu_item  # Mysterious
+                 ):
+        global block
+        block = True
+        choose_win = fltk.Fl_Window(451, 190, 192, 162)
+        browser = fltk.Fl_Select_Browser(5, 5, 180, 150)
+        keys = self.collections.keys()
+        for key in keys:
+            browser.add(key)
+        def choose_cb(ptr):
+            global block
+            self.viewers.append(VIEWER(
+                    self.collections[keys[browser.value()-1]],self))
+            block = False
+        browser.callback(choose_cb)
+        browser.end()
+        choose_win.pyChildren = [browser]
+        choose_win.end()
+        Title = ['New View']
+        choose_win.show(len(Title),Title)
+        choose_win.set_modal()  # Blocks events to other windows
+        while block:
+            fltk.Fl.wait()      # Waits till block cleared in choose_cb()
     def new_instance(self,swig_menu_item):
         print('new_instance')
     def new_relation(self,swig_menu_item):
-        print('new_relation')
+        input = fltk.fl_input("Name:", None)
+        if input != None:
+            print('new_relation named %s'%input)
+            return
+        else:
+            print('Cancel new_relation')
+            return
     def close(self,swig_menu_item,viewer):
         global analysis
-        if len(self.viewers) <= 1:
-            print('<=1')
-            viewer.win = None
-            self.viewers.remove(viewer)
+        if len(self.viewers) == 1:
+            if fltk.fl_choice("Closing last view kills analysis.  Continue?",
+                              "No", "Yes", None) != 1:
+                return
             analysis = None
-
+        #viewer.win.delete_widget()
+        viewer.win = None
+        self.viewers.remove(viewer)
+        return
 def dummy(*args):
     print('Here in dummy() len(args)=%d'%(len(args),))
     for arg in args:
