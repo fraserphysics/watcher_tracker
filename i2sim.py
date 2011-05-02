@@ -331,7 +331,52 @@ class HIT(object):
         CA[(y_+5):(y_+B-5),max(0,x-C/2-1),:] = 255
     def parent(self, parent=None):
         if parent == None:
-            return self.parent
+            return self._parent
+        self._parent = parent
+        return
+    def display_parent(self, # HIT
+                CA,   # Color array
+                t=0,  # Time offset  
+                color=[127,127,127]):
+        if self.parent == None:
+            self.display(CA,t=t,color=color)
+            return
+        self._parent.display_parent(CA,t=t,color=color)
+        return
+class STRUCT(object):
+    """
+    example of self.struct: {'name':'triple','types':{
+                               'first':'hit','second':'hit','third':'hit'}}
+    example of self.data:   {'first':x,'second':y,'third':z}
+    """
+    def __init__(self,struct,data={},parent=None):
+        self.struct = struct
+        self.data = data
+        self._parent = parent
+        return
+    def needs(self):
+        """ Returns a key from self.struct that is missing in self.data
+        """
+        for key in self.struct['types'].keys():
+            if not self.data.has_key(key):
+                return key
+        return None
+    def set_data(self,key,data):
+        self.data[key] = data
+        return
+    def get_data(self,key):
+        if self.data.has_key(key):
+            return self.data[key]
+        return None
+    def display(self, # HIT
+                CA,   # Color array
+                t=0,  # Time offset 
+                color=[127,127,127]):
+        for value in self.data.values():
+            value.display(CA,t=t,color=color)            
+    def parent(self, parent=None):
+        if parent == None:
+            return self._parent
         self._parent = parent
         return
     def display_parent(self, # HIT
@@ -445,6 +490,25 @@ class ANALYZER(object):
         for key in traj_dict.keys():
             tracks.add(traj_dict[key])
         self.collections = {'hits':hits,'tracks':tracks}
+        hit_relation = {'name':'hit',
+                        'type':HIT,          # The class of each instance
+                        'elements':None,     # The relation of each element
+                        'instances':hits     # The set of instances
+                        }
+        track_relation = {'name':'track',
+                          'type':SEQ,        # The class of each instance
+                          'elements':'hit',  # Elements of instances are 'hit's 
+                          'instances':tracks # The set of instances
+                          }
+        triple = {
+            'name':'triple',
+            'type':STRUCT,
+            'prototype':{
+                'name':'triple',
+                'types':{'first':'hit','second':'hit','third':'hit'},
+                'data':{}},
+            'instances':SET([],'triples')}
+        self.relations = SET([hit_relation,track_relation,triple])
         self.viewers = [VIEWER(self.collections['hits'],self)]
         return
     def new_view(self,           # ANALYZER
@@ -471,7 +535,32 @@ class ANALYZER(object):
         choose_win.set_modal()  # Blocks events to other windows
         while block:
             fltk.Fl.wait()      # Waits till block cleared in choose_cb()
-    def new_instance(self,swig_menu_item):
+        return
+    def new_instance(self,           # ANALYZER
+                     swig_menu_item  # Undesired argument
+                     ):
+        def new_struct_instance(prototype):
+            instance = copy.deepcopy(prototype)
+            need = instance.needs()
+            while need != None:
+                # Prompt for need
+                instance['data'][need] = value
+                need = instance.needs()
+        def new_set_instance(type):
+            print('in new_set_instance')
+        def new_seq_instance(type):
+            print('in new_seq_instance')
+        def cb(relation):
+            instance = None
+            if relation['type'] == STRUCT:
+                instance = new_struct_instance(relation['prototype'])
+            if relation['type'] == SET:
+                instance = new_set_instance(relation['elements'])
+            if relation['type'] == SEQ:
+                instance = new_seq_instance(relation['elements'])
+            assert (instance != None)
+            relation['instances'].add(instance)
+        # choose relation from self.relations
         print('new_instance')
     def new_relation(self,swig_menu_item):
         input = fltk.fl_input("Name:", None)
