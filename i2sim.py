@@ -57,20 +57,25 @@ class GEOMETRY(object):
         if pos < self.boundaries[0] or pos > self.boundaries[-1]:
             return False
         return True
+def random_color():
+    color = numpy.array([random.randint(1,255) for x in xrange(3)], numpy.int16)
+    color *= 512.0/color.sum()
+    return color
+
 class TARGET(object):
     """
     A class whose instances have constant characteristics and position
     and velocity
     """
+    INDEX = 0
     def __init__(self,G,accel_var,speed_var,relax):
+        self.index = TARGET.INDEX
+        TARGET.INDEX += 1
         self.G = G
         self.accel_var = accel_var
         self.relax = relax
         self.pos = 0.0
-        albedo = numpy.array([random.randint(1,255) for x in xrange(3)],
-                             numpy.int16)
-        albedo *= 512.0/albedo.sum()
-        self.albedo = albedo
+        self.albedo = random_color()
         self.mean = max(.1,random.gauss(1,speed_var)) # Preferred rvel
         self.rvel = max(.1,random.gauss(self.mean,accel_var/relax))
         # rvel, the "relative velocity", is the fraction of the speed
@@ -253,7 +258,8 @@ class My_win(fltk.Fl_Window):
     """
     BHEIGHT = 30     # Height of button row
     V_SPACE = 20      # Vertical space between buttons and sliders
-    def __init__(self,Title,X,Y,b_list,s_list,
+    def __init__(self,       # My_win
+                 Title,X,Y,b_list,s_list,
                  WIDTH=1100,
                  HEIGHT=400,
                  CWIDTH=490,
@@ -322,7 +328,7 @@ class HIT(object):
         x = self.x
         y_ = t*B
         CA[y_:y_+B,max(0,x-C):x,:] = color
-        CA[(y_+2):(y_+B-2),max(0,x-C/2-1),:] = 255
+        CA[(y_+5):(y_+B-5),max(0,x-C/2-1),:] = 255
     def parent(self, parent=None):
         if parent == None:
             return self.parent
@@ -336,22 +342,6 @@ class HIT(object):
             self.display(CA,t=t,color=color)
             return
         self._parent.display_parent(CA,t=t,color=color)
-        return
-class SET(set,HIT):
-    """ 
-    """
-    def __init__(self,*args,**kwargs):
-        set.__init__(self,*args[:1])
-        self.title = args[1]
-        self._parent = None
-        if kwargs.has_key('parent'):
-            self._parent = kwargs['parent']
-    def display(self, # HIT
-                CA,   # Color array
-                t=0,  # Time offset  
-                color=[127,127,127]):
-        for x in self:
-            x.display(CA,t=t,color=color)
         return
 class SEQ(list,HIT):
     """ 
@@ -370,15 +360,22 @@ class SEQ(list,HIT):
         for x in self:
             x.display(CA,t=t,color=color)
         return
+class SET(SEQ):
+    """ Want to have SET(set,HIT), but elements of a set must be hashable
+    """
+    def add(self,item):
+        self.append(item)
 
 class VIEWER(object):
     def __init__(self, collection, analyzer):
         self.collection = collection
+        self.colorized = [(x,random_color()) for x in collection]
+        self.color = False
         self.analyzer = analyzer
         s_list = [
             ('-t',{'value':analyzer.t_max,
-                   'min':(analyzer.t_min-1),
-                   'max':(analyzer.t_max+1),
+                   'min':(analyzer.t_min),
+                   'max':(analyzer.t_max),
                    'step':1,'acts':[self.time]}),
             ]
         b_list = [
@@ -387,23 +384,42 @@ class VIEWER(object):
                         ('New Instance',0,analyzer.new_instance),
                         ('New Relation',0,analyzer.new_relation),
                         ('Close',0,analyzer.close,self))
-                        })
+                        }),
+            ('color', {'pulldown':(
+                        ('Distinguish with color',0,self.color_true),
+                        ('No color',0,self.color_false))
+                       })
             ]
         X,Y = (100,100)           # Position on screen
         self.win = My_win([collection.title],X,Y,b_list,s_list,WIDTH=800,
                           CWIDTH=190,Button=Menu_Button)
+        # FixMe: This doesn't work self.win.callback(analyzer.close,self)
         self.canvas = self.win.canvas
         self._image = self.canvas._image
         self.s_dict = self.win.s_dict
         self.b_dict = self.win.b_dict
+        self.display()
         return
-    def time(self,slider):
+    def color_true(self,swig_menu_item):
+        self.color = True
+        self.display()
+    def color_false(self,swig_menu_item):
+        self.color = False
+        self.display()
+    def display(self):
         CA = self._image
         CA *= 0
         t = self.s_dict['-t']['value']
-        for item in self.collection:
-            item.display(CA,t=t)
+        if self.color:
+            for item,color in self.colorized:
+                item.display(CA,t=t,color=color)
+        else:
+            color = numpy.ones(3,numpy.int8)*127
+            for item in self.collection:
+                item.display(CA,t=t,color=color)
         self.canvas.draw()
+    def time(self,slider):
+        self.display()
 class ANALYZER(object):
     """ Holds all of the data and analysis results.  Also is parent of
     all viewers.
@@ -412,7 +428,7 @@ class ANALYZER(object):
         assert(len(history) > 0)
         # Note:  Discard simulation time and use index of history
         self.t_min = 0
-        self.t_max = len(history)+1
+        self.t_max = len(history)
         self.history = history
         hits = SET([],'hits')
         traj_dict = {}
@@ -420,14 +436,14 @@ class ANALYZER(object):
             dum,targets = history[t]
             for target in targets:
                 hit = HIT(t,int(target.pos))
-                if not traj_dict.has_key(target):
-                    traj_dict[target] = SEQ([hit])
+                if not traj_dict.has_key(target.index):
+                    traj_dict[target.index] = SEQ([hit])
                 else:
-                    traj_dict[target].append(hit)
+                    traj_dict[target.index].append(hit)
                 hits.add(hit)
-        tracks = SEQ([],'tracks')
+        tracks = SET([],'tracks')
         for key in traj_dict.keys():
-            tracks.append(traj_dict[key])
+            tracks.add(traj_dict[key])
         self.collections = {'hits':hits,'tracks':tracks}
         self.viewers = [VIEWER(self.collections['hits'],self)]
         return
