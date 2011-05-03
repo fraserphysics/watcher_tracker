@@ -97,6 +97,39 @@ class TARGET(object):
         self.rvel = self.vel/new_limit
         return self.G.bounds(self.pos)
 ##################### End of simulation code #########################
+class CHOOSER(object):
+    """ Uses fltk to pop up a new window soliciting selection from a list
+    """
+    blocks = {}
+    def __init__(self,title,keys):
+        CHOOSER.blocks[self] = self
+        choose_win = fltk.Fl_Window(451, 190, 192, 162)
+        browser = fltk.Fl_Select_Browser(5, 5, 180, 150)
+        for key in keys:
+            browser.add(key)
+        def choose_cb(ptr):
+            CHOOSER.blocks[self] = keys[browser.value()-1]
+        browser.callback(choose_cb)
+        browser.end()
+        choose_win.pyChildren = [browser]
+        choose_win.end()
+        Title = [title]
+        choose_win.show(len(Title),Title)
+        self.choose_win = choose_win
+        return
+    def value(self):
+        self.choose_win.set_modal() # Blocks events to other windows (no worky)
+        while CHOOSER.blocks[self] == self:
+            fltk.Fl.wait()       # Waits till block cleared in choose_cb()
+        rv = CHOOSER.blocks[self]
+        self.close()             # Could have caller call this
+        return rv
+    def close(self):
+        self.choose_win.thisown = 1
+        self.choose_win = None
+        del CHOOSER.blocks[self]
+        return
+        
 class FltkCanvas(fltk.Fl_Widget):
     """ A widget that has an array of type uint8 in self._image.  For
     displaying images.  Variant of class in pushbroom/utilities.py
@@ -361,6 +394,10 @@ class STRUCT(object):
             if not self.data.has_key(key):
                 return key
         return None
+    def keys(self):
+        """ Returns all keys from self.struct['types']
+        """
+        return self.struct['types'].keys()
     def set_data(self,key,data):
         self.data[key] = data
         return
@@ -410,6 +447,9 @@ class SET(SEQ):
     """
     def add(self,item):
         self.append(item)
+        return
+    def contains(self,item):
+        return self.__contains__(item)
 
 class VIEWER(object):
     def __init__(self, collection, analyzer):
@@ -438,7 +478,7 @@ class VIEWER(object):
         X,Y = (100,100)           # Position on screen
         self.win = My_win([collection.title],X,Y,b_list,s_list,WIDTH=800,
                           CWIDTH=190,Button=Menu_Button)
-        # FixMe: This doesn't work self.win.callback(analyzer.close,self)
+        # FixMe: This doesn't work: self.win.callback(analyzer.close,self)
         self.canvas = self.win.canvas
         self._image = self.canvas._image
         self.s_dict = self.win.s_dict
@@ -468,8 +508,10 @@ class VIEWER(object):
 class ANALYZER(object):
     """ Holds all of the data and analysis results.  Also is parent of
     all viewers.
-    """ 
-    def __init__(self, history):
+    """
+    relation_classes = [SET,SEQ,STRUCT]
+    def __init__(self,     # ANALYZER
+                 history):
         assert(len(history) > 0)
         # Note:  Discard simulation time and use index of history
         self.t_min = 0
@@ -489,7 +531,6 @@ class ANALYZER(object):
         tracks = SET([],'tracks')
         for key in traj_dict.keys():
             tracks.add(traj_dict[key])
-        self.collections = {'hits':hits,'tracks':tracks}
         hit_relation = {'name':'hit',
                         'type':HIT,          # The class of each instance
                         'elements':None,     # The relation of each element
@@ -508,8 +549,9 @@ class ANALYZER(object):
                 'types':{'first':'hit','second':'hit','third':'hit'},
                 'data':{}},
             'instances':SET([],'triples')}
-        self.relations = SET([hit_relation,track_relation,triple])
-        self.viewers = [VIEWER(self.collections['hits'],self)]
+        self.relations = dict((x['name'],x) for x in
+                              [hit_relation,track_relation,triple])
+        self.viewers = [VIEWER(hits,self)]
         return
     def new_view(self,           # ANALYZER
                  swig_menu_item  # Mysterious
@@ -518,13 +560,13 @@ class ANALYZER(object):
         block = True
         choose_win = fltk.Fl_Window(451, 190, 192, 162)
         browser = fltk.Fl_Select_Browser(5, 5, 180, 150)
-        keys = self.collections.keys()
+        keys = self.relations.keys()
         for key in keys:
             browser.add(key)
         def choose_cb(ptr):
             global block
             self.viewers.append(VIEWER(
-                    self.collections[keys[browser.value()-1]],self))
+                    self.relations[keys[browser.value()-1]]['instances'],self))
             block = False
         browser.callback(choose_cb)
         browser.end()
@@ -541,11 +583,8 @@ class ANALYZER(object):
                      ):
         def new_struct_instance(prototype):
             instance = copy.deepcopy(prototype)
-            need = instance.needs()
-            while need != None:
-                # Prompt for need
-                instance['data'][need] = value
-                need = instance.needs()
+            keys = instance.keys()
+            # FixMe: prompt for values corresponding to each key
         def new_set_instance(type):
             print('in new_set_instance')
         def new_seq_instance(type):
@@ -560,13 +599,40 @@ class ANALYZER(object):
                 instance = new_seq_instance(relation['elements'])
             assert (instance != None)
             relation['instances'].add(instance)
-        # choose relation from self.relations
+        # FixMe: prompt for relation from choices in self.relations and
+        # call corresponding function
         print('new_instance')
-    def new_relation(self,swig_menu_item):
-        input = fltk.fl_input("Name:", None)
-        if input != None:
-            print('new_relation named %s'%input)
+    def new_relation(self,            # ANALYZER
+                     swig_menu_item):
+        def new_struct_relation(name):
+            """ Solicit user to define new structured relation.
+            """
+            nsr = {'name':name,'type':STRUCT,
+                   'prototype':{'name':name,'data':{},'types':{}},
+                   'instances':SET([],name+'s')}
+            nsr_type_dict = nsr['prototype']['types']
+            next_type = lambda : CHOOSER(
+                'Relation Type?', self.relations.keys()+['','FINISHED']).value()
+            relation_type = next_type()
+            while relation_type != 'FINISHED':
+                if relation_type == '': # Mouse hit gap
+                    relation_type = next_type()
+                    continue
+                nsr_type_dict[fltk.fl_input("Name:", None)] = relation_type
+                relation_type = next_type()
+            self.relations[name] = nsr
             return
+        name = fltk.fl_input("Name:", None)
+        if self.relations.has_key(name):
+            print('Relation name %s already exits'%name)
+            return
+        if name != None:
+            value = CHOOSER('Relation Class',
+                       [x.__name__ for x in self.relation_classes]).value()
+            if value == 'STRUCT':
+                new_struct_relation(name)
+                return
+            assert(False),'Failed to find match for %s'%(value,)
         else:
             print('Cancel new_relation')
             return
